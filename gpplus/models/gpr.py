@@ -4,6 +4,7 @@ import gpytorch
 import torch
 
 from ..config import logger
+from ..kernels import GaussianKernel, ProcessVarianceKernel
 
 
 class GPR(gpytorch.models.ExactGP):
@@ -26,6 +27,9 @@ class GPR(gpytorch.models.ExactGP):
         likelihood: gpytorch.likelihoods.Likelihood = None,
         mean_module: gpytorch.means.Mean = None,
         kernel_module: gpytorch.kernels.Kernel = None,
+        dtype: torch.float32 = None,
+        seed=None,
+        learnable_priors=False,
     ):
         """Initializes GPR.
 
@@ -37,10 +41,18 @@ class GPR(gpytorch.models.ExactGP):
             mean_module (gpytorch.means.Mean, optional): Mean function. Defaults to ConstantMean if None.
             kernel_module (gpytorch.kernels.Kernel, optional): Covariance kernel function.
                 Defaults to a ScaleKernel * Gaussian combo if None.
+            seed (int, optional): Random seed for reproducibility. Defaults to None.
+            learnable_priors (bool, optional): If True, registers learnable Normal priors to the likelihood. 
+                Defaults to False.
 
         Raises:
             TypeError: If any of `train_x`, `train_y`, or `likelihood` are of incorrect types.
         """
+        if dtype is None:
+            self.dtype = train_x.dtype
+        else:
+            self.dtype = dtype
+
         if likelihood is None:
             likelihood = gpytorch.likelihoods.GaussianLikelihood()
             logger.warning("No likelihood provided. Using GaussianLikelihood as default.")
@@ -50,25 +62,14 @@ class GPR(gpytorch.models.ExactGP):
             logger.warning("No mean_module provided. Using ConstantMean as default.")
 
         if kernel_module is None:
-            kernel_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel())
+            kernel_module = ProcessVarianceKernel(GaussianKernel())
             logger.warning("No kernel_module provided. Using Gaussian Kernel as default.")
 
         if not isinstance(train_x, torch.Tensor) or not isinstance(train_y, torch.Tensor):
             logger.error("train_x and train_y must be torch.Tensor instances.")
             raise TypeError("train_x and train_y must be torch.Tensor instances.")
-        # if not isinstance(likelihood, gpytorch.likelihoods.Likelihood):
-        #     logger.error("likelihood must be an instance of gpytorch.likelihoods.Likelihood.")
-        #     raise TypeError("likelihood must be an instance of gpytorch.likelihoods.Likelihood.")
 
         logger.debug(f"train_x shape: {train_x.shape}, train_y shape: {train_y.shape}")
-
-        # You can choose whether to keep these dimension checks, but if you do:
-        # if train_x.ndim != 2:
-        #     logger.error(f"Expected train_x to be 2D, got {train_x.ndimension()}D.")
-        #     raise ValueError(f"train_x must be 2D, got {train_x.ndimension()}D.")
-        # if train_y.ndim != 1:
-        #     logger.error(f"Expected train_y to be 1D, got {train_y.ndimension()}D.")
-        #     raise ValueError(f"train_y must be 1D, got {train_y.ndimension()}D.")
 
         super().__init__(train_x, train_y, likelihood)
 
@@ -76,7 +77,8 @@ class GPR(gpytorch.models.ExactGP):
         self.covar_module = kernel_module
 
     def forward(self, x: torch.Tensor) -> gpytorch.distributions.MultivariateNormal:
-        """Runs the forward pass of the Gaussian Process model.
+        """Runs the forward pass of the Gaussian Process model with ensembling
+            if embedding or calibration is probabilistic.
 
         Args:
             x (torch.Tensor): Test data features for prediction.
@@ -93,8 +95,8 @@ class GPR(gpytorch.models.ExactGP):
             logger.error("Input x must be a torch.Tensor instance.")
             raise TypeError("Input x must be a torch.Tensor.")
 
-        mean = self.mean_module(x)
-        covar = self.covar_module(x)
+        mean = self.mean_module(x).to(self.dtype)
+        covar = self.covar_module(x).to(self.dtype)
         return gpytorch.distributions.MultivariateNormal(mean, covar)
 
     def save(self, filepath: str = "model_weights.pth") -> None:

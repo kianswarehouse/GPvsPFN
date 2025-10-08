@@ -10,7 +10,6 @@ from .advanced_kernels import (
     SinhKernel,
 )
 from .unconstrained_kernel import UnconstrainedKernel
-from .factory import KernelFactory, KernelType
 from .gaussian_kernel import GaussianKernel
 from .kronecker import KroneckerKernel
 from .power_exponential_kernel import (
@@ -18,3 +17,4 @@ from .power_exponential_kernel import (
     PowerExponentialKernelFixed,
 )
 from .combined_kernel import CombinedKernel
+from .process_variance_kernel import ProcessVarianceKernel

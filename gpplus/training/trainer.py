@@ -3,6 +3,7 @@ import os
 from typing import List, Optional
 
 import gpytorch
+import scipy
 import torch
 from joblib import Parallel, delayed
 
@@ -36,6 +37,8 @@ class GPTrainer:
         model,
         optimizer_class: torch.optim.Optimizer = None,
         optimizer_kwargs: dict = None,
+        scheduler_class: torch.optim.lr_scheduler._LRScheduler = None,
+        scheduler_kwargs: dict = None,
         num_epochs: int = 50,
         convergence_patience=20,  # Stop if no improvement for 20 epochs
         seed: int = None,
@@ -44,7 +47,14 @@ class GPTrainer:
         cholesky_jitter: float = 1e-6,
         callbacks: Optional[List[Callback]] = None,
         initializer_class: ParameterInitializer = None,
+        initializer_kwargs: dict = None,
         device: str = "cpu",
+        map_prior: bool = False,
+        track_loocv: bool = True,
+        loocv_log_freq: int = 50,
+        use_loocv_objective: bool = False,
+        min_loss_change: float = 1e-7,
+        dtype: torch.dtype = torch.float64,
     ):
         # -------------------------------------------------------
         # Set up the device (CPU or CUDA)
@@ -69,6 +79,14 @@ class GPTrainer:
         self.seed = seed
         self.callbacks = callbacks or []
         self.cholesky_jitter = cholesky_jitter
+        self.map_prior = map_prior
+        self.track_loocv = track_loocv
+        self.loocv_log_freq = loocv_log_freq
+        self.use_loocv_objective = use_loocv_objective
+        self.min_loss_change = min_loss_change
+        self.scheduler_class = scheduler_class
+        self.scheduler_kwargs = scheduler_kwargs
+        self.dtype = dtype
 
         """
         # Initialize model parameters if requested
@@ -79,7 +97,10 @@ class GPTrainer:
         if initializer_class is None:
             self.initializer = DefaultParameterInitializer(num_runs=self.num_runs, seed=self.seed)
         else:
-            self.initializer = initializer_class(num_runs=self.num_runs, seed=self.seed)
+            # Pass initializer_kwargs if provided, otherwise use empty dictionary
+            if initializer_kwargs is None:
+                initializer_kwargs = {}
+            self.initializer = initializer_class(num_runs=self.num_runs, seed=self.seed, **initializer_kwargs)
 
         # Precompute number of parameters and Sobol samples.
         self.initializer.setup(model)
@@ -87,17 +108,17 @@ class GPTrainer:
         # --------------------------------------------------
         #  OPTIMIZER
         # --------------------------------------------------
-        # Handle optimizer class
+        # Handle optimizer class, use LBFGS as default
         if optimizer_class is None:
-            self.optimizer_class = torch.optim.LBFGS  # torch.optim.Adam
+            self.optimizer_class = scipy.optimize.LBFGS  # torch.optim.Adam # scipy.optimize.LBFGS # torch.optim.LBFGS
             logger.warning("No optimizer class passed. Defaulting to LBFGS optimizer.")
         else:
             self.optimizer_class = optimizer_class
 
         # Handle optimizer arguments
         if optimizer_kwargs is None:
-            self.optimizer_kwargs = {"lr": 0.01, "line_search_fn": "strong_wolfe"}
-            logger.warning("No optimizer arguments passed. Defaulting to learning rate of 0.01")
+            self.optimizer_kwargs = {"lr": 0.1, "line_search_fn": "strong_wolfe"}
+            logger.warning("No optimizer arguments passed. Defaulting to learning rate of 0.1")
         else:
             self.optimizer_kwargs = optimizer_kwargs
 
@@ -124,10 +145,16 @@ class GPTrainer:
         # Initialize parameters for the model copy on CPU using the initializer
         self.initializer.initialize(base_model, run_index)
 
+        # Snapshot initialized state dict before training
+        initial_state_dict = copy.deepcopy(base_model.state_dict())
+
         # Move model_copy to device
         base_model = base_model.to(self.device)
 
         # Train the model
+        # Create isolated callback instances per run to avoid cross-run state mixing
+        callbacks_copy = [copy.deepcopy(cb) for cb in self.callbacks] if self.callbacks else []
+
         run = GPTrainerSingleProcess(
             model=base_model,
             optimizer_class=self.optimizer_class,
@@ -136,10 +163,28 @@ class GPTrainer:
             num_epochs=self.num_epochs,
             convergence_patience=self.convergence_patience,
             cholesky_jitter=self.cholesky_jitter,
-            callbacks=self.callbacks,
+            callbacks=callbacks_copy,
             device=self.device,
+            map_prior=self.map_prior,
+            track_loocv=self.track_loocv,
+            loocv_log_freq=self.loocv_log_freq,
+            use_loocv_objective=self.use_loocv_objective,
+            min_loss_change=self.min_loss_change,
+            scheduler_class=self.scheduler_class,
+            scheduler_kwargs=self.scheduler_kwargs,
+            use_gradual_jitter=False,
+            dtype=self.dtype,
         )
-        return {"run_index": run_index, **run.train()}
+        train_result = run.train()
+
+        # Copy the trained parameters back to the original model
+        # This ensures constraint enforcement is preserved
+        with torch.no_grad():
+            for (name, param), (_, trained_param) in zip(self.model.named_parameters(), base_model.named_parameters()):
+                if param.requires_grad:
+                    param.data.copy_(trained_param.data.to(dtype=param.dtype))
+
+        return {"run_index": run_index, "initial_state_dict": initial_state_dict, **train_result}
 
     def train_multiple_process_parallel(self):
         """
@@ -158,6 +203,7 @@ class GPTrainer:
                 if device_override is not None:
                     # Temporarily override the device for this run.
                     self.device = device_override
+                _worker_init()
                 result = self.train_single_process(run_index)
                 # Restore the original device.
                 self.device = original_device
@@ -172,22 +218,50 @@ class GPTrainer:
                     "error": str(e),
                 }
 
+        def _worker_init(seed=self.seed, cg_tol=5e-3, max_iters=2000):
+            # import os, random, numpy as np, torch
+            # BLAS / OpenMP
+            # os.environ["OPENBLAS_NUM_THREADS"] = "1"    # ???
+            # os.environ["OMP_NUM_THREADS"]      = "1"    # ???
+            # # RNGs
+            # random.seed(seed)
+            # np.random.seed(seed)
+            # torch.manual_seed(seed)
+            # torch.cuda.manual_seed_all(seed)
+            # torch.set_num_threads(1)
+            # torch.set_num_interop_threads(1)
+            # torch.use_deterministic_algorithms(True)
+            # torch.backends.cudnn.deterministic = True
+            # torch.backends.cudnn.benchmark     = False
+            # GPyTorch & LO settings
+            # import gpytorch.settings as gpts
+            # gpts.max_cholesky_size._global_value = 10_000
+            from gpytorch.settings import max_cholesky_size
+
+            max_cholesky_size._global_value = 10_000
+            from linear_operator.settings import cg_tolerance, max_cg_iterations
+
+            cg_tolerance._global_value = cg_tol
+            max_cg_iterations._global_value = max_iters
+
         # Cap the number of parallel jobs
         if self.device.type == "cpu":
             max_jobs = min(self.num_runs, max(1, (os.cpu_count() or 1) - 2))
             logger.info(
                 f"Running {self.num_runs} runs using {max_jobs} parallel jobs on {os.cpu_count()} available CPU cores."
             )
-            results = Parallel(n_jobs=max_jobs)(
+            results = Parallel(n_jobs=max_jobs, backend="threading", verbose=11)(
                 delayed(safe_single_process)(run_index) for run_index in range(self.num_runs)
             )
 
         elif str(self.device).startswith("cuda"):
+            torch.cuda.empty_cache()
             num_gpus = torch.cuda.device_count()
             # Allow as many parallel jobs as there are GPUs.
             max_jobs = min(self.num_runs, num_gpus)
             logger.info(f"Running {self.num_runs} runs distributed across {num_gpus} GPUs.")
-            results = Parallel(n_jobs=max_jobs)(
+
+            results = Parallel(n_jobs=max_jobs, backend="threading", verbose=11)(
                 # For each run, choose a GPU device based on the run index.
                 delayed(safe_single_process)(run_index, device_override=torch.device(f"cuda:{run_index % num_gpus}"))
                 for run_index in range(self.num_runs)
@@ -227,5 +301,11 @@ class GPTrainer:
             )
         else:
             logger.warning("No valid best run found. Model was not updated.")
+
+        # Attach best initial state dict to results for external consumers
+        for r in results:
+            if r.get("run_index") == (best_run.get("run_index") if best_run else None):
+                r["best_initial_state_dict"] = best_run.get("initial_state_dict") if best_run else None
+                break
 
         return results
