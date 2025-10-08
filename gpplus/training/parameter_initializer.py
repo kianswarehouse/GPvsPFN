@@ -1,15 +1,15 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
 
 import torch
 from torch.quasirandom import SobolEngine
 
+# Configure logging
 from ..config import logger
+
+# def initialize_parameters(self, model, num_run):
 
 
 class ParameterInitializer(ABC):
-    """Abstract base class for parameter initializers."""
-
     @abstractmethod
     def __init__(self, num_runs: int, seed: int = None):
         pass
@@ -19,144 +19,56 @@ class ParameterInitializer(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def initialize(self, model: torch.nn.Module, run_index: int):
+    def initialize(self, model: torch.nn.Module):
         raise NotImplementedError
 
 
 class DefaultParameterInitializer(ParameterInitializer):
-    """
-    Simplified parameter initializer that works with built-in constraints.
-
-    Features:
-    - Simple parameter type detection based on parameter names only
-    - No complex kernel-specific logic - just looks at parameter names
-    - Works with built-in constraints in custom kernels and likelihoods
-    - Conservative initialization values for numerical stability
-    - Clean and maintainable architecture
-    """
-
-    def __init__(self, num_runs: int, seed: int = None, parameter_configs: Optional[Dict[str, Dict[str, Any]]] = None):
+    def __init__(self, num_runs: int, seed: int = None):
         """
-        Initialize the default parameter initializer.
-
-        Args:
-            num_runs: Total number of initialization runs.
-            seed: Random seed for reproducibility.
-            parameter_configs: Optional custom parameter configurations.
-
-        Note:
-            This initializer is greatly simplified and only looks at parameter names to
-            determine initialization strategies. All constraints are handled by the
-            kernel and likelihood classes themselves.
+        :param num_runs: Total number of initialization runs.
+        :param seed: Random seed for reproducibility.
         """
         self.num_runs = num_runs
         self.seed = seed
         self.num_params = None
         self.sobol_samples = None
-        self.parameter_configs = parameter_configs or {}
 
     def setup(self, model: torch.nn.Module):
-        """Calculate the total number of learnable parameters and precompute Sobol samples."""
+        """
+        Calculates the total number of learnable parameters in the model and
+        precomputes the Sobol samples for all runs.
+        """
+        # Get the number of learnable parameters
         self.num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        # Initialize Sobol Engine
         sobol_engine = SobolEngine(dimension=self.num_params, scramble=True, seed=self.seed)
+        # Generate all initialization points at once
         self.sobol_samples = sobol_engine.draw(self.num_runs)
 
-        logger.info("Using DefaultParameterInitializer")
-        logger.debug(f"Sobol samples generated: {self.sobol_samples.shape}")
-        logger.info("All constraints are now built into kernel and likelihood classes - no manual setup needed")
+        logger.debug(f"Sobol samples generated: {self.sobol_samples}")
+        logger.warning(f"Sobol samples shape: {self.sobol_samples.shape}")
 
-    def get_parameter_type(self, name: str, param: torch.Tensor) -> str:
-        """Determine the parameter type based on parameter name only."""
+    def get_initialization_config(self, name: str, param: torch.Tensor):
+        """
+        Get initialization configuration based on parameter name and shape.
+        Returns a dict with initialization method and parameters.
+        """
+        param_dim = param.dim()
+
+        # Debug: Print parameter name for raw_lengthscales
+        # if "raw_lengthscales" in name:
+        # print(f"[DEBUG] Found raw_lengthscales parameter: {name}")
+
+        # Matrix encoder parameters
         if "projection_matrix" in name:
-            return "projection_matrix"
-        elif "raw_lengthscale" in name:
-            return "raw_lengthscale"
-        elif "raw_outputscale" in name:
-            return "raw_outputscale"
-        elif "raw_noise" in name or "noise" in name:
-            return "raw_noise"
-        elif "weight" in name and param.dim() >= 2:
-            return "weight"
-        elif "bias" in name and param.dim() == 1:
-            return "bias"
-        elif "power" in name:
-            return "power"
-        elif "constant" in name:
-            return "constant"
-        else:
-            return "unknown"
-
-    def get_initialization_config(
-        self, name: str, param: torch.Tensor, model: torch.nn.Module = None
-    ) -> Dict[str, Any]:
-        """Get initialization configuration based on parameter name only."""
-        param_type = self.get_parameter_type(name, param)
-
-        # Check for custom configuration first
-        if param_type in self.parameter_configs:
-            config = self.parameter_configs[param_type].copy()
-            config["description"] = f"{param_type} parameter (custom config)"
-            return config
-
-        # Simple configurations based on parameter type
-        if param_type == "raw_lengthscale":
-            is_ard = param.dim() == 2 and param.shape[1] > 1
-            return {
-                "method": "normal",
-                "mean": -2.0,
-                "std": 1.5,
-                "description": f"Lengthscale parameter {'(ARD)' if is_ard else '(single)'} - log scale",
-            }
-        elif param_type == "raw_outputscale":
-            return {
-                "method": "normal",
-                "mean": -2.0,
-                "std": 0.5,
-                "description": "Outputscale parameter - log scale",
-            }
-        elif param_type == "raw_noise":
-            return {
-                "method": "normal",
-                "mean": -4.0,
-                "std": 0.5,
-                "description": "Noise parameter - log scale",
-            }
-        elif param_type == "constant":
-            return {
-                "method": "normal",
-                "mean": 0.0,
-                "std": 0.1,
-                "description": "Mean constant parameter",
-            }
-        elif param_type == "weight":
-            fan_in, fan_out = param.size(1), param.size(0)
-            limit = torch.sqrt(torch.tensor(2.0 / (fan_in + fan_out)))
-            return {
-                "method": "xavier_uniform",
-                "limit": limit.item(),
-                "description": f"Neural network weight ({fan_in}->{fan_out})",
-            }
-        elif param_type == "bias":
-            return {
-                "method": "zeros",
-                "description": "Neural network bias",
-            }
-        elif param_type == "power":
-            return {
-                "method": "normal",
-                "mean": 1.5,
-                "std": 0.3,
-                "description": "Power kernel parameter",
-            }
-        elif param_type == "projection_matrix":
             # Try to find the initialization type from the specific module
             init_type = "orthogonal"  # default
-            init_std = 0.1  # default value
 
             # Look for the parameter in the model's modules
-            if model is not None:
+            if hasattr(self, "_current_model"):
                 # Find the specific module that contains this parameter
-                for module_name, module in model.named_modules():
+                for module_name, module in self._current_model.named_modules():
                     if hasattr(module, "_param_init_types") and "projection_matrix" in module._param_init_types:
                         # Check if this parameter name starts with the module name followed by a dot
                         if name.startswith(module_name + "."):
@@ -175,79 +87,76 @@ class DefaultParameterInitializer(ParameterInitializer):
                 return {
                     "method": "orthogonal_matrix",
                     "gain": init_std,
-                    "description": "Matrix encoder projection matrix (orthogonal)",
+                    "description": "Matrix encoder projection matrix",
                 }
             elif init_type == "normal":
                 return {
                     "method": "normal_matrix",
                     "mean": 0.0,
                     "std": init_std,
-                    "description": "Matrix encoder projection matrix (normal)",
+                    "description": "Matrix encoder projection matrix",
                 }
             elif init_type == "uniform":
                 return {
                     "method": "uniform_matrix",
                     "lower": -init_std,
                     "upper": init_std,
-                    "description": "Matrix encoder projection matrix (uniform)",
+                    "description": "Matrix encoder projection matrix",
                 }
             else:
                 # Default to orthogonal if unknown type
                 return {
                     "method": "orthogonal_matrix",
                     "gain": init_std,
-                    "description": "Matrix encoder projection matrix (default orthogonal)",
+                    "description": "Matrix encoder projection matrix",
                 }
-        else:
+        # Kernel lengthscales (for all other cases)
+        if "lengthscale" in name:
+            if param_dim == 1:  # ARD lengthscales
+                return {"method": "uniform", "lower": -6.0, "upper": 3.0, "description": "Kernel lengthscale"}
+            else:  # Single lengthscale
+                return {"method": "uniform", "lower": -6.0, "upper": 3.0, "description": "Kernel lengthscale"}
+
+        # Kernel outputscales
+        if "outputscale" in name:
+            return {"method": "uniform", "lower": 1e-2, "upper": 2.0, "description": "Kernel outputscale"}
+
+        # Likelihood noise
+        if "raw_noise" in name or "noise" in name:
+            return {"method": "uniform", "lower": -3.0, "upper": 1.0, "description": "Likelihood noise"}
+
+        # Neural network weights
+        if "weight" in name and param_dim >= 2:
+            fan_in, fan_out = param.size(1), param.size(0)
+            limit = torch.sqrt(torch.tensor(2.0 / (fan_in + fan_out)))
             return {
-                "method": "normal",
-                "mean": 0.0,
-                "std": 0.1,
-                "description": "Unknown parameter",
+                "method": "xavier_uniform",
+                "limit": limit.item(),
+                "description": f"Neural network weight ({fan_in}->{fan_out})",
             }
 
-    def _generate_normal_samples(self, sample: torch.Tensor, mean: float, std: float) -> torch.Tensor:
-        """Generate normal samples using inverse CDF from Sobol samples."""
-        # Use inverse CDF of normal distribution directly
-        # This is more efficient and numerically stable than Box-Muller
-        # Ensure all operations maintain the same dtype as the input sample
-        z = torch.erfinv(2.0 * sample - 1.0) * torch.sqrt(torch.tensor(2.0, dtype=sample.dtype, device=sample.device))
-        return mean + std * z
+        # Neural network biases
+        if "bias" in name and param_dim == 1:
+            return {"method": "zeros", "description": "Neural network bias"}
 
-    def initialize_parameter(
-        self,
-        param: torch.Tensor,
-        sample: torch.Tensor,
-        config: Dict[str, Any],
-        name: str = "",
-        model: torch.nn.Module = None,
-    ):
-        """Initialize a single parameter based on the configuration and constraints."""
+        # Power parameters (for power kernels)
+        if "power" in name:
+            return {"method": "uniform", "lower": 1.0, "upper": 3.0, "description": "Power kernel parameter"}
+
+        # Default for unknown parameters
+        return {"method": "uniform", "lower": -1.0, "upper": 1.0, "description": "Unknown parameter (default)"}
+
+    def initialize_parameter(self, param: torch.Tensor, sample: torch.Tensor, config: dict):
+        """
+        Initialize a single parameter based on the configuration.
+        """
         method = config["method"]
 
         if method == "orthogonal_matrix":
             # Use PyTorch's orthogonal initialization
-            # Create a temporary tensor with the correct dtype, then copy to param
-            temp_param = torch.empty_like(param, dtype=param.dtype, device=param.device)
-            try:
-                torch.nn.init.orthogonal_(
-                    temp_param, gain=config.get("gain", 1.0), generator=torch.Generator().manual_seed(self.seed)
-                )
-                # Check for NaN after initialization
-                if torch.isnan(temp_param).any():
-                    logger.error(f"NaN detected in orthogonal initialization for {name}")
-                    logger.error(f"temp_param: {temp_param}")
-                    logger.error(f"param shape: {param.shape}, dtype: {param.dtype}")
-                param.data = temp_param
-                logger.debug(f"Orthogonal initialization successful for {name}")
-            except Exception as e:
-                logger.error(f"Orthogonal initialization failed for {name}: {e}")
-                # Fallback to normal initialization
-                torch.nn.init.normal_(temp_param, mean=0.0, std=0.1)
-                param.data = temp_param
-
-        elif method == "orthogonal":
-            torch.nn.init.orthogonal_(param, gain=config.get("gain", 1.0))
+            torch.nn.init.orthogonal_(
+                param, gain=config.get("gain", 1.0), generator=torch.Generator().manual_seed(self.seed)
+            )
 
         elif method == "normal_matrix":
             # Use PyTorch's orthogonal initialization
@@ -268,80 +177,176 @@ class DefaultParameterInitializer(ParameterInitializer):
             )
 
         elif method == "xavier_uniform":
+            # Xavier/Glorot uniform initialization
             limit = config.get("limit", 1.0)
-            raw_value = (sample * 2 - 1) * limit
-            param.data = raw_value.to(dtype=param.dtype)
+            param.data = (sample * 2 - 1) * limit
 
         elif method == "uniform":
+            # Uniform initialization in specified range
             lower = config.get("lower", -1.0)
             upper = config.get("upper", 1.0)
-            raw_value = lower + (upper - lower) * sample
-            param.data = raw_value.to(dtype=param.dtype)
-
-        elif method == "normal":
-            mean = config.get("mean", 0.0)
-            std = config.get("std", 1.0)
-            raw_value = self._generate_normal_samples(sample, mean, std)
-            # Direct initialization - constraints are built into kernel classes
-            param.data = raw_value.to(dtype=param.dtype)
-            logger.debug(f"Direct initialization: {name} = {raw_value} (constraints built into kernel classes)")
-
+            # Check if parameter has a constraint and respect it
+            # if hasattr(param, 'constraint') and param.constraint is not None:
+            #     # Use the constraint's inverse transform to get the raw value
+            #     raw_value = lower + (upper - lower) * sample
+            #     # Apply the constraint's transform to get the constrained value
+            #     constrained_value = param.constraint.transform(raw_value)
+            #     param.data = constrained_value
+            # else:
+            #     # No constraint, set directly
+            #     param.data = lower + (upper - lower) * sample
+            random_value = lower + (upper - lower) * sample
+            param.data = random_value
         elif method == "zeros":
+            # Zero initialization
             torch.nn.init.zeros_(param)
 
+        elif method == "normal":
+            # Normal initialization
+            mean = config.get("mean", 0.0)
+            std = config.get("std", 0.1)
+            torch.nn.init.normal_(param, mean=mean, std=std)
+
         elif method == "constant":
+            # Constant initialization
             value = config.get("value", 0.0)
-            param.data = torch.full_like(param, value, dtype=param.dtype)
+            param.data = torch.full_like(param, value)
 
         elif method == "skip":
+            # Skip initialization for this parameter
             pass
 
         else:
-            # Fallback to normal with conservative parameters
-            raw_value = 0.1 * (sample * 2 - 1)
-            param.data = raw_value.to(dtype=param.dtype)
+            # Fallback to uniform
+            param.data = sample * 2 - 1
 
     def initialize(self, model: torch.nn.Module, run_index: int):
-        """Initialize the model parameters for a specific run using improved configuration."""
+        """
+        Initialize the model parameters for a specific run using adaptive configuration.
+        :param model: The model whose parameters need initialization.
+        :param run_index: The run index corresponding to the precomputed Sobol sample.
+        """
+        # Store the current model for parameter type lookup
+        self._current_model = model
         idx = 0
 
+        # Loop over each parameter in the model and initialize based on configuration
         with torch.no_grad():
             all_params = list(model.named_parameters())
             for i, (name, param) in enumerate(all_params):
                 param_length = param.numel()
 
-                # Skip parameters with zero elements or non-learnable parameters
-                if param_length == 0 or not param.requires_grad:
-                    logger.debug(f"Skipping parameter: {name}")
+                # Skip parameters with zero elements
+                if param_length == 0:
+                    logger.debug(f"Skipping empty parameter: {name}")
+                    continue
+
+                # Skip non-learnable parameters
+                if not param.requires_grad:
+                    logger.debug(f"Skipping non-learnable parameter: {name}")
                     continue
 
                 # Get initialization configuration
-                config = self.get_initialization_config(name, param, model)
+                config = self.get_initialization_config(name, param)
 
                 # Slice the sobol_samples for the current parameter
                 sample = self.sobol_samples[run_index, idx : idx + param_length]
                 sample = sample.reshape(param.shape)
-                sample = sample.to(device=param.device, dtype=param.dtype)
 
                 # Initialize the parameter
-                old_value = param.data.clone()
-                self.initialize_parameter(param, sample, config, name, model)
-                new_value = param.data.clone()
+                self.initialize_parameter(param, sample, config)
 
                 logger.debug(
                     f"Initialized {name}: {config['description']} (shape={param.shape}, method={config['method']})"
                 )
-                logger.debug(f"  Old value: {old_value}")
-                logger.debug(f"  New value: {new_value}")
-
-                # Special debug for key parameters
-                if "cont_kernel.lengthscale" in name or "raw_noise" in name:
-                    logger.info(f"KEY PARAMETER INITIALIZED: {name}")
-                    logger.info(f"  Method: {config['method']}")
-                    logger.info(f"  Old: {old_value}")
-                    logger.info(f"  New: {new_value}")
-                    logger.info(f"  Config: {config}")
 
                 idx += param_length
 
         logger.info(f"Model parameters initialized with run #{run_index}")
+
+
+class SimpleParameterInitializer(ParameterInitializer):
+    """
+    A simpler parameter initializer that uses standard PyTorch initialization methods.
+    This is more robust and doesn't rely on hardcoded ranges.
+    """
+
+    def __init__(self, num_runs: int, seed: int = None):
+        self.num_runs = num_runs
+        self.seed = seed
+        self.current_run = 0
+
+    def setup(self, model: torch.nn.Module):
+        """No setup needed for simple initializer."""
+        pass
+
+    def initialize(self, model: torch.nn.Module, run_index: int):
+        """
+        Initialize parameters using standard PyTorch methods.
+        """
+        torch.manual_seed(self.seed + run_index if self.seed is not None else run_index)
+
+        with torch.no_grad():
+            for name, param in model.named_parameters():
+                if not param.requires_grad:
+                    continue
+
+                param_dim = param.dim()
+
+                # Matrix encoder parameters
+                if "projection_matrix" in name:
+                    # Try to find the initialization type from the specific module
+                    init_type = "orthogonal"  # default
+
+                    # Look for the parameter in the model's modules
+                    for module_name, module in model.named_modules():
+                        if hasattr(module, "_param_init_types") and "projection_matrix" in module._param_init_types:
+                            # Check if this parameter name contains the module name
+                            if module_name in name:
+                                init_type = module._param_init_types["projection_matrix"]
+                                break
+
+                    if init_type == "orthogonal":
+                        torch.nn.init.orthogonal_(param, gain=1.0)
+                    elif init_type == "normal":
+                        torch.nn.init.normal_(param, mean=0.0, std=0.1)
+                    elif init_type == "uniform":
+                        torch.nn.init.uniform_(param, -0.1, 0.1)
+                    else:
+                        # Default to orthogonal if unknown type
+                        torch.nn.init.orthogonal_(param, gain=1.0)
+
+                # Kernel parameters
+                elif "lengthscale" in name:
+                    # Check if parameter has a constraint and respect it
+                    if hasattr(param, "constraint") and param.constraint is not None:
+                        # Generate raw values in constraint's domain
+                        raw_values = (
+                            torch.rand_like(param) * (param.constraint.upper_bound - param.constraint.lower_bound)
+                            + param.constraint.lower_bound
+                        )
+                        # Apply constraint transform
+                        constrained_values = param.constraint.transform(raw_values)
+                        param.data = constrained_values
+                    else:
+                        # No constraint, use standard initialization
+                        torch.nn.init.uniform_(param, -6.0, 3.0)
+
+                elif "outputscale" in name:
+                    torch.nn.init.uniform_(param, 1e-6, 1e1)
+
+                # Likelihood parameters
+                elif "raw_noise" in name or "noise" in name:
+                    torch.nn.init.uniform_(param, -3.0, 1.0)
+
+                # Neural network parameters
+                elif "weight" in name and param_dim >= 2:
+                    torch.nn.init.xavier_uniform_(param)
+
+                elif "bias" in name:
+                    torch.nn.init.zeros_(param)
+                # Default
+                else:
+                    torch.nn.init.uniform_(param, -1.0, 1.0)
+
+        logger.info(f"Model parameters initialized with run #{run_index} (simple method)")

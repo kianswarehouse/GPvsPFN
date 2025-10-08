@@ -250,7 +250,7 @@ class GPTrainer:
             logger.info(
                 f"Running {self.num_runs} runs using {max_jobs} parallel jobs on {os.cpu_count()} available CPU cores."
             )
-            results = Parallel(n_jobs=max_jobs, backend="threading", verbose=11)(
+            results = Parallel(n_jobs=max_jobs, backend="loky", verbose=11)(
                 delayed(safe_single_process)(run_index) for run_index in range(self.num_runs)
             )
 
@@ -261,7 +261,7 @@ class GPTrainer:
             max_jobs = min(self.num_runs, num_gpus)
             logger.info(f"Running {self.num_runs} runs distributed across {num_gpus} GPUs.")
 
-            results = Parallel(n_jobs=max_jobs, backend="threading", verbose=11)(
+            results = Parallel(n_jobs=max_jobs, backend="loky", verbose=11)(
                 # For each run, choose a GPU device based on the run index.
                 delayed(safe_single_process)(run_index, device_override=torch.device(f"cuda:{run_index % num_gpus}"))
                 for run_index in range(self.num_runs)
