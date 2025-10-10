@@ -67,7 +67,7 @@ def load_2dplanes_data(print_info=False):
 # print("  Last 5 X rows:\n", X_enc[-5:])
 # print("  Last 5 y:", y_enc[-5:])
 def planes_GPvsPFN(num_seeds=20,
-    test_size=5000,
+    num_test=5000,
     train_size=10,
     num_runs=4, 
     num_epochs=10000, 
@@ -80,7 +80,7 @@ def planes_GPvsPFN(num_seeds=20,
     save_path='./plots'):
     # Load the data
     X, y = load_2dplanes_data()
-    title = f"2dplanes_{test_size}test"
+    title = f"2dplanes_{train_size}D"
     device = gp_device
     print(f"Device: {device}")
     amp_device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -94,47 +94,37 @@ def planes_GPvsPFN(num_seeds=20,
     print("="*60)
 
     # Prepare encoded data once from already loaded X, y (no extra CSV/label encoding)
-    _qual = learn_encodings(torch.tensor(X, dtype=dtype))
-
-    X_enc, cat_cols, _source_cols = encode_qual_data(torch.tensor(X, dtype=dtype), noncont_dict=_qual, source_col=None)
+    qual_dict = learn_encodings(torch.tensor(X, dtype=dtype))
+    print(qual_dict)
+    X_enc, cont_cols, cat_cols, source_cols = encode_qual_data(torch.tensor(X, dtype=dtype), noncont_dict=qual_dict, source_col=None)
     y_enc = torch.tensor(y, dtype=dtype)
-
+    print(cat_cols)
     TabPFN_M2AX_metrics = []
     GPPlus_M2AX_metrics = []
     set_seed(0)
 
-    # Build a deterministic fixed test set and expanded training pool
+    # Simple approach: get all indices, take first 5k for test, rest for training
     N = X_enc.shape[0]
-    # Interpret test_size as count if int, else as fraction
-    if isinstance(test_size, float) and 0 < test_size < 1:
-        num_test = int(round(test_size * N))
-    else:
-        num_test = int(test_size)
-    num_test = min(num_test, N)
-
-    rng_fixed_test = np.random.RandomState(1337)
-    all_idx = np.arange(N)
-    perm = rng_fixed_test.permutation(all_idx)
-    test_indices = np.sort(perm[:num_test])
-    train_base_indices = np.setdiff1d(all_idx, test_indices, assume_unique=False)
-    base_train_len = int(train_base_indices.shape[0])
-    if base_train_len <= 0:
-        raise ValueError("No training data available after creating fixed test set.")
-
-    # Expand training pool deterministically to train_size * base_train_len
-    expanded_target = int(train_size) * base_train_len
-    rng_train_pool = np.random.RandomState(2024)
-    train_base_shuffled = rng_train_pool.permutation(train_base_indices)
-    reps = int(np.ceil(expanded_target / float(base_train_len)))
-    training_pool = np.tile(train_base_shuffled, reps)[:expanded_target]
-
-    # Split training pool into num_seeds deterministic contiguous chunks
-    chunk_sizes = [expanded_target // num_seeds] * num_seeds
-    remainder = expanded_target % num_seeds
-    for r in range(remainder):
-        chunk_sizes[r] += 1
-    starts = np.cumsum([0] + chunk_sizes[:-1])
-    ends = np.cumsum(chunk_sizes)
+    total_needed = test_size + (train_size * num_seeds)
+    
+    if N < total_needed:
+        raise ValueError(f"Not enough data: need {total_needed}, have {N}")
+    
+    # Get deterministic permutation of all indices
+    rng = np.random.RandomState(1337)
+    all_indices = rng.permutation(N)
+    
+    # First 5k are test
+    test_indices = all_indices[:test_size]
+    
+    # Remaining indices for training (repeated to get enough for all seeds)
+    train_indices = all_indices[test_size:]
+    train_per_seed = train_size
+    total_train_needed = train_per_seed * num_seeds
+    
+    # Repeat training indices to get enough samples
+    reps = int(np.ceil(total_train_needed / len(train_indices)))
+    expanded_train = np.tile(train_indices, reps)[:total_train_needed]
 
     total_start_time = time.time()
     for i in range(num_seeds):
@@ -142,8 +132,10 @@ def planes_GPvsPFN(num_seeds=20,
         print(f"\n{'='*20} {title} SEED {i+1}/{num_seeds}: {seed} {'='*20}")
         t0 = time.time()
 
-        train_slice = slice(int(starts[i]), int(ends[i]))
-        train_indices = training_pool[train_slice]
+        # Get training indices for this seed
+        start_idx = i * train_per_seed
+        end_idx = start_idx + train_per_seed
+        train_indices = expanded_train[start_idx:end_idx]
 
         X_train = X_enc.numpy()[train_indices]
         y_train = y_enc.numpy()[train_indices]
@@ -202,6 +194,29 @@ def planes_GPvsPFN(num_seeds=20,
         )
         if (i == 0) or (i == num_seeds - 1):
             print(model)
+        
+        # Collect model info from first seed
+        if i == 0:
+            gp_model_info = {
+                "model_str": str(model),
+                "cat_cols": cat_cols,
+                "cont_cols": cont_cols,
+                "source_cols": source_cols,
+                "qual_dict": qual_dict,
+                "input_dim": X_gp_train.shape[1],
+                "train_samples": X_gp_train.shape[0],
+                "test_samples": X_gp_test.shape[0],
+                "y_train_mean": float(y_gp_train_mean.item()),
+                "y_train_std": float(y_gp_train_std.item()),
+                "dtype": str(dtype),
+                "device": str(device),
+                "num_epochs": num_epochs,
+                "num_runs": num_runs,
+                "lr": lr,
+                "optimizer": optimizer_class.__name__,
+                "convergence_patience": convergence_patience,
+                "initializer": initializer_class.__name__ if initializer_class else None
+            }
 
         # Create trainer
         gp_metric, y_pred_gp, output_std_gp = train_eval_gp(
@@ -236,15 +251,18 @@ def planes_GPvsPFN(num_seeds=20,
     TabPFN_M2AX_summary = analyze_metrics(TabPFN_M2AX_metrics, print_summary=True, label="TabPFN")
     GPPlus_M2AX_summary = analyze_metrics(GPPlus_M2AX_metrics, print_summary=True, label="GP")
     
+    # Add model info to GP summary if available
+    GPPlus_M2AX_summary["model_info"] = gp_model_info
+    
     if save_path is not None:
         plot_metrics(TabPFN_M2AX_metrics, GPPlus_M2AX_metrics, labels=["TabPFN", "GP"], title="M2AX", save_path=save_path)
     print(f"\nTotal experiment time for {num_seeds} seeds: {time.time() - total_start_time:.2f}s")
     print("="*60)
-    print(f"GP trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {device}")
+    print(f"GP trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {device}\n\tinitializer: {initializer_class}\n\tcat_cols: {cat_cols}\n\tqual_dict: {qual_dict}")
     print(f"Experiment details: \n\ttest size: {test_size} ({len(X_test)} test samples, {len(X_train)} train samples)\n\tseeds: {num_seeds}")
 
     return GPPlus_M2AX_metrics, TabPFN_M2AX_metrics
 
 
 if __name__ == "__main__":
-    planes_GPvsPFN(num_seeds=2, num_runs=1, num_epochs=10 )
+    planes_GPvsPFN(num_seeds=2, num_runs=1, num_epochs=10, save_path=None)

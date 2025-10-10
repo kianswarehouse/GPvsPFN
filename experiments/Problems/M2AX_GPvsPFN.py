@@ -81,7 +81,7 @@ def M2AX_GPvsPFN(num_seeds=20,
     initializer_class=None,
     gp_device='cpu',
     amp_device='cuda',
-    save_path='./results'
+    save_path='./results/M2AX'
     ):
     # Load the data
     X, y = load_m2ax_data()
@@ -104,11 +104,12 @@ def M2AX_GPvsPFN(num_seeds=20,
     print("="*60)
 
     # Prepare encoded data once from already loaded X, y (no extra CSV/label encoding)
-    _qual = learn_encodings(torch.tensor(X, dtype=dtype))
+    qual_dict = learn_encodings(torch.tensor(X, dtype=dtype))
 
-    X_enc, cat_cols, _source_cols = encode_qual_data(torch.tensor(X, dtype=dtype), noncont_dict=_qual, source_col=None)
+    X_enc, cont_cols, cat_cols, source_cols = encode_qual_data(torch.tensor(X, dtype=dtype), noncont_dict=qual_dict, source_col=None)
     y_enc = torch.tensor(y, dtype=dtype)
-
+    # print(qual_dict)
+    # print(cat_cols)
     TabPFN_M2AX_metrics = []
     GPPlus_M2AX_metrics = []
     set_seed(0)  # Set global seed for reproducible seeds
@@ -150,6 +151,29 @@ def M2AX_GPvsPFN(num_seeds=20,
         )
         if (i == 0) or (i == len(seeds) - 1):
             print(model)
+        
+        # Collect model info from first seed
+        if i == 0:
+            gp_model_info = {
+                "model_str": str(model),
+                "cont_cols": cont_cols,
+                "cat_cols": cat_cols,
+                "source_cols": source_cols,
+                "qual_dict": qual_dict,
+                "input_dim": X_gp_train.shape[1],
+                "train_samples": X_gp_train.shape[0],
+                "test_samples": X_gp_test.shape[0],
+                "y_train_mean": float(y_gp_train_mean.item()),
+                "y_train_std": float(y_gp_train_std.item()),
+                "dtype": str(dtype),
+                "device": str(device),
+                "num_epochs": num_epochs,
+                "num_runs": num_runs,
+                "lr": lr,
+                "optimizer": optimizer_class.__name__,
+                "convergence_patience": convergence_patience,
+                "initializer": initializer_class.__name__ if initializer_class else None
+            }
 
         # Create trainer
         gp_metric, y_pred_gp, output_std_gp = train_eval_gp(
@@ -205,6 +229,9 @@ def M2AX_GPvsPFN(num_seeds=20,
     TabPFN_M2AX_summary = analyze_metrics(TabPFN_M2AX_metrics, print_summary=True, label="TabPFN", title=title)
     GPPlus_M2AX_summary = analyze_metrics(GPPlus_M2AX_metrics, print_summary=True, label="GP", title=title)
     
+    # Add model info to GP summary if available
+    GPPlus_M2AX_summary["model_info"] = gp_model_info
+    
     if save_path is not None:
         plot_metrics(TabPFN_M2AX_metrics, GPPlus_M2AX_metrics, labels=["TabPFN", "GP"], title=title, save_path=plot_save_path)
         # Save raw metrics and summaries
@@ -222,11 +249,11 @@ def M2AX_GPvsPFN(num_seeds=20,
             pass
     print(f"\nTotal experiment time for {len(seeds)} seeds: {time.time() - t0:.2f}s")
     print("="*60)
-    print(f"GP trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {device}")
+    print(f"GP trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {device}\n\tinitializer: {initializer_class}\n\tcat_cols: {cat_cols}\n\tqual_dict: {qual_dict}")
     print(f"Experiment details: \n\ttest size: {test_size} ({len(X_test)} test samples, {len(X_train)} train samples)\n\tseeds: {seeds}")
 
     return GPPlus_M2AX_metrics, TabPFN_M2AX_metrics,
 
 if __name__ == "__main__":
     # M2AX_GPvsPFN()
-    M2AX_GPvsPFN(num_seeds=2, num_runs=1, num_epochs=10)
+    M2AX_GPvsPFN(num_seeds=2, num_runs=1, num_epochs=10, save_path=None)

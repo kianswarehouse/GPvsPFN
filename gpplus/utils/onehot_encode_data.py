@@ -12,8 +12,9 @@ def encode_qual_data(data: torch.Tensor, noncont_dict: dict, source_col: int = N
 
     Returns:
         encoded_data: torch.Tensor ordered as [continuous | categorical | source]
-        cat_cols: list of lists of ints for categorical one-hot groups
-        source_cols: list of lists of ints for source one-hot groups (empty or single block)
+        cont_cols: list of ints for continuous columns (empty if none)
+        cat_cols: list of lists of ints for categorical one-hot groups (empty if none)
+        source_cols: list of lists of ints for source one-hot groups (empty if none)
     """
     if noncont_dict is None or len(noncont_dict) == 0:
         raise ValueError("noncont_dict must include at least one non-continuous column.")
@@ -40,12 +41,14 @@ def encode_qual_data(data: torch.Tensor, noncont_dict: dict, source_col: int = N
 
     def _ohe(col_tensor: torch.Tensor, num_classes: int) -> torch.Tensor:
         values = torch.round(col_tensor).to(torch.long)
-        min_val = int(values.min().item())
-        shifted = values - min_val
-        max_idx = int(shifted.max().item())
-        if max_idx >= num_classes:
-            raise ValueError(f"Detected class index {max_idx} but num_classes={num_classes} for one-hot encoding.")
-        return F.one_hot(shifted, num_classes=num_classes).to(data.dtype)
+        unique_vals = torch.unique(values)
+        if len(unique_vals) != num_classes:
+            raise ValueError(f"Expected {num_classes} unique values but found {len(unique_vals)}: {unique_vals.tolist()}")
+        
+        # Create mapping from actual values to 0-based indices
+        val_to_idx = {val.item(): idx for idx, val in enumerate(unique_vals)}
+        indices = torch.tensor([val_to_idx[val.item()] for val in values], dtype=torch.long)
+        return F.one_hot(indices, num_classes=num_classes).to(data.dtype)
 
     categorical_tensors = []
     for c in categorical_cols:
@@ -83,7 +86,7 @@ def encode_qual_data(data: torch.Tensor, noncont_dict: dict, source_col: int = N
         end_idx = cat_cols_blocks[-1][-1]
         cat_cols_blocks = [list(range(start_idx, end_idx + 1))]
 
-    return encoded_data, cat_cols_blocks, source_cols_blocks
+    return encoded_data, continuous_cols, cat_cols_blocks, source_cols_blocks
 
 
 def learn_encodings(data: torch.Tensor, int_tol: float = 1e-6):
@@ -113,9 +116,8 @@ def learn_encodings(data: torch.Tensor, int_tol: float = 1e-6):
         if not is_integer_like:
             continue
         col_long = torch.round(col).to(torch.long)
-        min_val = int(col_long.min().item())
-        max_val = int(col_long.max().item())
-        num_classes = max_val - min_val + 1
+        unique_vals = torch.unique(col_long)
+        num_classes = len(unique_vals)
         if num_classes <= 0:
             continue
         qual_dict[col_idx] = num_classes
