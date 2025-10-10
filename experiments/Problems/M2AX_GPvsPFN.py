@@ -3,58 +3,20 @@ import os
 import sys
 import pandas as pd
 import numpy as np
+import json
+from pathlib import Path
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
-from tabpfn_wrapper import VanillaDirectTabPFNRegressor
-import torch.nn.functional as F
+from gpplus.utils.onehot_encode_data import encode_qual_data, learn_encodings
+import gpplus
+import gpytorch
+import time
+from gpplus.training.eval import evaluate_gp_model
+from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
+from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 
-
-def one_hot_encode_integer_columns(data: torch.Tensor, int_tol: float = 1e-6):
-    """
-    data: (N, D) torch tensor (float or int)
-    Returns:
-      encoded_data: torch.Tensor with integer columns one-hot encoded
-      column_info: list of dicts describing how each original column was treated
-    """
-    if data.dtype not in (torch.float32, torch.float64):
-        data = data.to(torch.float64)
-
-    num_rows, num_cols = data.shape
-    encoded_columns = []
-    column_info = []
-
-    for col_idx in range(num_cols):
-        col = data[:, col_idx]
-
-        is_integer_like = torch.all(torch.abs(col - torch.round(col)) < int_tol)
-        if is_integer_like:
-            col_long = torch.round(col).to(torch.long)
-            min_val = int(col_long.min().item())
-            max_val = int(col_long.max().item())
-            num_classes = max_val - min_val + 1
-
-            # Shift so the smallest value maps to 0, then one-hot
-            class_indices = col_long - min_val
-            ohe = F.one_hot(class_indices, num_classes=num_classes).to(data.dtype)
-            encoded_columns.append(ohe)
-
-            column_info.append({
-                "column": col_idx,
-                "type": "one_hot",
-                "min_value": min_val,
-                "max_value": max_val,
-                "num_classes": num_classes
-            })
-        else:
-            encoded_columns.append(col.unsqueeze(1))
-            column_info.append({
-                "column": col_idx,
-                "type": "continuous"
-            })
-
-    encoded_data = torch.cat(encoded_columns, dim=1)
-    return encoded_data, column_info
-
+# import warnings
+# warnings.filterwarnings("ignore")
 
 def load_m2ax_data(print_info=False):
     """
@@ -73,19 +35,13 @@ def load_m2ax_data(print_info=False):
     
     # Load the data
     df = pd.read_csv(data_path)
-    
-    # Get the first three columns (element names) for label encoding
-    categorical_columns = df.columns[:3]  # Msiteelement, Asiteelement, Xsiteelement
-    
-    # Create label encoders for the first three columns
-    label_encoders = {}
+
+    # Label-encode the first three categorical columns before casting to float
+    categorical_columns = df.columns[:3]
     df_encoded = df.copy()
-    
     for col in categorical_columns:
-        le = LabelEncoder()
-        df_encoded[col] = le.fit_transform(df[col])
-        label_encoders[col] = le
-    
+        df_encoded[col] = pd.factorize(df[col])[0]
+
     # Convert to numpy array for processing
     arr = df_encoded.values.astype(np.float64)
     
@@ -98,95 +54,179 @@ def load_m2ax_data(print_info=False):
     
     #y = arr[:, -1]
     #print("E, Young's Modulus")
+
     # y = arr[:, -2]
     # print("G, Shear Modulus")
+
     y = arr[:, -3]
-    
-    return X, y, label_encoders
+    # print("B, Bulk Modulus")
 
-# Load the data
-X, y, label_encoders = load_m2ax_data()
+    return X, y
 
 
-# Choose target variable (y_porosity or y_hardness)
-seed = 42
-
-# Set up device and dtype for autocast
-device = "cuda" if torch.cuda.is_available() else "cpu"
-amp_device = "cuda" if torch.cuda.is_available() else "cpu"
-amp_dtype = torch.float64
-dtype = torch.float64
-
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=seed)
-single_eval_pos = len(X_train)
-
-
-# 4. Stack context and candidate/query points
-X_all_np = np.concatenate([X_train, X_test], axis=0)
-Y_all_np = np.concatenate([y_train, np.zeros_like(y_test)], axis=0)
-
-# 5. GITBO expects [N, 1, D] and [N, 1, 1]
-X_all = torch.tensor(X_all_np, dtype=amp_dtype).unsqueeze(1)      # [N, 1, D]
-Y_all = torch.tensor(Y_all_np, dtype=amp_dtype).reshape(-1, 1, 1) # [N, 1, 1]
-
-regressor = VanillaDirectTabPFNRegressor(device="cuda" if torch.cuda.is_available() else "cpu")
-
-with torch.amp.autocast(device_type=amp_device, dtype=amp_dtype):
-    out             = regressor.forward(X_all, Y_all, single_eval_pos)
-    logits          = out["standard"]
-    y_pred     = regressor.predict_mean(logits)                   # [ (single_eval_pos+N_PENDING), N_CANDIDATES ]
-    output_variance = regressor.predict_variance(logits)               # same shape
-y_pred = y_pred.detach().cpu().numpy().reshape(-1)
-output_variance = output_variance.detach().cpu().numpy().reshape(-1)
-output_std = output_variance **0.5
-
-
-
-# =============================================================================
-# GP M2AX Section - Copy data tensors and apply one-hot encoding
-# =============================================================================
-
-print("\n" + "="*50)
-print("GP M2AX Section")
-print("="*50)
-
-# Copy the original data tensors for GP processing
-X_gp = X.copy()
-y_gp = y.copy()
-
-# Convert to torch tensors
-X_gp = torch.tensor(X_gp, dtype=dtype)
-y_gp = torch.tensor(y_gp, dtype=dtype)
-
-print(f"Original GP data shape: {X_gp.shape}")
-
-# Apply one-hot encoding to integer columns
-X_gp_encoded, column_info = one_hot_encode_integer_columns(X_gp)
-
-print(f"One-hot encoded GP data shape: {X_gp_encoded.shape}")
-print("Column encoding info:")
-for i, info in enumerate(column_info):
-    if info["type"] == "one_hot":
-        print(f"  Column {i}: {info['num_classes']} classes (values {info['min_value']}-{info['max_value']})")
+# Simple data info prints
+# print("Encoded dataset info:")
+# print(f"  X shape: {tuple(X_enc.shape)}  | y shape: {tuple(y_enc.shape)}")
+# print("  First 5 X rows:\n", X_enc[:5])
+# print("  First 5 y:", y_enc[:5])
+# print("  Last 5 X rows:\n", X_enc[-5:])
+# print("  Last 5 y:", y_enc[-5:])
+def M2AX_GPvsPFN(num_seeds=20,
+    test_size=0.2, 
+    num_runs=16, 
+    num_epochs=10000, 
+    lr=0.1, 
+    convergence_patience=10,
+    optimizer_class=torch.optim.Adam,
+    initializer_class=None,
+    gp_device='cpu',
+    amp_device='cuda',
+    save_path='./results'
+    ):
+    # Load the data
+    X, y = load_m2ax_data()
+    title = f"M2AX_{test_size}test"
+    if save_path is not None:
+        plot_save_path = f"{save_path}/plots"
     else:
-        print(f"  Column {i}: continuous")
+        plot_save_path = None
+        
+    device = gp_device
+    print(f"Device: {device}")
+    amp_device = "cuda" if torch.cuda.is_available() else "cpu"
+    amp_dtype = torch.float32
+    dtype = torch.float64
 
-# Split the GP data
-X_gp_train, X_gp_test, y_gp_train, y_gp_test = train_test_split(
-    X_gp_encoded.numpy(), y_gp.numpy(), test_size=0.2, random_state=seed
-)
+    # Initialize results storage
 
-print(f"GP train shape: {X_gp_train.shape}")
-print(f"GP test shape: {X_gp_test.shape}")
+    print("="*60)
+    print(f"{title}: TabPFN vs GP Comparison")
+    print("="*60)
 
-# Convert back to torch tensors for GP processing
-X_gp_train = torch.tensor(X_gp_train, dtype=dtype)
-X_gp_test = torch.tensor(X_gp_test, dtype=dtype)
-y_gp_train = torch.tensor(y_gp_train, dtype=dtype)
-y_gp_test = torch.tensor(y_gp_test, dtype=dtype)
+    # Prepare encoded data once from already loaded X, y (no extra CSV/label encoding)
+    _qual = learn_encodings(torch.tensor(X, dtype=dtype))
 
-print("GP M2AX data preparation complete!")
-print("="*50)
+    X_enc, cat_cols, _source_cols = encode_qual_data(torch.tensor(X, dtype=dtype), noncont_dict=_qual, source_col=None)
+    y_enc = torch.tensor(y, dtype=dtype)
 
+    TabPFN_M2AX_metrics = []
+    GPPlus_M2AX_metrics = []
+    set_seed(0)  # Set global seed for reproducible seeds
+    seeds = np.random.RandomState(0).choice(10**6, size=num_seeds, replace=False).tolist()
+    for i, seed in enumerate(seeds):
+        print(f"\n{'='*20} {title} SEED {i+1}/{num_seeds}: {seed} {'='*20}")
+        t0 = time.time()
+        
+        X_train, X_test, y_train, y_test = train_test_split(X_enc.numpy(), y_enc.numpy(), test_size=test_size, random_state=seed)
+        # =============================================================================
+        # GP M2AX Section 
+        # =============================================================================
+        print(f"\n--- {title} GP Evaluation ---")
 
+        # Reuse PFN split, convert to torch
+        X_gp_train = torch.tensor(X_train, dtype=dtype)
+        X_gp_test = torch.tensor(X_test, dtype=dtype)
+        y_gp_train = torch.tensor(y_train, dtype=dtype)
+        y_gp_test = torch.tensor(y_test, dtype=dtype)
 
+        # Normalize the GP data
+        y_gp_train_mean = y_gp_train.mean()
+        y_gp_train_std = y_gp_train.std()
+        y_gp_train_normal = (y_gp_train - y_gp_train_mean) / y_gp_train_std
+
+        # cat_cols was returned by the encoder; CombinedKernel expects only cat indices
+        # print(cat_cols)
+        kernel = gpplus.kernels.CombinedKernel(cat_cols=cat_cols)
+
+        # Create GP model
+        model = gpplus.models.GPR(
+            X_gp_train,
+            y_gp_train_normal,
+            kernel_module=kernel,
+            # likelihood=gpytorch.likelihoods.GaussianLikelihood(
+                # noise_constraint=gpytorch.constraints.GreaterThan(1e-6), 
+                # noise_prior=gpytorch.priors.LogNormalPrior(loc=np.log(y_gp_train_std**2), scale=1.0)),
+
+        )
+        if (i == 0) or (i == len(seeds) - 1):
+            print(model)
+
+        # Create trainer
+        gp_metric, y_pred_gp, output_std_gp = train_eval_gp(
+            model,
+            X_gp_test,
+            y_gp_test,
+            num_epochs=num_epochs,
+            seed=seed,
+            num_runs=num_runs,
+            lr=lr,
+            convergence_patience=convergence_patience,
+            optimizer_class=optimizer_class,
+            initializer_class=initializer_class,
+            device=device,
+            y_train_mean=y_gp_train_mean,
+            y_train_std=y_gp_train_std,
+        )
+        GPPlus_M2AX_metrics.append(gp_metric)
+
+        print(f"\nGP Results (Seed {seed}) [{i+1}/{len(seeds)}]")
+        for k, v in gp_metric.items():
+            print(f"  {k}: {v:.4f}")
+
+        # =============================================================================
+        # TabPFN Section
+        # =============================================================================
+        print(f"\n--- {title} TabPFN Evaluation ---")
+        
+        tabpfn_metric, y_pred_tabpfn, output_std_tabpfn = train_eval_PFN(
+            X_train,
+            X_test,
+            y_train,
+            y_test,
+            device=device,
+            amp_device=amp_device,
+            amp_dtype=amp_dtype,
+        )
+        TabPFN_M2AX_metrics.append(tabpfn_metric)
+
+        # Print results for this seed
+        print(f"\nTabPFN Results (Seed {seed}) [{i+1}/{len(seeds)}]")
+        for k, v in tabpfn_metric.items():
+            print(f"  {k}: {v:.4f}")
+        
+    # =============================================================================
+    # Final Results Summary
+    # =============================================================================
+    print("\n" + "="*60)
+    print("FINAL RESULTS SUMMARY")
+    print("="*60)
+
+    # Summaries via analyze_metrics
+    TabPFN_M2AX_summary = analyze_metrics(TabPFN_M2AX_metrics, print_summary=True, label="TabPFN", title=title)
+    GPPlus_M2AX_summary = analyze_metrics(GPPlus_M2AX_metrics, print_summary=True, label="GP", title=title)
+    
+    if save_path is not None:
+        plot_metrics(TabPFN_M2AX_metrics, GPPlus_M2AX_metrics, labels=["TabPFN", "GP"], title=title, save_path=plot_save_path)
+        # Save raw metrics and summaries
+        out_dir = Path(save_path)
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        try:
+            (out_dir / f"tabpfn_metrics_{title}.json").write_text(json.dumps(TabPFN_M2AX_metrics, indent=2))
+            (out_dir / f"gp_metrics_{title}.json").write_text(json.dumps(GPPlus_M2AX_metrics, indent=2))
+            (out_dir / f"tabpfn_summary_{title}.json").write_text(json.dumps(TabPFN_M2AX_summary, indent=2))
+            (out_dir / f"gp_summary_{title}.json").write_text(json.dumps(GPPlus_M2AX_summary, indent=2))
+        except Exception:
+            pass
+    print(f"\nTotal experiment time for {len(seeds)} seeds: {time.time() - t0:.2f}s")
+    print("="*60)
+    print(f"GP trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {device}")
+    print(f"Experiment details: \n\ttest size: {test_size} ({len(X_test)} test samples, {len(X_train)} train samples)\n\tseeds: {seeds}")
+
+    return GPPlus_M2AX_metrics, TabPFN_M2AX_metrics,
+
+if __name__ == "__main__":
+    # M2AX_GPvsPFN()
+    M2AX_GPvsPFN(num_seeds=2, num_runs=1, num_epochs=10)

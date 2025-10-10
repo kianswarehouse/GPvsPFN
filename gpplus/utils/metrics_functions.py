@@ -63,6 +63,163 @@ def compute_metrics(y_true, y_hat, output_std=None, start_time=None):
     return metrics
 
 
+def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None, title: str = None):
+    """
+    Summarize metrics across seeds for RRMSE and NIS.
+
+    Args:
+        metrics_list: list of dicts, each containing metric values for a seed
+
+    Returns:
+        dict with per-metric summary: {metric: {mean, std, median, min, max}}
+    """
+    import numpy as np
+    import pandas as pd
+
+    if metrics_list is None or len(metrics_list) == 0:
+        return {}
+
+    df = pd.DataFrame(metrics_list)
+
+    # Mean/std for all available metric columns
+    # Detailed stats for specific metrics
+    detailed = {}
+    for m in ["RRMSE", "NIS", "Time"]:
+        if m in df.columns:
+            vals = df[m].dropna().values
+            if len(vals) == 0:
+                continue
+            vals = vals.astype(float)
+            detailed[m] = {
+                "mean": float(np.mean(vals)),
+                "std": float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0,
+                "median": float(np.median(vals)),
+                "min": float(np.min(vals)),
+                "max": float(np.max(vals)),
+                "count": int(len(vals)),
+            }
+
+    if print_summary and len(detailed) > 0:
+        header = f"{label} summary" if label else "Summary"
+        label_print = (label or 'Summary')
+
+        if title:
+            print(f"\n{label_print} over {len(metrics_list)} seeds for {title} (RRMSE, NIS):")
+        else:
+            print(f"\n{label_print} over {len(metrics_list)} seeds (RRMSE, NIS):")
+
+        for m, s in detailed.items():
+            print(
+                f"  {m}: median={s['median']:.6f} | min={s['min']:.6f} | max={s['max']:.6f} | "
+                f"mean={s['mean']:.6f} ± {s['std']:.6f} (n={s['count']})"
+            )
+
+    return detailed
+
+
+def plot_metrics(*args, labels: list = None, title: str = None, save_path: str = None):
+    """
+    Plot per-seed metric VALUES (not aggregates) for multiple runs as violin plots.
+
+    Args:
+        metrics_lists: list of lists, where each inner list is a metrics_list
+                       (the same structure you pass to analyze_metrics), i.e.,
+                       a list of dicts with keys like 'RRMSE', 'NIS', 'Time'.
+        labels: optional list of names for each metrics_list; defaults to
+                ["run_0", ...].
+
+    Produces two figures (RRMSE, NIS) with one violin per input label.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    # Normalize inputs: allow plot_metric_values(run1, run2, ...) or plot_metric_values([run1, run2, ...])
+    if len(args) == 1 and isinstance(args[0], list) and (
+        len(args[0]) == 0 or isinstance(args[0][0], (dict, list))
+    ):
+        metrics_lists = args[0]
+    else:
+        metrics_lists = list(args)
+
+    if labels is None:
+        labels = [f"run_{i}" for i in range(len(metrics_lists))]
+
+    def extract(vals_list, key):
+        out = []
+        for ml in metrics_lists:
+            # ml should be list[dict]
+            if not isinstance(ml, list):
+                out.append(np.array([], dtype=float))
+                continue
+            arr = [d[key] for d in ml if isinstance(d, dict) and key in d and d[key] is not None]
+            out.append(np.array(arr, dtype=float) if len(arr) > 0 else np.array([], dtype=float))
+        return out
+
+    # Determine a representative seed count (use min across lists to be safe)
+    seed_counts = []
+    for ml in metrics_lists:
+        seed_counts.append(len(ml) if isinstance(ml, list) else 0)
+    n_seeds = min(seed_counts) if len(seed_counts) > 0 else 0
+
+    for metric in ["RRMSE", "NIS"]:
+        data = extract(metrics_lists, metric)
+        fig, ax = plt.subplots(figsize=(7, 4))
+        parts = ax.violinplot(data, showmeans=False, showmedians=False, showextrema=True)
+        for pc in parts['bodies']:
+            pc.set_facecolor('#888888')
+            pc.set_edgecolor('black')
+            pc.set_alpha(0.7)
+
+        # Overlay mean (blue) and median (red) lines
+        for i, arr in enumerate(data, start=1):
+            if arr.size == 0:
+                continue
+            mean_v = float(np.mean(arr))
+            med_v = float(np.median(arr))
+            ax.hlines(mean_v, i - 0.25, i + 0.25, colors='blue', linewidth=2)
+            ax.hlines(med_v, i - 0.25, i + 0.25, colors='red', linewidth=2)
+
+        # Legend: blue = mean, red = median
+        try:
+            from matplotlib.lines import Line2D
+            legend_handles = [
+                Line2D([0], [0], color='blue', lw=2, label='Mean'),
+                Line2D([0], [0], color='red', lw=2, label='Median'),
+            ]
+            ax.legend(handles=legend_handles, loc='upper right', frameon=False)
+        except Exception:
+            pass
+
+        ax.set_xticks(np.arange(1, len(labels) + 1))
+        ax.set_xticklabels(labels)
+        ax.set_ylabel(metric)
+        if title:
+            try:
+                fig.suptitle(title)
+                ax.set_title(f"{metric} per-seed distribution (n={n_seeds})")
+            except Exception:
+                ax.set_title(f"{metric} per-seed distribution - {title} (n={n_seeds})")
+        else:
+            ax.set_title(f"{metric} per-seed distribution (n={n_seeds})")
+        ax.grid(axis='y', linestyle=':', alpha=0.4)
+        plt.tight_layout()
+
+        # Save if a directory is provided
+        if save_path is not None:
+            from pathlib import Path
+            p = Path(save_path)
+            try:
+                p.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+            fname = f"{metric.lower()}" + (f"_{title}" if title else "") + ".png"
+            try:
+                fig.savefig(str(p / fname), dpi=300, bbox_inches="tight")
+            except Exception:
+                pass
+        else:
+            plt.show()
+
 def compute_per_source_metrics(y_true, y_hat, output_std, X_test, source_columns, start_time=None):
     """
     Compute metrics for each source separately.
