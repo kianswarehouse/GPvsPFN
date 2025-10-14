@@ -97,6 +97,10 @@ def planes_GPvsPFN(num_seeds=20,
     print(f" GP Device: {device}")
     print(f" TabPFN Device: {amp_device}")
     regressor = VanillaDirectTabPFNRegressor(device=amp_device)
+    if save_path is not None:
+        plot_save_path = f"{save_path}/plots"
+    else:
+        plot_save_path = None
     # Initialize results storage
 
     print("="*60)
@@ -278,7 +282,7 @@ def planes_GPvsPFN(num_seeds=20,
     # Add model info to GP summary if available
     
     if save_path is not None:
-        plot_metrics(TabPFN_planes_metrics, GPPlus_planes_metrics, labels=["TabPFN", "GP"], title="planes", save_path=save_path)
+        plot_metrics(TabPFN_planes_metrics, GPPlus_planes_metrics, labels=["TabPFN", "GP"], title=title, save_path=plot_save_path)
         # Save raw metrics and summaries
         out_dir = Path(save_path)
         try:
