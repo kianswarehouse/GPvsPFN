@@ -14,6 +14,7 @@ import time
 from gpplus.training.eval import evaluate_gp_model
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
+from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
 
 # import warnings
 # warnings.filterwarnings("ignore")
@@ -71,38 +72,44 @@ def load_m2ax_data(print_info=False):
 # print("  First 5 y:", y_enc[:5])
 # print("  Last 5 X rows:\n", X_enc[-5:])
 # print("  Last 5 y:", y_enc[-5:])
-def M2AX_GPvsPFN(num_seeds=20,
-    test_size=0.2, 
-    num_runs=16, 
-    num_epochs=10000, 
-    lr=0.1, 
-    convergence_patience=10,
-    optimizer_class=torch.optim.Adam,
-    initializer_class=None,
-    gp_device='cpu',
-    amp_device='cuda',
-    save_path='./results/M2AX'
+def M2AX_GPvsPFN(
+        num_seeds=20,
+        test_size=0.2, 
+        num_runs=16, 
+        num_epochs=10000, 
+        lr=0.1, 
+        convergence_patience=10,
+        optimizer_class=torch.optim.Adam,
+        initializer_class=None,
+        gp_device='cpu',
+        amp_device='cuda',
+        save_path='./results/M2AX',
+        title=None,
     ):
+
+    if title is None:
+        title = f"M2AX_{test_size}tsize_{num_epochs}epochs_{num_runs}runs_{lr}"
+    else: 
+        title = f"M2AX_{title}"
     # Load the data
     X, y = load_m2ax_data()
-    title = f"M2AX_{test_size}test"
     if save_path is not None:
         plot_save_path = f"{save_path}/plots"
     else:
         plot_save_path = None
         
     device = gp_device
-    print(f"Device: {device}")
-    amp_device = "cuda" if torch.cuda.is_available() else "cpu"
     amp_dtype = torch.float32
     dtype = torch.float64
+    print(f" GP Device: {device}")
+    print(f" TabPFN Device: {amp_device}")
+    regressor = VanillaDirectTabPFNRegressor(device=amp_device)
 
     # Initialize results storage
 
     print("="*60)
     print(f"{title}: TabPFN vs GP Comparison")
     print("="*60)
-
     # Prepare encoded data once from already loaded X, y (no extra CSV/label encoding)
     qual_dict = learn_encodings(torch.tensor(X, dtype=dtype))
 
@@ -151,29 +158,6 @@ def M2AX_GPvsPFN(num_seeds=20,
         )
         if (i == 0) or (i == len(seeds) - 1):
             print(model)
-        
-        # Collect model info from first seed
-        if i == 0:
-            gp_model_info = {
-                "model_str": str(model),
-                "cont_cols": cont_cols,
-                "cat_cols": cat_cols,
-                "source_cols": source_cols,
-                "qual_dict": qual_dict,
-                "input_dim": X_gp_train.shape[1],
-                "train_samples": X_gp_train.shape[0],
-                "test_samples": X_gp_test.shape[0],
-                "y_train_mean": float(y_gp_train_mean.item()),
-                "y_train_std": float(y_gp_train_std.item()),
-                "dtype": str(dtype),
-                "device": str(device),
-                "num_epochs": num_epochs,
-                "num_runs": num_runs,
-                "lr": lr,
-                "optimizer": optimizer_class.__name__,
-                "convergence_patience": convergence_patience,
-                "initializer": initializer_class.__name__ if initializer_class else None
-            }
 
         # Create trainer
         gp_metric, y_pred_gp, output_std_gp = train_eval_gp(
@@ -207,9 +191,9 @@ def M2AX_GPvsPFN(num_seeds=20,
             X_test,
             y_train,
             y_test,
-            device=device,
             amp_device=amp_device,
             amp_dtype=amp_dtype,
+            regressor=regressor,
         )
         TabPFN_M2AX_metrics.append(tabpfn_metric)
 
@@ -218,6 +202,41 @@ def M2AX_GPvsPFN(num_seeds=20,
         for k, v in tabpfn_metric.items():
             print(f"  {k}: {v:.4f}")
         
+        if i == 0:
+            gp_model_info = {
+                "model_str": str(model),
+                "cont_cols": cont_cols,
+                "cat_cols": cat_cols,
+                "source_cols": source_cols,
+                "qual_dict": qual_dict,
+                "input_dim": X_gp_train.shape[1],
+                "train_samples": X_gp_train.shape[0],
+                "test_samples": X_gp_test.shape[0],
+                "y_train_mean": float(y_gp_train_mean.item()),
+                "y_train_std": float(y_gp_train_std.item()),
+                "dtype": str(dtype),
+                "device": str(device),
+                "num_epochs": num_epochs,
+                "num_runs": num_runs,
+                "lr": lr,
+                "optimizer": optimizer_class.__name__,
+                "convergence_patience": convergence_patience,
+                "initializer": initializer_class.__name__ if initializer_class else None
+
+                # Collect TabPFN model information
+            }
+            tabpfn_model_info = {
+                "model_path": regressor.model_path,
+                "fit_mode": regressor.fit_mode,
+                "device": str(regressor.device_),
+                "inference_precision": regressor.inference_precision,
+                "random_state": regressor.random_state,
+                "use_autocast": regressor.use_autocast_,
+                "forced_inference_dtype": str(regressor.forced_inference_dtype_) if regressor.forced_inference_dtype_ else None,
+                "train_samples": len(X_train),
+                "test_samples": len(X_test),
+            }
+
     # =============================================================================
     # Final Results Summary
     # =============================================================================
@@ -229,9 +248,6 @@ def M2AX_GPvsPFN(num_seeds=20,
     TabPFN_M2AX_summary = analyze_metrics(TabPFN_M2AX_metrics, print_summary=True, label="TabPFN", title=title)
     GPPlus_M2AX_summary = analyze_metrics(GPPlus_M2AX_metrics, print_summary=True, label="GP", title=title)
     
-    # Add model info to GP summary if available
-    GPPlus_M2AX_summary["model_info"] = gp_model_info
-    
     if save_path is not None:
         plot_metrics(TabPFN_M2AX_metrics, GPPlus_M2AX_metrics, labels=["TabPFN", "GP"], title=title, save_path=plot_save_path)
         # Save raw metrics and summaries
@@ -241,10 +257,20 @@ def M2AX_GPvsPFN(num_seeds=20,
         except Exception:
             pass
         try:
-            (out_dir / f"tabpfn_metrics_{title}.json").write_text(json.dumps(TabPFN_M2AX_metrics, indent=2))
-            (out_dir / f"gp_metrics_{title}.json").write_text(json.dumps(GPPlus_M2AX_metrics, indent=2))
-            (out_dir / f"tabpfn_summary_{title}.json").write_text(json.dumps(TabPFN_M2AX_summary, indent=2))
-            (out_dir / f"gp_summary_{title}.json").write_text(json.dumps(GPPlus_M2AX_summary, indent=2))
+            # Combined single file: TabPFN data + GP data + GP model_info at the end
+            combined_data = {
+                "tabpfn_data": {
+                    "summary": TabPFN_M2AX_summary,
+                    "metrics": TabPFN_M2AX_metrics,
+                    "pfn_model_info": tabpfn_model_info
+                },
+                "gp_data": {
+                    "summary": GPPlus_M2AX_summary,
+                    "metrics": GPPlus_M2AX_metrics,
+                    "gp_model_info": gp_model_info
+                },
+            }
+            (out_dir / f"combined_{title}.json").write_text(json.dumps(combined_data, indent=2))
         except Exception:
             pass
     print(f"\nTotal experiment time for {len(seeds)} seeds: {time.time() - t0:.2f}s")

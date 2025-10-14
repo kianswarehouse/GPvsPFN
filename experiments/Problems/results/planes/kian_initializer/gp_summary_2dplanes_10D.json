@@ -1,0 +1,107 @@
+{
+  "RRMSE": {
+    "mean": 0.2954300476235196,
+    "std": 0.025462762097363378,
+    "median": 0.28610145930440184,
+    "min": 0.25796939621465126,
+    "max": 0.34567814367969335,
+    "count": 20
+  },
+  "NIS": {
+    "mean": 2.7712701112899074,
+    "std": 0.33007349935104835,
+    "median": 2.6809417130106405,
+    "min": 2.3462470151019668,
+    "max": 3.697687585509646,
+    "count": 20
+  },
+  "Time": {
+    "mean": 3.093782365322113,
+    "std": 1.9433420475417562,
+    "median": 2.650196671485901,
+    "min": 2.0369441509246826,
+    "max": 11.079651832580566,
+    "count": 20
+  },
+  "model_info": {
+    "model_str": "GPR(\n  (likelihood): GaussianLikelihood(\n    (noise_covar): HomoskedasticNoise(\n      (raw_noise_constraint): GreaterThan(1.000E-04)\n    )\n  )\n  (mean_module): ConstantMean()\n  (covar_module): CombinedKernel(\n    (cat_kernel): GaussianKernel(\n      (raw_lengthscale_constraint): SoftClamp(-6.0, 3.0, margin=0.009999999776482582)\n    )\n    (cat_encoder_0): MatrixEncoder()\n    (cat_encoder_1): MatrixEncoder()\n    (cat_encoder_2): MatrixEncoder()\n    (cat_encoder_3): MatrixEncoder()\n    (cat_encoder_4): MatrixEncoder()\n    (cat_encoder_5): MatrixEncoder()\n    (cat_encoder_6): MatrixEncoder()\n    (cat_encoder_7): MatrixEncoder()\n    (cat_encoder_8): MatrixEncoder()\n    (cat_encoder_9): MatrixEncoder()\n  )\n)",
+    "cat_cols": [
+      [
+        0,
+        1
+      ],
+      [
+        2,
+        3,
+        4
+      ],
+      [
+        5,
+        6,
+        7
+      ],
+      [
+        8,
+        9,
+        10
+      ],
+      [
+        11,
+        12,
+        13
+      ],
+      [
+        14,
+        15,
+        16
+      ],
+      [
+        17,
+        18,
+        19
+      ],
+      [
+        20,
+        21,
+        22
+      ],
+      [
+        23,
+        24,
+        25
+      ],
+      [
+        26,
+        27,
+        28
+      ]
+    ],
+    "cont_cols": [],
+    "source_cols": [],
+    "qual_dict": {
+      "0": 2,
+      "1": 3,
+      "2": 3,
+      "3": 3,
+      "4": 3,
+      "5": 3,
+      "6": 3,
+      "7": 3,
+      "8": 3,
+      "9": 3
+    },
+    "input_dim": 29,
+    "train_samples": 100,
+    "test_samples": 5000,
+    "y_train_mean": -0.32667413470800966,
+    "y_train_std": 4.299075770383154,
+    "dtype": "torch.float64",
+    "device": "cpu",
+    "num_epochs": 10000,
+    "num_runs": 16,
+    "lr": 0.1,
+    "optimizer": "Adam",
+    "convergence_patience": 10,
+    "initializer": "DefaultParameterInitializer"
+  }
+}

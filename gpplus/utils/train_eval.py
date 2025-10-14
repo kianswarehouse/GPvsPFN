@@ -70,7 +70,6 @@ def train_eval_PFN(
     y_train,
     y_test,
     *,
-    device: str,
     amp_device: str,
     amp_dtype,
     regressor=None,
@@ -84,7 +83,7 @@ def train_eval_PFN(
     import torch
 
     if regressor is None:
-        regressor = VanillaDirectTabPFNRegressor(device=device)
+        regressor = VanillaDirectTabPFNRegressor(device=amp_device)
 
     X_all = np.concatenate([X_train, X_test], axis=0)
     Y_all = np.concatenate([y_train, np.zeros_like(y_test)], axis=0)

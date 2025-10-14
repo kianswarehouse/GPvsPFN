@@ -23,7 +23,7 @@ class ParameterInitializer(ABC):
         raise NotImplementedError
 
 
-class DefaultParameterInitializer(ParameterInitializer):
+class KianParameterInitializer(ParameterInitializer):
     def __init__(self, num_runs: int, seed: int = None):
         """
         :param num_runs: Total number of initialization runs.
