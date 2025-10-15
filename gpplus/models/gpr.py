@@ -4,7 +4,8 @@ import gpytorch
 import torch
 
 from ..config import logger
-from ..kernels import GaussianKernel, ProcessVarianceKernel
+from ..kernels import GaussianKernel, LogScaleKernel
+from ..likelihoods import LogGaussianLikelihood
 
 
 class GPR(gpytorch.models.ExactGP):
@@ -13,7 +14,7 @@ class GPR(gpytorch.models.ExactGP):
     The GPR class encapsulates:
       - A mean module (defaults to ConstantMean if None).
       - A kernel module (defaults to a Scale Gaussian kernel if None).
-      - A likelihood module (defaults to GaussianLikelihood if None).
+      - A likelihood module (defaults to LogGaussianLikelihood if None).
 
     Attributes:
         mean_module (gpytorch.means.Mean): The mean function of the GP.
@@ -27,8 +28,6 @@ class GPR(gpytorch.models.ExactGP):
         likelihood: gpytorch.likelihoods.Likelihood = None,
         mean_module: gpytorch.means.Mean = None,
         kernel_module: gpytorch.kernels.Kernel = None,
-        dtype: torch.float32 = None,
-        learnable_priors=False,
     ):
         """Initializes GPR.
 
@@ -40,27 +39,22 @@ class GPR(gpytorch.models.ExactGP):
             mean_module (gpytorch.means.Mean, optional): Mean function. Defaults to ConstantMean if None.
             kernel_module (gpytorch.kernels.Kernel, optional): Covariance kernel function.
                 Defaults to a ScaleKernel * Gaussian combo if None.
-            learnable_priors (bool, optional): If True, registers learnable Normal priors to the likelihood. 
-                Defaults to False.
 
         Raises:
             TypeError: If any of `train_x`, `train_y`, or `likelihood` are of incorrect types.
         """
-        if dtype is None:
-            self.dtype = train_x.dtype
-        else:
-            self.dtype = dtype
+        self.dtype = train_x.dtype
 
         if likelihood is None:
-            likelihood = gpytorch.likelihoods.GaussianLikelihood()
-            logger.warning("No likelihood provided. Using GaussianLikelihood as default.")
+            likelihood = LogGaussianLikelihood()
+            logger.warning("No likelihood provided. Using LogGaussianLikelihood as default.")
 
         if mean_module is None:
             mean_module = gpytorch.means.ConstantMean()
             logger.warning("No mean_module provided. Using ConstantMean as default.")
 
         if kernel_module is None:
-            kernel_module = ProcessVarianceKernel(GaussianKernel())
+            kernel_module = LogScaleKernel(GaussianKernel())
             logger.warning("No kernel_module provided. Using Gaussian Kernel as default.")
 
         if not isinstance(train_x, torch.Tensor) or not isinstance(train_y, torch.Tensor):
@@ -69,10 +63,19 @@ class GPR(gpytorch.models.ExactGP):
 
         logger.debug(f"train_x shape: {train_x.shape}, train_y shape: {train_y.shape}")
 
+        if not isinstance(likelihood, gpytorch.likelihoods.Likelihood):
+            logger.error("likelihood must be an instance of gpytorch.likelihoods.Likelihood.")
+            raise TypeError("likelihood must be an instance of gpytorch.likelihoods.Likelihood.")
+
         super().__init__(train_x, train_y, likelihood)
 
         self.mean_module = mean_module
         self.covar_module = kernel_module
+
+        # Ensure all components use the same dtype as the input data
+        self.mean_module = self.mean_module.to(dtype=self.dtype)
+        self.covar_module = self.covar_module.to(dtype=self.dtype)
+        self.likelihood = self.likelihood.to(dtype=self.dtype)
 
     def forward(self, x: torch.Tensor) -> gpytorch.distributions.MultivariateNormal:
         """Runs the forward pass of the Gaussian Process model with ensembling
@@ -93,8 +96,8 @@ class GPR(gpytorch.models.ExactGP):
             logger.error("Input x must be a torch.Tensor instance.")
             raise TypeError("Input x must be a torch.Tensor.")
 
-        mean = self.mean_module(x).to(self.dtype)
-        covar = self.covar_module(x).to(self.dtype)
+        mean = self.mean_module(x)
+        covar = self.covar_module(x)
         return gpytorch.distributions.MultivariateNormal(mean, covar)
 
     def save(self, filepath: str = "model_weights.pth") -> None:
