@@ -16,5 +16,4 @@ from .power_exponential_kernel import (
     PowerExponentialKernel,
     PowerExponentialKernelFixed,
 )
-from .combined_kernel import CombinedKernel
-from .process_variance_kernel import ProcessVarianceKernel
+from .log_scale_kernel import LogScaleKernel
