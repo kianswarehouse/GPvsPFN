@@ -3,7 +3,6 @@ import os
 from typing import List, Optional
 
 import gpytorch
-import scipy
 import torch
 from joblib import Parallel, delayed
 
@@ -37,7 +36,7 @@ class GPTrainer:
         model,
         optimizer_class: torch.optim.Optimizer = None,
         optimizer_kwargs: dict = None,
-        scheduler_class: torch.optim.lr_scheduler._LRScheduler = None,
+        scheduler_class: torch.optim.lr_scheduler.LRScheduler = None,
         scheduler_kwargs: dict = None,
         num_epochs: int = 50,
         convergence_patience=20,  # Stop if no improvement for 20 epochs
@@ -49,12 +48,7 @@ class GPTrainer:
         initializer_class: ParameterInitializer = None,
         initializer_kwargs: dict = None,
         device: str = "cpu",
-        map_prior: bool = False,
-        track_loocv: bool = True,
-        loocv_log_freq: int = 50,
-        use_loocv_objective: bool = False,
         min_loss_change: float = 1e-7,
-        dtype: torch.dtype = torch.float64,
     ):
         # -------------------------------------------------------
         # Set up the device (CPU or CUDA)
@@ -79,14 +73,15 @@ class GPTrainer:
         self.seed = seed
         self.callbacks = callbacks or []
         self.cholesky_jitter = cholesky_jitter
-        self.map_prior = map_prior
-        self.track_loocv = track_loocv
-        self.loocv_log_freq = loocv_log_freq
-        self.use_loocv_objective = use_loocv_objective
         self.min_loss_change = min_loss_change
         self.scheduler_class = scheduler_class
         self.scheduler_kwargs = scheduler_kwargs
-        self.dtype = dtype
+        # Get dtype from the model (which should be set from input data)
+        if hasattr(model, "dtype") and model.dtype is not None:
+            self.dtype = model.dtype
+        else:
+            self.dtype = torch.float64
+            logger.warning(f"Model has no dtype attribute. Using {self.dtype} as fallback.")
 
         """
         # Initialize model parameters if requested
@@ -110,15 +105,17 @@ class GPTrainer:
         # --------------------------------------------------
         # Handle optimizer class, use LBFGS as default
         if optimizer_class is None:
-            self.optimizer_class = scipy.optimize.LBFGS  # torch.optim.Adam # scipy.optimize.LBFGS # torch.optim.LBFGS
-            logger.warning("No optimizer class passed. Defaulting to LBFGS optimizer.")
+            from .optimizers import LBFGSScipy
+
+            self.optimizer_class = LBFGSScipy
+            logger.warning("No optimizer class passed. Defaulting to LBFGS Scipy optimizer.")
         else:
             self.optimizer_class = optimizer_class
 
         # Handle optimizer arguments
         if optimizer_kwargs is None:
-            self.optimizer_kwargs = {"lr": 0.1, "line_search_fn": "strong_wolfe"}
-            logger.warning("No optimizer arguments passed. Defaulting to learning rate of 0.1")
+            self.optimizer_kwargs = {"max_iter": 20}  # Default for LBFGSScipy
+            logger.warning("No optimizer arguments passed. Defaulting to max_iter=20")
         else:
             self.optimizer_kwargs = optimizer_kwargs
 
@@ -165,15 +162,9 @@ class GPTrainer:
             cholesky_jitter=self.cholesky_jitter,
             callbacks=callbacks_copy,
             device=self.device,
-            map_prior=self.map_prior,
-            track_loocv=self.track_loocv,
-            loocv_log_freq=self.loocv_log_freq,
-            use_loocv_objective=self.use_loocv_objective,
             min_loss_change=self.min_loss_change,
             scheduler_class=self.scheduler_class,
             scheduler_kwargs=self.scheduler_kwargs,
-            use_gradual_jitter=False,
-            dtype=self.dtype,
         )
         train_result = run.train()
 
@@ -219,23 +210,6 @@ class GPTrainer:
                 }
 
         def _worker_init(seed=self.seed, cg_tol=5e-3, max_iters=2000):
-            # import os, random, numpy as np, torch
-            # BLAS / OpenMP
-            # os.environ["OPENBLAS_NUM_THREADS"] = "1"    # ???
-            # os.environ["OMP_NUM_THREADS"]      = "1"    # ???
-            # # RNGs
-            # random.seed(seed)
-            # np.random.seed(seed)
-            # torch.manual_seed(seed)
-            # torch.cuda.manual_seed_all(seed)
-            # torch.set_num_threads(1)
-            # torch.set_num_interop_threads(1)
-            # torch.use_deterministic_algorithms(True)
-            # torch.backends.cudnn.deterministic = True
-            # torch.backends.cudnn.benchmark     = False
-            # GPyTorch & LO settings
-            # import gpytorch.settings as gpts
-            # gpts.max_cholesky_size._global_value = 10_000
             from gpytorch.settings import max_cholesky_size
 
             max_cholesky_size._global_value = 10_000
@@ -250,7 +224,7 @@ class GPTrainer:
             logger.info(
                 f"Running {self.num_runs} runs using {max_jobs} parallel jobs on {os.cpu_count()} available CPU cores."
             )
-            results = Parallel(n_jobs=max_jobs, backend="loky", verbose=11)(
+            results = Parallel(n_jobs=max_jobs, backend="threading", verbose=11)(
                 delayed(safe_single_process)(run_index) for run_index in range(self.num_runs)
             )
 
@@ -261,7 +235,7 @@ class GPTrainer:
             max_jobs = min(self.num_runs, num_gpus)
             logger.info(f"Running {self.num_runs} runs distributed across {num_gpus} GPUs.")
 
-            results = Parallel(n_jobs=max_jobs, backend="loky", verbose=11)(
+            results = Parallel(n_jobs=max_jobs, backend="threading", verbose=11)(
                 # For each run, choose a GPU device based on the run index.
                 delayed(safe_single_process)(run_index, device_override=torch.device(f"cuda:{run_index % num_gpus}"))
                 for run_index in range(self.num_runs)
