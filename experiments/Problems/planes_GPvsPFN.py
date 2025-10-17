@@ -177,7 +177,7 @@ def planes_GPvsPFN(num_seeds=20,
 
         # cat_cols was returned by the encoder; CombinedKernel expects only cat indices
         # print(cat_cols)
-        kernel = gpplus.kernels.CombinedKernel(cat_cols=cat_cols)
+        kernel = gpplus.kernels.LogScaleKernel(gpplus.kernels.CombinedKernel(cat_cols=cat_cols))
 
         # Create GP model
         model = gpplus.models.GPR(

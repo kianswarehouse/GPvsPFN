@@ -1,21 +1,22 @@
 from M2AX_GPvsPFN import M2AX_GPvsPFN
 from planes_GPvsPFN import planes_GPvsPFN
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
-from gpplus.training.parameter_initializer_kian import KianParameterInitializer as KianInitializer
+from gpplus.training.parameter_initializer import DefaultParameterInitializer
 
-initializer_class = KianInitializer
+initializer_class = DefaultParameterInitializer
 # %% M2AX ------------------------------------------------------------------------------------------------
-num_epochs_list = [10, 10000, 10, 10000, 10, 10000]
-num_runs_list = [1, 1, 4, 4, 16, 16]
+# num_epochs_list = [10, 10000, 10, 10000, 10, 10000]
+num_epochs_list = [10000, 10000]
+num_runs_list = [4, 16]
 lr = 0.1
 save_path_m2ax = "./results/m2ax/prior"
 for i in range(len(num_epochs_list)):
     num_epochs = num_epochs_list[i]
     num_runs = num_runs_list[i]
-    gp_metrics_2, tabpfn_metrics_2 = M2AX_GPvsPFN(test_size=0.2, num_epochs=num_epochs, num_runs=num_runs, lr=lr, save_path=save_path_m2ax, initializer_class=KianInitializer)
-    gp_metrics_4, tabpfn_metrics_4 = M2AX_GPvsPFN(test_size=0.4, num_epochs=num_epochs, num_runs=num_runs, lr=lr, save_path=save_path_m2ax, initializer_class=KianInitializer)
-    gp_metrics_6, tabpfn_metrics_6 = M2AX_GPvsPFN(test_size=0.6, num_epochs=num_epochs, num_runs=num_runs, lr=lr, save_path=save_path_m2ax, initializer_class=KianInitializer)
-    gp_metrics_8, tabpfn_metrics_8 = M2AX_GPvsPFN(test_size=0.8, num_epochs=num_epochs, num_runs=num_runs, lr=lr, save_path=save_path_m2ax, initializer_class=KianInitializer)
+    gp_metrics_2, tabpfn_metrics_2 = M2AX_GPvsPFN(test_size=0.2, num_epochs=num_epochs, num_runs=num_runs, lr=lr, save_path=save_path_m2ax, initializer_class=initializer_class)
+    gp_metrics_4, tabpfn_metrics_4 = M2AX_GPvsPFN(test_size=0.4, num_epochs=num_epochs, num_runs=num_runs, lr=lr, save_path=save_path_m2ax, initializer_class=initializer_class)
+    gp_metrics_6, tabpfn_metrics_6 = M2AX_GPvsPFN(test_size=0.6, num_epochs=num_epochs, num_runs=num_runs, lr=lr, save_path=save_path_m2ax, initializer_class=initializer_class)
+    gp_metrics_8, tabpfn_metrics_8 = M2AX_GPvsPFN(test_size=0.8, num_epochs=num_epochs, num_runs=num_runs, lr=lr, save_path=save_path_m2ax, initializer_class=initializer_class)
 
     analyze_metrics(gp_metrics_2, print_summary=True, label="GP", title="M2AX_0.2test")
     analyze_metrics(tabpfn_metrics_2, print_summary=True, label="TabPFN", title="M2AX_0.2test")

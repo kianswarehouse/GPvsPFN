@@ -7,7 +7,7 @@ from linear_operator.operators import to_dense
 from ..constraints import SoftClamp
 
 # from .kernel import UnconstrainedKernel
-from ..kernels import UnconstrainedKernel
+from .unconstrained_kernel import UnconstrainedKernel
 
 
 class LogScaleKernel(UnconstrainedKernel):

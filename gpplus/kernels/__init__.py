@@ -9,6 +9,7 @@ from .advanced_kernels import (
     NeuralScaleKernel,
     SinhKernel,
 )
+from .combined_kernel import CombinedKernel
 from .unconstrained_kernel import UnconstrainedKernel
 from .gaussian_kernel import GaussianKernel
 from .kronecker import KroneckerKernel

@@ -1,4 +1,3 @@
-
 import time
 
 import numpy as np
@@ -7,7 +6,7 @@ from sklearn.metrics import mean_squared_error
 # from sklearn.metrics import mean_absolute_error, r2_score
 
 
-def compute_metrics(y_true, y_hat, output_std=None, start_time=None):
+def compute_metrics(y_true, y_hat, output_std=None, start_time=None, training_time=None, prediction_time=None):
     """
     Compute basic metrics for predictions.
 
@@ -15,10 +14,12 @@ def compute_metrics(y_true, y_hat, output_std=None, start_time=None):
         y_true: True values (1D array)
         y_hat: Predicted values (1D array)
         output_std: Standard deviation of predictions (optional)
-        start_time: Start time for timing (optional)
+        start_time: Start time for timing (optional, deprecated - use training_time and prediction_time instead)
+        training_time: Training time in seconds (optional)
+        prediction_time: Prediction time in seconds (optional)
 
     Returns:
-        dict: Dictionary with computed metrics
+        dict: Dictionary with computed metrics including time information
     """
     # Convert to numpy if needed
     if isinstance(y_true, torch.Tensor):
@@ -28,23 +29,33 @@ def compute_metrics(y_true, y_hat, output_std=None, start_time=None):
     if output_std is not None and isinstance(output_std, torch.Tensor):
         output_std = output_std.detach().cpu().numpy().reshape(-1)
 
-    # Only add time if start_time is provided
-    if start_time is not None:
+    # Handle time metrics
+    if training_time is not None and prediction_time is not None:
+        # New approach: separate training and prediction times
+        total_time = training_time + prediction_time
         metrics = {
-            "Time": time.time() - start_time,
+            "Total_Time": total_time,
+            "Training_Time": training_time,
+            "Prediction_Time": prediction_time,
             "RRMSE": np.sqrt(mean_squared_error(y_true, y_hat)) / y_true.std(),
             "RMSE": np.sqrt(mean_squared_error(y_true, y_hat)),
             "MSE": mean_squared_error(y_true, y_hat),
-            # "MAE": mean_absolute_error(y_true, y_hat),
-            # "R2": r2_score(y_true, y_hat)
+        }
+    elif start_time is not None:
+        # Legacy approach: single start_time
+        elapsed_time = time.time() - start_time
+        metrics = {
+            "Time": elapsed_time,
+            "RRMSE": np.sqrt(mean_squared_error(y_true, y_hat)) / y_true.std(),
+            "RMSE": np.sqrt(mean_squared_error(y_true, y_hat)),
+            "MSE": mean_squared_error(y_true, y_hat),
         }
     else:
+        # No time information
         metrics = {
             "RRMSE": np.sqrt(mean_squared_error(y_true, y_hat)) / y_true.std(),
             "RMSE": np.sqrt(mean_squared_error(y_true, y_hat)),
             "MSE": mean_squared_error(y_true, y_hat),
-            # "MAE": mean_absolute_error(y_true, y_hat),
-            # "R2": r2_score(y_true, y_hat)
         }
 
     # Add NIS if output_std is provided
@@ -84,7 +95,7 @@ def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None
     # Mean/std for all available metric columns
     # Detailed stats for specific metrics
     detailed = {}
-    for m in ["RRMSE", "NIS", "Time"]:
+    for m in ["RRMSE", "NIS", "Time", "Total_Time", "Training_Time", "Prediction_Time"]:
         if m in df.columns:
             vals = df[m].dropna().values
             if len(vals) == 0:
@@ -220,7 +231,7 @@ def plot_metrics(*args, labels: list = None, title: str = None, save_path: str =
         else:
             plt.show()
 
-def compute_per_source_metrics(y_true, y_hat, output_std, X_test, source_columns, start_time=None):
+def compute_per_source_metrics(y_true, y_hat, output_std, X_test, source_columns, start_time=None, training_time=None, prediction_time=None):
     """
     Compute metrics for each source separately.
 
@@ -230,10 +241,12 @@ def compute_per_source_metrics(y_true, y_hat, output_std, X_test, source_columns
         output_std: Standard deviation of predictions (optional)
         X_test: Test features (2D array) containing source information
         source_columns: Either a single column index (int) or list of column indices for source identification
-        start_time: Start time for timing (optional)
+        start_time: Start time for timing (optional, deprecated - use training_time and prediction_time instead)
+        training_time: Training time in seconds (optional)
+        prediction_time: Prediction time in seconds (optional)
 
     Returns:
-        dict: Dictionary with overall metrics and per-source metrics
+        dict: Dictionary with overall metrics and per-source metrics including time information
     """
     # Convert to numpy if needed
     if isinstance(y_true, torch.Tensor):
@@ -268,7 +281,7 @@ def compute_per_source_metrics(y_true, y_hat, output_std, X_test, source_columns
             source_indices[f"source_{i}"] = X_test[:, source_columns[i]] == 1
 
     # Compute overall metrics
-    overall_metrics = compute_metrics(y_true, y_hat, output_std, start_time)
+    overall_metrics = compute_metrics(y_true, y_hat, output_std, start_time, training_time, prediction_time)
     # Add sample size to overall metrics (as integer)
     overall_metrics["num_samples"] = int(len(y_true))
 
@@ -284,16 +297,31 @@ def compute_per_source_metrics(y_true, y_hat, output_std, X_test, source_columns
             source_rmse = np.sqrt(mean_squared_error(source_y_true, source_y_hat))
             source_rrmse = source_rmse / overall_std  # Use overall std for consistency
 
-            # Only add time if start_time is provided
-            if start_time is not None:
+            # Handle time metrics for per-source
+            if training_time is not None and prediction_time is not None:
+                # New approach: separate training and prediction times
+                total_time = training_time + prediction_time
                 source_metrics = {
-                    "Time": time.time() - start_time,
+                    "Total_Time": total_time,
+                    "Training_Time": training_time,
+                    "Prediction_Time": prediction_time,
+                    "RRMSE": source_rrmse,
+                    "RMSE": source_rmse,
+                    "MSE": mean_squared_error(source_y_true, source_y_hat),
+                    "num_samples": int(len(source_y_true)),  # Number of predictions for this source
+                }
+            elif start_time is not None:
+                # Legacy approach: single start_time
+                elapsed_time = time.time() - start_time
+                source_metrics = {
+                    "Time": elapsed_time,
                     "RRMSE": source_rrmse,
                     "RMSE": source_rmse,
                     "MSE": mean_squared_error(source_y_true, source_y_hat),
                     "num_samples": int(len(source_y_true)),  # Number of predictions for this source
                 }
             else:
+                # No time information
                 source_metrics = {
                     "RRMSE": source_rrmse,
                     "RMSE": source_rmse,

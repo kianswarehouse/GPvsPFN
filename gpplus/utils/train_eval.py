@@ -5,6 +5,7 @@ from gpplus.training import GPTrainer
 from gpplus.training.eval import evaluate_gp_model
 from gpplus.utils.metrics_functions import compute_metrics
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
+from gpplus.training.callbacks import FinalParameterStorageCallback
 
 
 def train_eval_gp(
@@ -43,6 +44,7 @@ def train_eval_gp(
         optimizer_kwargs={"lr": lr},
         convergence_patience=convergence_patience,
         optimizer_class=optimizer_class,
+        callbacks=[FinalParameterStorageCallback(save_file="gp_parameters.json", verbose=True)],
         device=device,
         initializer_class=initializer_class,
     )

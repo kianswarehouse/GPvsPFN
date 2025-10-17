@@ -104,7 +104,7 @@ class DefaultParameterInitializer(ParameterInitializer):
             return {
                 "method": "normal",
                 "mean": -2.0,
-                "std": 1.5,
+                "std": 2.0,
                 "description": f"Lengthscale parameter {'(ARD)' if is_ard else '(single)'} - log scale",
             }
         elif param_type == "raw_outputscale":
