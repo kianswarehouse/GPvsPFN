@@ -1,0 +1,157 @@
+{
+  "gp_data": {
+    "summary": {
+      "RRMSE": {
+        "mean": 0.80920002253054,
+        "std": 0.07961968058930621,
+        "median": 0.7848056728976419,
+        "min": 0.7441777235800964,
+        "max": 0.9230110207467799,
+        "count": 4
+      },
+      "NIS": {
+        "mean": 6.046391025488348,
+        "std": 0.2597535617904164,
+        "median": 6.015329802165593,
+        "min": 5.777904429013338,
+        "max": 6.377000068608869,
+        "count": 4
+      },
+      "Time": {
+        "mean": 1.9622625708580017,
+        "std": 2.247903337997796,
+        "median": 1.340210199356079,
+        "min": 0.21584367752075195,
+        "max": 4.952786207199097,
+        "count": 4
+      }
+    },
+    "metrics": [
+      {
+        "Time": 4.952786207199097,
+        "RRMSE": 0.7441777235800964,
+        "RMSE": 0.28689654804815073,
+        "MSE": 0.08230962928194485,
+        "NIS": 6.113050699418969
+      },
+      {
+        "Time": 2.4338507652282715,
+        "RRMSE": 0.8027899625364832,
+        "RMSE": 0.3094928291475954,
+        "MSE": 0.09578581129378268,
+        "NIS": 5.777904429013338
+      },
+      {
+        "Time": 0.24656963348388672,
+        "RRMSE": 0.7668213832588007,
+        "RMSE": 0.29562616678189146,
+        "MSE": 0.0873948304861547,
+        "NIS": 5.917608904912217
+      },
+      {
+        "Time": 0.21584367752075195,
+        "RRMSE": 0.9230110207467799,
+        "RMSE": 0.35584063762175977,
+        "MSE": 0.12662255938306055,
+        "NIS": 6.377000068608869
+      }
+    ],
+    "gp_model_info": {
+      "model_str": "GPR(\n  (likelihood): GaussianLikelihood(\n    (noise_covar): HomoskedasticNoise(\n      (raw_noise_constraint): GreaterThan(1.000E-04)\n    )\n  )\n  (mean_module): ConstantMean()\n  (covar_module): ProcessVarianceKernel(\n    (base_kernel): GaussianKernel(\n      (raw_lengthscale_constraint): SoftClamp(-6.0, 3.0, margin=0.009999999776482582)\n    )\n    (raw_outputscale_constraint): SoftClamp(-6.0, 3.0, margin=0.009999999776482582)\n  )\n)",
+      "cat_cols": [],
+      "cont_cols": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "source_cols": [],
+      "qual_dict": {},
+      "input_dim": 6,
+      "train_samples": 60,
+      "test_samples": 5000,
+      "y_train_mean": -0.38135803014521374,
+      "y_train_std": 0.6237352600500158,
+      "dtype": "torch.float64",
+      "device": "cpu",
+      "num_epochs": 10000,
+      "num_runs": 4,
+      "lr": 0.1,
+      "optimizer": "Adam",
+      "convergence_patience": 10,
+      "initializer": null
+    }
+  },
+  "tabpfn_data": {
+    "summary": {
+      "RRMSE": {
+        "mean": 0.8993984133032721,
+        "std": 0.03786063594648671,
+        "median": 0.9001044461989939,
+        "min": 0.8561554497151495,
+        "max": 0.9412293110999511,
+        "count": 4
+      },
+      "NIS": {
+        "mean": 50.94087069809044,
+        "std": 19.622213741659063,
+        "median": 50.21073986382499,
+        "min": 31.108156021277253,
+        "max": 72.23384704343454,
+        "count": 4
+      },
+      "Time": {
+        "mean": 0.4569661021232605,
+        "std": 0.5229125762486553,
+        "median": 0.23468267917633057,
+        "min": 0.130418062210083,
+        "max": 1.2280809879302979,
+        "count": 4
+      }
+    },
+    "metrics": [
+      {
+        "Time": 1.2280809879302979,
+        "RRMSE": 0.918536868551436,
+        "RMSE": 0.35411575554102376,
+        "MSE": 0.1253979683223901,
+        "NIS": 37.81517167990323
+      },
+      {
+        "Time": 0.3352835178375244,
+        "RRMSE": 0.8816720238465517,
+        "RMSE": 0.3399035635403261,
+        "MSE": 0.1155344325074125,
+        "NIS": 62.60630804774675
+      },
+      {
+        "Time": 0.13408184051513672,
+        "RRMSE": 0.8561554497151495,
+        "RMSE": 0.3300663743792532,
+        "MSE": 0.10894381149586532,
+        "NIS": 31.108156021277253
+      },
+      {
+        "Time": 0.130418062210083,
+        "RRMSE": 0.9412293110999511,
+        "RMSE": 0.3628641811222542,
+        "MSE": 0.1316704139415241,
+        "NIS": 72.23384704343454
+      }
+    ],
+    "pfn_model_info": {
+      "model_path": "auto",
+      "fit_mode": "fit_preprocessors",
+      "device": "cuda",
+      "inference_precision": "auto",
+      "random_state": null,
+      "use_autocast": true,
+      "forced_inference_dtype": null,
+      "input_dim": 6,
+      "train_samples": 60,
+      "test_samples": 5000
+    }
+  }
+}

@@ -1,3 +1,4 @@
+
 import time
 
 import numpy as np
@@ -76,13 +77,14 @@ def compute_metrics(y_true, y_hat, output_std=None, start_time=None, training_ti
 
 def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None, title: str = None):
     """
-    Summarize metrics across seeds for RRMSE and NIS.
+    Summarize metrics across seeds for RRMSE and NIS, including per-source statistics.
 
     Args:
         metrics_list: list of dicts, each containing metric values for a seed
 
     Returns:
         dict with per-metric summary: {metric: {mean, std, median, min, max}}
+        and per-source summaries for RRMSE and NIS
     """
     import numpy as np
     import pandas as pd
@@ -110,6 +112,38 @@ def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None
                 "count": int(len(vals)),
             }
 
+    # Extract per-source metrics for RRMSE and NIS
+    per_source_stats = {}
+    source_columns = [col for col in df.columns if col.startswith('source_') and ('_RRMSE' in col or '_NIS' in col)]
+    
+    if source_columns:
+        # Group by source
+        sources = {}
+        for col in source_columns:
+            source_name = col.split('_')[0] + '_' + col.split('_')[1]  # e.g., 'source_0'
+            metric_name = col.split('_', 2)[2]  # e.g., 'RRMSE' or 'NIS'
+            
+            if source_name not in sources:
+                sources[source_name] = {}
+            sources[source_name][metric_name] = col
+        
+        # Compute statistics for each source
+        for source_name, metrics in sources.items():
+            per_source_stats[source_name] = {}
+            for metric_name, col_name in metrics.items():
+                if col_name in df.columns:
+                    vals = df[col_name].dropna().values
+                    if len(vals) > 0:
+                        vals = vals.astype(float)
+                        per_source_stats[source_name][metric_name] = {
+                            "mean": float(np.mean(vals)),
+                            "std": float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0,
+                            "median": float(np.median(vals)),
+                            "min": float(np.min(vals)),
+                            "max": float(np.max(vals)),
+                            "count": int(len(vals)),
+                        }
+
     if print_summary and len(detailed) > 0:
         header = f"{label} summary" if label else "Summary"
         label_print = (label or 'Summary')
@@ -124,11 +158,26 @@ def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None
                 f"  {m}: median={s['median']:.6f} | min={s['min']:.6f} | max={s['max']:.6f} | "
                 f"mean={s['mean']:.6f} ± {s['std']:.6f} (n={s['count']})"
             )
+        
+        # Print per-source statistics
+        if per_source_stats:
+            print(f"\n{label_print} Per-Source Statistics:")
+            for source_name, source_metrics in per_source_stats.items():
+                print(f"  {source_name}:")
+                for metric_name, stats in source_metrics.items():
+                    print(
+                        f"    {metric_name}: median={stats['median']:.6f} | min={stats['min']:.6f} | max={stats['max']:.6f} | "
+                        f"mean={stats['mean']:.6f} ± {stats['std']:.6f} (n={stats['count']})"
+                    )
+
+    # Add per-source stats to the return value
+    if per_source_stats:
+        detailed['per_source'] = per_source_stats
 
     return detailed
 
 
-def plot_metrics(*args, labels: list = None, title: str = None, save_path: str = None):
+def plot_metrics(*args, labels: list = None, title: str = None, save_path: str = None, subplots: bool = True):
     """
     Plot per-seed metric VALUES (not aggregates) for multiple runs as violin plots.
 
@@ -138,8 +187,13 @@ def plot_metrics(*args, labels: list = None, title: str = None, save_path: str =
                        a list of dicts with keys like 'RRMSE', 'NIS', 'Time'.
         labels: optional list of names for each metrics_list; defaults to
                 ["run_0", ...].
+        subplots: if True (default), returns both individual plots AND combined plots.
+                 if False, returns only individual plots.
 
-    Produces two figures (RRMSE, NIS) with one violin per input label.
+    Returns:
+        dict: Dictionary containing 'individual' and optionally 'combined' figure objects.
+              - 'individual': dict with 'RRMSE' and 'NIS' figure objects
+              - 'combined': figure object with both metrics in subplots (only when subplots=True)
     """
     import matplotlib.pyplot as plt
     import numpy as np
@@ -172,9 +226,8 @@ def plot_metrics(*args, labels: list = None, title: str = None, save_path: str =
         seed_counts.append(len(ml) if isinstance(ml, list) else 0)
     n_seeds = min(seed_counts) if len(seed_counts) > 0 else 0
 
-    for metric in ["RRMSE", "NIS"]:
-        data = extract(metrics_lists, metric)
-        fig, ax = plt.subplots(figsize=(7, 4))
+    def create_violin_plot(ax, data, metric, labels, n_seeds):
+        """Helper function to create a violin plot on the given axis."""
         parts = ax.violinplot(data, showmeans=False, showmedians=False, showextrema=True)
         for pc in parts['bodies']:
             pc.set_facecolor('#888888')
@@ -204,18 +257,11 @@ def plot_metrics(*args, labels: list = None, title: str = None, save_path: str =
         ax.set_xticks(np.arange(1, len(labels) + 1))
         ax.set_xticklabels(labels)
         ax.set_ylabel(metric)
-        if title:
-            try:
-                fig.suptitle(title)
-                ax.set_title(f"{metric} per-seed distribution (n={n_seeds})")
-            except Exception:
-                ax.set_title(f"{metric} per-seed distribution - {title} (n={n_seeds})")
-        else:
-            ax.set_title(f"{metric} per-seed distribution (n={n_seeds})")
+        ax.set_title(f"{metric} distribution (n={n_seeds})")
         ax.grid(axis='y', linestyle=':', alpha=0.4)
-        plt.tight_layout()
 
-        # Save if a directory is provided
+    def save_figure(fig, metric_name, save_path, title):
+        """Helper function to save a figure."""
         if save_path is not None:
             from pathlib import Path
             p = Path(save_path)
@@ -223,13 +269,56 @@ def plot_metrics(*args, labels: list = None, title: str = None, save_path: str =
                 p.mkdir(parents=True, exist_ok=True)
             except Exception:
                 pass
-            fname = f"{metric.lower()}" + (f"_{title}" if title else "") + ".png"
+            fname = f"{metric_name}" + (f"_{title}" if title else "") + ".png"
             try:
                 fig.savefig(str(p / fname), dpi=300, bbox_inches="tight")
             except Exception:
                 pass
-        else:
-            plt.show()
+
+    # Always create individual plots
+    individual_figs = {}
+    for metric in ["RRMSE", "NIS"]:
+        data = extract(metrics_lists, metric)
+        fig, ax = plt.subplots(figsize=(7, 4))
+        create_violin_plot(ax, data, metric, labels, n_seeds)
+        
+        if title:
+            try:
+                fig.suptitle(title)
+            except Exception:
+                pass
+        
+        plt.tight_layout()
+        save_figure(fig, metric.lower(), save_path, title)
+        individual_figs[metric] = fig
+
+    result = {'individual': individual_figs}
+
+    # Create combined plot if subplots=True
+    if subplots:
+        # Create one figure with two subplots
+        combined_fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 4))
+        
+        # Plot RRMSE
+        rrmse_data = extract(metrics_lists, "RRMSE")
+        create_violin_plot(ax1, rrmse_data, "RRMSE", labels, n_seeds)
+        
+        # Plot NIS
+        nis_data = extract(metrics_lists, "NIS")
+        create_violin_plot(ax2, nis_data, "NIS", labels, n_seeds)
+        
+        # Set overall title if provided
+        if title:
+            try:
+                combined_fig.suptitle(title)
+            except Exception:
+                pass
+        
+        plt.tight_layout()
+        save_figure(combined_fig, "metrics_combined", save_path, title)
+        result['combined'] = combined_fig
+
+    return result
 
 def compute_per_source_metrics(y_true, y_hat, output_std, X_test, source_columns, start_time=None, training_time=None, prediction_time=None):
     """
@@ -293,9 +382,10 @@ def compute_per_source_metrics(y_true, y_hat, output_std, X_test, source_columns
             source_y_hat = y_hat[source_mask]
             source_output_std = output_std[source_mask] if output_std is not None else None
 
-            # Compute source metrics with consistent normalization
+            # Compute source metrics with source-specific normalization
             source_rmse = np.sqrt(mean_squared_error(source_y_true, source_y_hat))
-            source_rrmse = source_rmse / overall_std  # Use overall std for consistency
+            source_std = source_y_true.std()
+            source_rrmse = source_rmse / source_std
 
             # Handle time metrics for per-source
             if training_time is not None and prediction_time is not None:

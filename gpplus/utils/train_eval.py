@@ -3,9 +3,8 @@ import torch
 
 from gpplus.training import GPTrainer
 from gpplus.training.eval import evaluate_gp_model
-from gpplus.utils.metrics_functions import compute_metrics
+from gpplus.utils.metrics_functions import compute_metrics, compute_per_source_metrics
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
-from gpplus.training.callbacks import FinalParameterStorageCallback
 
 
 def train_eval_gp(
@@ -24,15 +23,27 @@ def train_eval_gp(
     dtype: torch.dtype = torch.float64,
     y_train_mean: torch.Tensor | None = None,
     y_train_std: torch.Tensor | None = None,
+    source_cols: int | list[int] | None = None,
 ):
     """
     Train a GP model and evaluate metrics on the provided test set.
 
     If y_train_mean/std are provided, predictions and uncertainty are denormalized
     before metrics are computed.
+    
+    If source_cols is provided, per-source metrics will be computed and added to the
+    main metrics dictionary with source-specific prefixes.
+
+    Args:
+        source_cols: Column index(es) for source identification. If provided, per-source
+                    metrics will be computed and added to the main metrics.
+                    - If int: single source column (data not encoded)
+                    - If list with 1 element: converted to int (data not encoded)
+                    - If list with multiple elements: multiple source columns (one-hot encoded data)
 
     Returns:
-        gp_metric: dict of computed metrics (includes timing via start_time)
+        gp_metric: dict of computed metrics (includes Total_Time, Training_Time, Prediction_Time)
+                  and per-source metrics if source_cols is provided
         y_pred: numpy array of predictions (denormalized if mean/std provided)
         output_std: numpy array of predictive std (denormalized if mean/std provided)
     """
@@ -44,15 +55,19 @@ def train_eval_gp(
         optimizer_kwargs={"lr": lr},
         convergence_patience=convergence_patience,
         optimizer_class=optimizer_class,
-        callbacks=[FinalParameterStorageCallback(save_file="gp_parameters.json", verbose=True)],
         device=device,
         initializer_class=initializer_class,
     )
 
-    t_start = time.time()
+    # Measure training time
+    t_train_start = time.time()
     _ = trainer.train()
+    training_time = time.time() - t_train_start
 
+    # Measure prediction time
+    t_pred_start = time.time()
     y_pred, _, _, output_std = evaluate_gp_model(model, X_test)
+    prediction_time = time.time() - t_pred_start
 
     if y_train_mean is not None and y_train_std is not None:
         y_pred = (y_pred * y_train_std) + y_train_mean
@@ -61,7 +76,31 @@ def train_eval_gp(
     y_pred_np = y_pred.detach().cpu().numpy().reshape(-1)
     output_std_np = output_std.detach().cpu().numpy().reshape(-1)
 
-    gp_metric = compute_metrics(y_test, y_pred_np, output_std_np, start_time=t_start)
+    gp_metric = compute_metrics(y_test, y_pred_np, output_std_np, training_time=training_time, prediction_time=prediction_time)
+
+    # Compute per-source metrics if source_cols is provided
+    if (
+        isinstance(source_cols, int)
+        or (isinstance(source_cols, (list, tuple)) and len(source_cols) > 0)
+    ):
+        # Convert single-element list to integer for consistency
+        if isinstance(source_cols, (list, tuple)) and len(source_cols) == 1:
+            source_cols = source_cols[0]
+            
+        gp_per_source_metric = compute_per_source_metrics(
+            y_test, 
+            y_pred_np, 
+            output_std_np, 
+            X_test,
+            source_columns=source_cols,
+            training_time=training_time,
+            prediction_time=prediction_time
+        )
+        
+        # Add per-source metrics directly to the main metrics dictionary
+        for source_name, source_metrics in gp_per_source_metric['per_source'].items():
+            for metric_name, metric_value in source_metrics.items():
+                gp_metric[f"{source_name}_{metric_name}"] = metric_value
 
     return gp_metric, y_pred_np, output_std_np
 
@@ -75,11 +114,27 @@ def train_eval_PFN(
     amp_device: str,
     amp_dtype,
     regressor=None,
+    source_cols=None,
 ):
     """
     Train/evaluate TabPFN on provided split and return metrics, preds, std.
 
     Expects regressor with forward/predict_mean/predict_variance API.
+    
+    If source_cols is provided, per-source metrics will be computed and added to the
+    main metrics dictionary with source-specific prefixes.
+
+    Args:
+        source_cols: Column index(es) for source identification. If provided, per-source
+                    metrics will be computed and added to the main metrics.
+                    - If int: single source column (data not encoded)
+                    - If list with 1 element: converted to int (data not encoded)
+                    - If list with multiple elements: multiple source columns (one-hot encoded data)
+
+    Returns:
+        metrics: dict of computed metrics and per-source metrics if source_cols is provided
+        y_pred_test: numpy array of predictions
+        output_std_test: numpy array of predictive std
     """
     import numpy as np
     import torch
@@ -109,6 +164,28 @@ def train_eval_PFN(
     output_std_test = output_std[-len(y_test):]
 
     metrics = compute_metrics(y_test, y_pred_test, output_std_test, start_time=t_start)
+
+    # Compute per-source metrics if source_cols is provided
+    if (
+        isinstance(source_cols, int)
+        or (isinstance(source_cols, (list, tuple)) and len(source_cols) > 0)
+    ):
+        # Convert single-element list to integer for consistency
+        if isinstance(source_cols, (list, tuple)) and len(source_cols) == 1:
+            source_cols = source_cols[0]
+            
+        pfn_per_source_metric = compute_per_source_metrics(
+            y_test, 
+            y_pred_test, 
+            output_std_test, 
+            X_test,
+            source_columns=source_cols
+        )
+        
+        # Add per-source metrics directly to the main metrics dictionary
+        for source_name, source_metrics in pfn_per_source_metric['per_source'].items():
+            for metric_name, metric_value in source_metrics.items():
+                metrics[f"{source_name}_{metric_name}"] = metric_value
 
     return metrics, y_pred_test, output_std_test
 
