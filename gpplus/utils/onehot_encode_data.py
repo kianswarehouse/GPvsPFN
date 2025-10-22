@@ -1,14 +1,14 @@
 import torch
 import torch.nn.functional as F
 
-def encode_qual_data(data: torch.Tensor, noncont_dict: dict, source_col: int = None, grouped: bool = False):
+def encode_qual_data(data: torch.Tensor, qual_dict: dict, source_col: int = None, grouped: bool = False):
     """
     Encode data using a single specification dict for all non-continuous variables.
 
     Args:
         data: (N, D) torch tensor
-        noncont_dict: dict mapping column_index -> num_classes for ALL non-continuous columns
-        source_col: optional int; if provided, identifies which column in noncont_dict is the source
+        qual_dict: dict mapping column_index -> num_classes for ALL non-continuous columns
+        source_col: optional int; if provided, identifies which column in qual_dict is the source
 
     Returns:
         encoded_data: torch.Tensor ordered as [continuous | categorical | source]
@@ -16,21 +16,31 @@ def encode_qual_data(data: torch.Tensor, noncont_dict: dict, source_col: int = N
         cat_cols: list of lists of ints for categorical one-hot groups (empty if none)
         source_cols: list of lists of ints for source one-hot groups (empty if none)
     """
-    if noncont_dict is None or len(noncont_dict) == 0:
-        raise ValueError("noncont_dict must include at least one non-continuous column.")
+    if qual_dict is None or len(qual_dict) == 0:
+        import warnings
+        warnings.warn("qual_dict is empty or None. No categorical encoding to perform.", UserWarning)
+        # Return all columns as continuous
+        cont_cols = list(range(data.shape[1]))
+        return data, cont_cols, [], []
 
     if data.dtype not in (torch.float32, torch.float64):
         data = data.to(torch.float64)
 
     num_rows, num_cols = data.shape
-    noncont_dict = dict(noncont_dict)
+    qual_dict = dict(qual_dict)
 
-    if source_col is not None and source_col not in noncont_dict:
-        raise ValueError("source_col must be a key in noncont_dict if provided.")
+    # Handle -1 as special case for last column in qual_dict
+    if source_col == -1:
+        if len(qual_dict) == 0:
+            raise ValueError("qual_dict is empty, cannot use -1 for source_col")
+        source_col = max(qual_dict.keys())
+    
+    if source_col is not None and source_col not in qual_dict:
+        raise ValueError("source_col must be a key in qual_dict if provided.")
 
-    noncont_cols = sorted(noncont_dict.keys())
-    continuous_cols = [c for c in range(num_cols) if c not in noncont_dict]
-    categorical_cols = [c for c in noncont_cols if c != source_col]
+    qual_cols = sorted(qual_dict.keys())
+    continuous_cols = [c for c in range(num_cols) if c not in qual_dict]
+    categorical_cols = [c for c in qual_cols if c != source_col]
 
     parts = []
     continuous_tensors = []
@@ -52,13 +62,13 @@ def encode_qual_data(data: torch.Tensor, noncont_dict: dict, source_col: int = N
 
     categorical_tensors = []
     for c in categorical_cols:
-        categorical_tensors.append(_ohe(data[:, c], int(noncont_dict[c])))
+        categorical_tensors.append(_ohe(data[:, c], int(qual_dict[c])))
     if len(categorical_tensors) > 0:
         parts.append(torch.cat(categorical_tensors, dim=1))
 
     source_tensors = []
     if source_col is not None:
-        source_tensors.append(_ohe(data[:, source_col], int(noncont_dict[source_col])))
+        source_tensors.append(_ohe(data[:, source_col], int(qual_dict[source_col])))
     if len(source_tensors) > 0:
         parts.append(torch.cat(source_tensors, dim=1))
 
@@ -71,14 +81,14 @@ def encode_qual_data(data: torch.Tensor, noncont_dict: dict, source_col: int = N
 
     cat_cols_blocks = []
     for c in categorical_cols:
-        width = int(noncont_dict[c])
+        width = int(qual_dict[c])
         cat_cols_blocks.append(list(range(offset, offset + width)))
         offset += width
 
     source_cols_blocks = []
     if source_col is not None:
-        width = int(noncont_dict[source_col])
-        source_cols_blocks.append(list(range(offset, offset + width)))
+        width = int(qual_dict[source_col])
+        source_cols_blocks = list(range(offset, offset + width))
         offset += width
 
     if grouped and len(cat_cols_blocks) > 0:

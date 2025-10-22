@@ -236,5 +236,5 @@ def M2AX_GPvsPFN(
 
 if __name__ == "__main__":
     # M2AX_GPvsPFN()
-    M2AX_GPvsPFN(num_seeds=1, num_runs=1, num_epochs=10000, save_path='./results/M2AX/temp2', encode_PFN_data=False)
+    M2AX_GPvsPFN(num_seeds=1, num_runs=1, num_epochs=10000, save_path='./results/M2AX/temp2')
     # M2AX_GPvsPFN(num_seeds=2, num_runs=4, num_epochs=10000, save_path=None, encode_PFN_data=True)

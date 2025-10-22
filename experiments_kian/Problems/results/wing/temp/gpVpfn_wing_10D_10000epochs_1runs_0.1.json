@@ -1,0 +1,354 @@
+{
+  "gp_data": {
+    "summary": {
+      "RRMSE": {
+        "mean": 0.022850521298345177,
+        "std": 0.0,
+        "median": 0.022850521298345177,
+        "min": 0.022850521298345177,
+        "max": 0.022850521298345177,
+        "count": 1
+      },
+      "NIS": {
+        "mean": 0.20973556022894174,
+        "std": 0.0,
+        "median": 0.20973556022894174,
+        "min": 0.20973556022894174,
+        "max": 0.20973556022894174,
+        "count": 1
+      },
+      "Total_Time": {
+        "mean": 6.427894830703735,
+        "std": 0.0,
+        "median": 6.427894830703735,
+        "min": 6.427894830703735,
+        "max": 6.427894830703735,
+        "count": 1
+      },
+      "Training_Time": {
+        "mean": 6.379606008529663,
+        "std": 0.0,
+        "median": 6.379606008529663,
+        "min": 6.379606008529663,
+        "max": 6.379606008529663,
+        "count": 1
+      },
+      "Prediction_Time": {
+        "mean": 0.048288822174072266,
+        "std": 0.0,
+        "median": 0.048288822174072266,
+        "min": 0.048288822174072266,
+        "max": 0.048288822174072266,
+        "count": 1
+      },
+      "per_source": {
+        "source_0": {
+          "RRMSE": {
+            "mean": 0.03793530345146049,
+            "std": 0.0,
+            "median": 0.03793530345146049,
+            "min": 0.03793530345146049,
+            "max": 0.03793530345146049,
+            "count": 1
+          },
+          "NIS": {
+            "mean": 0.32140272311971446,
+            "std": 0.0,
+            "median": 0.32140272311971446,
+            "min": 0.32140272311971446,
+            "max": 0.32140272311971446,
+            "count": 1
+          }
+        },
+        "source_1": {
+          "RRMSE": {
+            "mean": 0.03805448007321636,
+            "std": 0.0,
+            "median": 0.03805448007321636,
+            "min": 0.03805448007321636,
+            "max": 0.03805448007321636,
+            "count": 1
+          },
+          "NIS": {
+            "mean": 0.35586046015314465,
+            "std": 0.0,
+            "median": 0.35586046015314465,
+            "min": 0.35586046015314465,
+            "max": 0.35586046015314465,
+            "count": 1
+          }
+        },
+        "source_2": {
+          "RRMSE": {
+            "mean": 0.03493307362877659,
+            "std": 0.0,
+            "median": 0.03493307362877659,
+            "min": 0.03493307362877659,
+            "max": 0.03493307362877659,
+            "count": 1
+          },
+          "NIS": {
+            "mean": 0.3437994214975386,
+            "std": 0.0,
+            "median": 0.3437994214975386,
+            "min": 0.3437994214975386,
+            "max": 0.3437994214975386,
+            "count": 1
+          }
+        },
+        "source_3": {
+          "RRMSE": {
+            "mean": 0.04964048466101096,
+            "std": 0.0,
+            "median": 0.04964048466101096,
+            "min": 0.04964048466101096,
+            "max": 0.04964048466101096,
+            "count": 1
+          },
+          "NIS": {
+            "mean": 0.5696577842236156,
+            "std": 0.0,
+            "median": 0.5696577842236156,
+            "min": 0.5696577842236156,
+            "max": 0.5696577842236156,
+            "count": 1
+          }
+        }
+      }
+    },
+    "metrics": [
+      {
+        "Total_Time": 6.427894830703735,
+        "Training_Time": 6.379606008529663,
+        "Prediction_Time": 0.048288822174072266,
+        "RRMSE": 0.022850521298345177,
+        "RMSE": 3.0261344226004376,
+        "MSE": 9.157489543647285,
+        "NIS": 0.20973556022894174,
+        "source_0_Total_Time": 6.427894830703735,
+        "source_0_Training_Time": 6.379606008529663,
+        "source_0_Prediction_Time": 0.048288822174072266,
+        "source_0_RRMSE": 0.03793530345146049,
+        "source_0_RMSE": 1.8253310541998224,
+        "source_0_MSE": 3.331833457426235,
+        "source_0_num_samples": 1250,
+        "source_0_NIS": 0.32140272311971446,
+        "source_1_Total_Time": 6.427894830703735,
+        "source_1_Training_Time": 6.379606008529663,
+        "source_1_Prediction_Time": 0.048288822174072266,
+        "source_1_RRMSE": 0.03805448007321636,
+        "source_1_RMSE": 1.818585411326861,
+        "source_1_MSE": 3.307252898290888,
+        "source_1_num_samples": 1250,
+        "source_1_NIS": 0.35586046015314465,
+        "source_2_Total_Time": 6.427894830703735,
+        "source_2_Training_Time": 6.379606008529663,
+        "source_2_Prediction_Time": 0.048288822174072266,
+        "source_2_RRMSE": 0.03493307362877659,
+        "source_2_RMSE": 2.0848655759765924,
+        "source_2_MSE": 4.3466644698922074,
+        "source_2_num_samples": 1250,
+        "source_2_NIS": 0.3437994214975386,
+        "source_3_Total_Time": 6.427894830703735,
+        "source_3_Training_Time": 6.379606008529663,
+        "source_3_Prediction_Time": 0.048288822174072266,
+        "source_3_RRMSE": 0.04964048466101096,
+        "source_3_RMSE": 5.064010994160638,
+        "source_3_MSE": 25.644207348979815,
+        "source_3_num_samples": 1250,
+        "source_3_NIS": 0.5696577842236156
+      }
+    ],
+    "gp_model_info": {
+      "model_str": "GPR(\n  (likelihood): MultiLikelihood(\n    (noise_covar): MultiNoise(\n      (raw_noise_constraint): GreaterThan(1.000E-04)\n    )\n  )\n  (mean_module): MultiMean(\n    (mean0): ZeroMean()\n    (mean1): ConstantMean(\n      (mean_prior): NormalPrior()\n    )\n    (mean2): ConstantMean(\n      (mean_prior): NormalPrior()\n    )\n    (mean3): ConstantMean(\n      (mean_prior): NormalPrior()\n    )\n  )\n  (covar_module): CombinedKernel(\n    (cont_kernel): GaussianKernel(\n      (raw_lengthscale_constraint): SoftClamp(-6, 3, margin=0.01)\n    )\n    (source_kernel): GaussianKernel(\n      (raw_lengthscale_constraint): SoftClamp(-6, 3, margin=0.01)\n    )\n    (source_encoder): MatrixEncoder()\n  )\n)",
+      "cat_cols": [],
+      "cont_cols": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "source_cols": [
+        10,
+        11,
+        12,
+        13
+      ],
+      "qual_dict": {
+        "10": 4
+      },
+      "input_dim": 14,
+      "train_samples": [
+        100,
+        100,
+        100,
+        100
+      ],
+      "test_samples": [
+        1250,
+        1250,
+        1250,
+        1250
+      ],
+      "y_train_mean": 346.7338536971496,
+      "y_train_std": 131.60350834872705,
+      "standardize_X_gp": true,
+      "standardize_y_gp": true,
+      "dtype": "torch.float64",
+      "device": "cpu",
+      "num_epochs": 10000,
+      "num_runs": 1,
+      "lr": 0.1,
+      "optimizer": "Adam",
+      "convergence_patience": 10,
+      "initializer": null
+    }
+  },
+  "tabpfn_data": {
+    "summary": {
+      "RRMSE": {
+        "mean": 0.05265051942122866,
+        "std": 0.0,
+        "median": 0.05265051942122866,
+        "min": 0.05265051942122866,
+        "max": 0.05265051942122866,
+        "count": 1
+      },
+      "NIS": {
+        "mean": 0.7856964205618606,
+        "std": 0.0,
+        "median": 0.7856964205618606,
+        "min": 0.7856964205618606,
+        "max": 0.7856964205618606,
+        "count": 1
+      },
+      "Time": {
+        "mean": 0.6691970825195312,
+        "std": 0.0,
+        "median": 0.6691970825195312,
+        "min": 0.6691970825195312,
+        "max": 0.6691970825195312,
+        "count": 1
+      },
+      "per_source": {
+        "source_0": {
+          "RRMSE": {
+            "mean": 0.06494061438110822,
+            "std": 0.0,
+            "median": 0.06494061438110822,
+            "min": 0.06494061438110822,
+            "max": 0.06494061438110822,
+            "count": 1
+          },
+          "NIS": {
+            "mean": 2.0230639318728527,
+            "std": 0.0,
+            "median": 2.0230639318728527,
+            "min": 2.0230639318728527,
+            "max": 2.0230639318728527,
+            "count": 1
+          }
+        },
+        "source_1": {
+          "RRMSE": {
+            "mean": 0.034420777610192,
+            "std": 0.0,
+            "median": 0.034420777610192,
+            "min": 0.034420777610192,
+            "max": 0.034420777610192,
+            "count": 1
+          },
+          "NIS": {
+            "mean": 1.0309299429861751,
+            "std": 0.0,
+            "median": 1.0309299429861751,
+            "min": 1.0309299429861751,
+            "max": 1.0309299429861751,
+            "count": 1
+          }
+        },
+        "source_2": {
+          "RRMSE": {
+            "mean": 0.04023082170031205,
+            "std": 0.0,
+            "median": 0.04023082170031205,
+            "min": 0.04023082170031205,
+            "max": 0.04023082170031205,
+            "count": 1
+          },
+          "NIS": {
+            "mean": 1.1673454092062638,
+            "std": 0.0,
+            "median": 1.1673454092062638,
+            "min": 1.1673454092062638,
+            "max": 1.1673454092062638,
+            "count": 1
+          }
+        },
+        "source_3": {
+          "RRMSE": {
+            "mean": 0.13013254771942756,
+            "std": 0.0,
+            "median": 0.13013254771942756,
+            "min": 0.13013254771942756,
+            "max": 0.13013254771942756,
+            "count": 1
+          },
+          "NIS": {
+            "mean": 1.9597818123471256,
+            "std": 0.0,
+            "median": 1.9597818123471256,
+            "min": 1.9597818123471256,
+            "max": 1.9597818123471256,
+            "count": 1
+          }
+        }
+      }
+    },
+    "metrics": [
+      {
+        "Time": 0.6691970825195312,
+        "RRMSE": 0.05265051942122866,
+        "RMSE": 6.9726001918350695,
+        "MSE": 48.61715343517845,
+        "NIS": 0.7856964205618606,
+        "source_0_RRMSE": 0.06494061438110822,
+        "source_0_RMSE": 3.12474421775289,
+        "source_0_MSE": 9.76402642638012,
+        "source_0_num_samples": 1250,
+        "source_0_NIS": 2.0230639318728527,
+        "source_1_RRMSE": 0.034420777610192,
+        "source_1_RMSE": 1.6449344173927831,
+        "source_1_MSE": 2.7058092375233347,
+        "source_1_num_samples": 1250,
+        "source_1_NIS": 1.0309299429861751,
+        "source_2_RRMSE": 0.04023082170031205,
+        "source_2_RMSE": 2.4010442409836736,
+        "source_2_MSE": 5.765013447160866,
+        "source_2_num_samples": 1250,
+        "source_2_NIS": 1.1673454092062638,
+        "source_3_RRMSE": 0.13013254771942756,
+        "source_3_RMSE": 13.275306573847908,
+        "source_3_MSE": 176.2337646296495,
+        "source_3_num_samples": 1250,
+        "source_3_NIS": 1.9597818123471256
+      }
+    ],
+    "pfn_model_info": {
+      "model_path": "auto",
+      "fit_mode": "fit_preprocessors",
+      "device": "cuda",
+      "inference_precision": "auto",
+      "random_state": null,
+      "use_autocast": true,
+      "forced_inference_dtype": null,
+      "encoded_data": false
+    }
+  }
+}

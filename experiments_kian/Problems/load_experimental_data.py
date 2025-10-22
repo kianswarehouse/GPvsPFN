@@ -221,23 +221,29 @@ def wing_mixed_variables(X: torch.Tensor, source: str = "s0") -> torch.Tensor:
         raise ValueError(f"Unknown source: {source}")
 
 
-def generate_mf_wing_data(samples_per_source: list[int], seed: int = 0, noise: list[float] = None, noise_type: str = 'gaussian') -> tuple[torch.Tensor, torch.Tensor]:
+def generate_mf_wing_data(train_samples_per_source: list[int], test_samples_per_source: list[int], 
+                         seed: int = 0, train_noise: list[float] = None, test_noise: list[float] = None, 
+                         noise_type: str = 'gaussian') -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Generate multi-fidelity Wing data locally and return:
-      - X with 11 features: 10 continuous + 1 source class column in {0,1,2,3}
-      - y as target values
+      - X_train, y_train: Training data with 11 features (10 continuous + 1 source class column in {0,1,2,3})
+      - X_test, y_test: Test data with 11 features (10 continuous + 1 source class column in {0,1,2,3})
 
     Args:
-        samples_per_source: List of number of samples from each source
+        train_samples_per_source: List of number of training samples from each source
+        test_samples_per_source: List of number of test samples from each source
         seed: Random seed
-        noise: List of noise levels for each source
+        train_noise: List of noise levels for training data from each source
+        test_noise: List of noise levels for test data from each source
         noise_type: Type of noise ('gaussian' or 'uniform')
     """
     torch.manual_seed(seed)
 
     # Set default noise levels
-    if noise is None:
-        noise = [0.0] * 4
+    if train_noise is None:
+        train_noise = [0.0] * 4
+    if test_noise is None:
+        test_noise = [0.0] * 4
 
     # Bounds for the 10 continuous features (same as data_gen)
     l_bound = torch.tensor([150.0, 220.0, 6.0, -10.0, 16.0, 0.5, 0.08, 2.5, 1700.0, 0.025], dtype=torch.float64)
@@ -245,39 +251,79 @@ def generate_mf_wing_data(samples_per_source: list[int], seed: int = 0, noise: l
 
     sobol = torch.quasirandom.SobolEngine(dimension=10, scramble=True, seed=seed)
 
-    counts = samples_per_source
     sources = ["s0", "s1", "s2", "s3"]
 
-    X_list = []
-    y_list = []
+    X_train_list = []
+    y_train_list = []
+    X_test_list = []
+    y_test_list = []
 
-    for idx, (src, n) in enumerate(zip(sources, counts)):
-        if n == 0:
+    # First generate test data to get std for noise calculation
+    test_data_per_source = {}
+    for idx, (src, n_test) in enumerate(zip(sources, test_samples_per_source)):
+        if n_test == 0:
             continue
-        x_raw = sobol.draw(n).to(dtype=torch.float64)
-        x_raw = x_raw * (u_bound - l_bound) + l_bound
-        y = wing_mixed_variables(x_raw, source=src)
+        x_test_raw = sobol.draw(n_test).to(dtype=torch.float64)
+        x_test_raw = x_test_raw * (u_bound - l_bound) + l_bound
+        y_test = wing_mixed_variables(x_test_raw, source=src)
+        test_data_per_source[idx] = y_test
+
+    # Now generate training data
+    for idx, (src, n_train) in enumerate(zip(sources, train_samples_per_source)):
+        if n_train == 0:
+            continue
+        x_train_raw = sobol.draw(n_train).to(dtype=torch.float64)
+        x_train_raw = x_train_raw * (u_bound - l_bound) + l_bound
+        y_train = wing_mixed_variables(x_train_raw, source=src)
         
-        # Add noise based on source
-        noise_level = noise[idx]
-        if noise_level > 0:
+        # Add noise to training data based on test data std for this source
+        train_noise_level = train_noise[idx]
+        if train_noise_level > 0 and idx in test_data_per_source:
+            test_std = test_data_per_source[idx].std()
             if noise_type == 'gaussian':
-                noise = torch.randn_like(y) * noise_level
+                noise = torch.randn_like(y_train) * train_noise_level
             elif noise_type == 'uniform':
-                noise = (torch.rand_like(y) - 0.5) * 2 * noise_level
+                noise = (torch.rand_like(y_train) - 0.5) * 2 * train_noise_level
             else:
                 raise ValueError(f"Unknown noise_type: {noise_type}")
-            y = y + noise
+            y_train = y_train + noise * test_std
         
         # Append source class as the 11th feature
-        src_col = torch.full((n, 1), float(idx), dtype=torch.float64)
-        X_list.append(torch.cat([x_raw, src_col], dim=1))
-        y_list.append(y)
+        src_col = torch.full((n_train, 1), float(idx), dtype=torch.float64)
+        X_train_list.append(torch.cat([x_train_raw, src_col], dim=1))
+        y_train_list.append(y_train)
 
-    X = torch.cat(X_list, dim=0)
-    y = torch.cat(y_list, dim=0)
+    # Generate test data with noise
+    for idx, (src, n_test) in enumerate(zip(sources, test_samples_per_source)):
+        if n_test == 0:
+            continue
+        x_test_raw = sobol.draw(n_test).to(dtype=torch.float64)
+        x_test_raw = x_test_raw * (u_bound - l_bound) + l_bound
+        y_test = wing_mixed_variables(x_test_raw, source=src)
+        
+        # Add noise to test data based on its own std
+        test_noise_level = test_noise[idx]
+        if test_noise_level > 0:
+            test_std = y_test.std()
+            if noise_type == 'gaussian':
+                noise = torch.randn_like(y_test) * test_noise_level
+            elif noise_type == 'uniform':
+                noise = (torch.rand_like(y_test) - 0.5) * 2 * test_noise_level
+            else:
+                raise ValueError(f"Unknown noise_type: {noise_type}")
+            y_test = y_test + noise * test_std
+        
+        # Append source class as the 11th feature
+        src_col = torch.full((n_test, 1), float(idx), dtype=torch.float64)
+        X_test_list.append(torch.cat([x_test_raw, src_col], dim=1))
+        y_test_list.append(y_test)
 
-    return X, y
+    X_train = torch.cat(X_train_list, dim=0) if X_train_list else torch.empty((0, 11), dtype=torch.float64)
+    y_train = torch.cat(y_train_list, dim=0) if y_train_list else torch.empty((0,), dtype=torch.float64)
+    X_test = torch.cat(X_test_list, dim=0) if X_test_list else torch.empty((0, 11), dtype=torch.float64)
+    y_test = torch.cat(y_test_list, dim=0) if y_test_list else torch.empty((0,), dtype=torch.float64)
+
+    return X_train, y_train, X_test, y_test
 
 
 def load_2dplanes_data(print_info=False):
