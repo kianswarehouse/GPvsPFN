@@ -16,14 +16,15 @@ from gpplus.training.eval import evaluate_gp_model
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
-from load_experimental_data import buckling_mixed_variables, generate_mf_buckling_data
+from load_experimental_data import generate_ackley_data
 
 
 # import warnings
 # warnings.filterwarnings("ignore")
-def buckling_GPvsPFN(num_seeds=20,
-        num_test=[2500, 2500],
-        train_size=[10, 10], # total training size is train_size * number of X input dimensions
+def ackley_GPvsPFN(num_seeds=20,
+        num_test=5000,
+        train_size=10, # total training size is train_size * number of X input dimensions
+        dimensions=5,
         num_runs=16, 
         num_epochs=10000, 
         lr=0.1, 
@@ -32,19 +33,20 @@ def buckling_GPvsPFN(num_seeds=20,
         initializer_class=None,
         gp_device='cpu',
         amp_device='cuda',
-        save_path='./results/buckling',
+        save_path='./results/Ackley',
         title=None,
-        standardize_X_gp=True,
-        standardize_y_gp=True,
-        noise_train=[0.0, 0.0],
-        noise_test=[0.0, 0.0],
+        standardize_X=False,
+        standardize_y=True,
+        noise_train=0.0,
+        noise_test=0.0,
         noise_type='gaussian',
-        encode_PFN_data=True,
+        seed=42,
+        V2=False,
     ):
     if title is None:
-        title = f"buckling_{train_size[0]}D_{num_epochs}epochs_{num_runs}runs_{lr}"
+        title = f"Ackley_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"buckling_{train_size[0]}D_{title}"
+        title = f"Ackley_{train_size}D_{title}"
     
     
     amp_dtype = torch.float32
@@ -58,19 +60,26 @@ def buckling_GPvsPFN(num_seeds=20,
         plot_save_path = None
 
     # Generate data
-    set_seed(0)
+    set_seed(seed)
     
     # Calculate total samples needed
-    train_per_seed = np.array(train_size) * 4  # 4 input dimensions for buckling
+    train_per_seed = train_size * dimensions  # train_size * dimensions for Ackley
     total_train = num_seeds * train_per_seed
-    total_samples = sum(num_test) + sum(total_train) 
+    total_samples = num_test + total_train
     
-    # Generate all unique Sobol samples at once
-    print(f"Generating {total_samples} unique Sobol samples...")
-    X_test, y_test = generate_mf_buckling_data(samples_per_source=num_test, noise=noise_test, noise_type=noise_type)
-    # set_seed(100)
-    X_train_all, y_train_all = generate_mf_buckling_data(samples_per_source=total_train, noise=noise_train, noise_type=noise_type)
+    print(f"Generating {total_samples} unique Sobol samples for {dimensions}D Ackley function...")
     
+    # Generate train and test data in one call
+    X_train_all, y_train_all, X_test, y_test = generate_ackley_data(
+        n_train=total_train,
+        n_test=num_test,
+        dimensions=dimensions,
+        train_noise=noise_train,
+        test_noise=noise_test,
+        noise_type=noise_type,
+        seed=seed,
+        V2=V2
+    )
     X = torch.cat([X_test, X_train_all], dim=0)
 
     print("="*10)
@@ -80,26 +89,15 @@ def buckling_GPvsPFN(num_seeds=20,
     # Prepare encoded data once from already loaded X, y (no extra CSV/label encoding)
     qual_dict = learn_encodings(X)
     print(qual_dict)
-    X_enc_train_all, cont_cols, cat_cols, source_cols = encode_qual_data(X_train_all, qual_dict=qual_dict, source_col=-1)
-    X_enc_test, _, _, _ = encode_qual_data(X_test, qual_dict=qual_dict, source_col=-1)
+    _, cont_cols, cat_cols, source_cols = encode_qual_data(X_train_all, qual_dict=qual_dict, source_col=None)
+    _, _, _, _ = encode_qual_data(X_test, qual_dict=qual_dict, source_col=None)
     # print(cat_cols)
     TabPFN_metrics = []
     GPPlus_metrics = []
 
-    # Randomize WITHIN each source group, then split across seeds
-    train_indices_2d_per_source = []
-    start_idx = 0
-    
-    for i, n_samples in enumerate(train_per_seed):
-        # Get indices for this source (total samples for this source = n_samples * num_seeds)
-        total_samples_for_source = n_samples * num_seeds
-        source_indices = torch.arange(start_idx, start_idx + total_samples_for_source)
-        # Randomize within this source group
-        source_indices = source_indices[torch.randperm(len(source_indices))]
-        # Split this source's indices across seeds
-        source_2d = source_indices.reshape(num_seeds, n_samples)
-        train_indices_2d_per_source.append(source_2d)
-        start_idx += total_samples_for_source
+    # Randomize across the single source, then split across seeds
+    all_indices = torch.randperm(total_train)
+    train_indices_2d = all_indices.reshape(num_seeds, train_per_seed)
         
     total_start_time = time.time()
     for i in range(num_seeds):
@@ -107,54 +105,36 @@ def buckling_GPvsPFN(num_seeds=20,
         print(f"\n{'='*20} {title} SEED {i+1}/{num_seeds}: {seed} {'='*20}")
         t0 = time.time()
 
-        # Get training indices for this seed from each source
-        seed_train_indices = []
-        for source_2d in train_indices_2d_per_source:
-            seed_train_indices.extend(source_2d[i].tolist())
-        seed_train_indices = torch.tensor(seed_train_indices)
-
+        # Get training indices for this seed
+        seed_train_indices = train_indices_2d[i]
         X_train = X_train_all[seed_train_indices]
-        X_enc_train = X_enc_train_all[seed_train_indices]
         y_train = y_train_all[seed_train_indices]
-
-        # Verify source distribution for this seed
-        source_counts = [torch.sum(X_train[:, -1] == i).item() for i in range(2)]
-        print(f"Source distribution for seed {i}: {source_counts}")
 
         # =============================================================================
         # GP Section 
         # =============================================================================
         print(f"\n--- {title} GP Training ---")
         
-        # Reuse PFN split, convert to torch
-        X_gp_train = X_enc_train.detach().clone().to(dtype=dtype)
-        X_gp_test = X_enc_test.detach().clone().to(dtype=dtype)
-        y_gp_train = y_train.detach().clone().to(dtype=dtype)
-        y_gp_test = y_test.detach().clone().to(dtype=dtype)
-        if standardize_X_gp:
+        # Reuse PFN split, convert to torch (unified)
+        X_train = X_train.detach().clone().to(dtype=dtype)
+        X_test = X_test.detach().clone().to(dtype=dtype)
+        y_train = y_train.detach().clone().to(dtype=dtype)
+        y_test = y_test.detach().clone().to(dtype=dtype)
+        if standardize_X:
             Xscaler = gpplus.utils.StandardScaler()
-            Xscaler.fit(X_gp_train[:, cont_cols])
-            X_gp_train[:, cont_cols] = Xscaler.transform(X_gp_train[:, cont_cols])
-            X_gp_test[:, cont_cols] = Xscaler.transform(X_gp_test[:, cont_cols])
+            Xscaler.fit(X_train[:, cont_cols])
+            X_train[:, cont_cols] = Xscaler.transform(X_train[:, cont_cols])
+            X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])
 
         # Normalize the GP data
-        y_gp_train_mean = y_gp_train.mean()
-        y_gp_train_std = y_gp_train.std()
-        y_gp_train_normal = (y_gp_train - y_gp_train_mean) / y_gp_train_std
+        y_train_mean = y_train.mean()
+        y_train_std = y_train.std()
+        y_train_normal = (y_train - y_train_mean) / y_train_std
 
-        # cat_cols was returned by the encoder; CombinedKernel expects only cat indices
-        # print(cat_cols)
-        kernel = gpplus.kernels.CombinedKernel(cont_cols=cont_cols, 
-                cat_cols=cat_cols, 
-                source_cols=source_cols)
-
-        # Create GP model
+        # Create GP model (default kernel like SF wing)
         model = gpplus.models.GPR(
-            X_gp_train,
-            y_gp_train_normal if standardize_y_gp else y_gp_train,
-            kernel_module=kernel,
-            mean_module=gpplus.means.MultiMean(encoded_cols=source_cols),
-            likelihood=gpplus.likelihoods.MultiLikelihood(encoded_cols=source_cols, training_data=X_gp_train),
+            X_train,
+            y_train_normal if standardize_y else y_train,
         )
         if (i == 0) or (i == num_seeds - 1):
             print(model)
@@ -162,8 +142,8 @@ def buckling_GPvsPFN(num_seeds=20,
         # Create trainer
         gp_metric, y_pred_gp, output_std_gp = train_eval_gp(
             model,
-            X_gp_test,
-            y_gp_test,
+            X_test,
+            y_test,
             num_epochs=num_epochs,
             seed=seed,
             num_runs=num_runs,
@@ -172,8 +152,8 @@ def buckling_GPvsPFN(num_seeds=20,
             optimizer_class=optimizer_class,
             initializer_class=initializer_class,
             device=gp_device,
-            y_train_mean=y_gp_train_mean if standardize_y_gp else None,
-            y_train_std=y_gp_train_std if standardize_y_gp else None,
+            y_train_mean=y_train_mean if standardize_y else None,
+            y_train_std=y_train_std if standardize_y else None,
             source_cols=source_cols,
         )
         GPPlus_metrics.append(gp_metric)
@@ -188,14 +168,16 @@ def buckling_GPvsPFN(num_seeds=20,
         print(f"\n--- {title} TabPFN Training ---")
         
         tabpfn_metric, y_pred_tabpfn, output_std_tabpfn = train_eval_PFN(
-            X_enc_train if encode_PFN_data else X_train,
-            X_enc_test if encode_PFN_data else X_test,
-            y_train,
+            X_train,
+            X_test,
+            y_train_normal if standardize_y else y_train,
             y_test,
             amp_device=amp_device,
             amp_dtype=amp_dtype,
             regressor=regressor,
-            source_cols=source_cols if encode_PFN_data else source_cols[0],
+            source_cols=source_cols,
+            y_train_mean=y_train_mean if standardize_y else None,
+            y_train_std=y_train_std if standardize_y else None,
         )
         TabPFN_metrics.append(tabpfn_metric)
 
@@ -212,13 +194,13 @@ def buckling_GPvsPFN(num_seeds=20,
                 "cont_cols": cont_cols,
                 "source_cols": source_cols,
                 "qual_dict": qual_dict,
-                "input_dim": X_gp_train.shape[1],
-                "train_samples": train_per_seed.tolist(),
+                "input_dim": X_train.shape[1],
+                "train_samples": X_train.shape[0],
                 "test_samples": num_test,
-                "y_train_mean": float(y_gp_train_mean.item()),
-                "y_train_std": float(y_gp_train_std.item()),
-                "standardize_X_gp": standardize_X_gp,
-                "standardize_y_gp": standardize_y_gp,
+                "y_train_mean": float(y_train_mean.item()),
+                "y_train_std": float(y_train_std.item()),
+                "standardize_X": standardize_X,
+                "standardize_y": standardize_y,
                 "dtype": str(dtype),
                 "device": str(gp_device),
                 "num_epochs": num_epochs,
@@ -236,7 +218,6 @@ def buckling_GPvsPFN(num_seeds=20,
                 "random_state": regressor.random_state,
                 "use_autocast": regressor.use_autocast_,
                 "forced_inference_dtype": str(regressor.forced_inference_dtype_) if regressor.forced_inference_dtype_ else None,
-                "encoded_data": encode_PFN_data,
             }
         
     # =============================================================================
@@ -279,21 +260,14 @@ def buckling_GPvsPFN(num_seeds=20,
             pass
     print(f"\nTotal experiment time for {num_seeds} seeds: {time.time() - total_start_time:.2f}s")
     print("="*60)
-    print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\tX_standardize: {standardize_X_gp}\n\ty_standardize: {standardize_y_gp}")
+    print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\tX_standardize: {standardize_X}\n\ty_standardize: {standardize_y}")
     print(f"Experiment details: \n\t{len(X_test)} test samples, {len(X_train)} train samples\n\tseeds: {num_seeds}")
 
     return GPPlus_metrics, TabPFN_metrics
 
 
 if __name__ == "__main__":
-    # buckling_GPvsPFN(num_seeds=4, train_size=[10, 10], num_runs=4, num_epochs=10000, save_path="./results/buckling/temp")
-    # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp', standardize_X_gp=False, standardize_y_gp=True)
-    # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=False, standardize_y_gp=True)
-    # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=True)
-    # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=False, standardize_y_gp=False)
-    # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=False)
-    buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp', encode_PFN_data=True)
-    buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp', encode_PFN_data=False)
-
+    Ackley_GPvsPFN(num_seeds=1, train_size=10, num_runs=4, num_epochs=10000, save_path='./results/Ackley/temp')
+    Ackley_GPvsPFN(num_seeds=1, train_size=10, num_runs=4, num_epochs=10000, save_path='./results/Ackley/tempv2', V2=True)
 
 

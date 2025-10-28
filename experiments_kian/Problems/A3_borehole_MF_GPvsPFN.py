@@ -16,14 +16,14 @@ from gpplus.training.eval import evaluate_gp_model
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
-from load_experimental_data import wing_mixed_variables, generate_mf_wing_data
+from load_experimental_data import borehole_mixed_variables, generate_mf_borehole_data
 
 
 # import warnings
 # warnings.filterwarnings("ignore")
-def wing_GPvsPFN(num_seeds=20,
-        num_test=5000,
-        train_size=10, # total training size is train_size * number of X input dimensions
+def borehole_GPvsPFN(num_seeds=20,
+        num_test=[1000, 1000, 1000, 1000, 1000],
+        train_size=[10, 10, 10, 10, 10], # total training size is train_size * number of X input dimensions
         num_runs=16, 
         num_epochs=10000, 
         lr=0.1, 
@@ -32,19 +32,18 @@ def wing_GPvsPFN(num_seeds=20,
         initializer_class=None,
         gp_device='cpu',
         amp_device='cuda',
-        save_path='./results/wing',
+        save_path='./results/borehole',
         title=None,
-        standardize_X_gp=True,
-        standardize_y_gp=True,
-        noise_train=0.0,
-        noise_test=0.0,
+        standardize_X=True,
+        standardize_y=True,
+        noise_train=[0.0, 0.0, 0.0, 0.0, 0.0],
+        noise_test=[0.0, 0.0, 0.0, 0.0, 0.0],
         noise_type='gaussian',
-        encode_PFN_data=False, # False gives best results for PFN
     ):
     if title is None:
-        title = f"wing_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}"
+        title = f"borehole_{train_size[0]}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test[0]}_noiseTrain{noise_train[0]}"
     else: 
-        title = f"wing_{train_size}D_{title}"
+        title = f"borehole_{train_size[0]}D_{title}"
     
     
     amp_dtype = torch.float32
@@ -61,22 +60,20 @@ def wing_GPvsPFN(num_seeds=20,
     set_seed(0)
     
     # Calculate total samples needed
-    train_per_seed = train_size * 10
+    train_per_seed = np.array(train_size) * 8  # 8 input dimensions for borehole
     total_train = num_seeds * train_per_seed
-    total_samples = num_test + total_train
+    total_samples = sum(num_test) + sum(total_train) 
     
-    # Generate all unique Sobol samples at once
     print(f"Generating {total_samples} unique Sobol samples...")
-    X_train_all, y_train_all, X_test, y_test = generate_mf_wing_data(
-        train_samples_per_source=[total_train], 
-        test_samples_per_source=[num_test], 
-        train_noise=noise_train, 
-        test_noise=noise_test, 
-        noise_type=noise_type
+    X_train_all, y_train_all, X_test_all, y_test_all = generate_mf_borehole_data(
+        train_samples_per_source=total_train,
+        test_samples_per_source=num_test,
+        train_noise=noise_train,
+        test_noise=noise_test,
+        noise_type=noise_type,
     )
     
-    
-    X = torch.cat([X_test, X_train_all], dim=0)
+    X = torch.cat([X_test_all, X_train_all], dim=0)
 
     print("="*10)
     print(f"{title}: TabPFN vs GP Comparison")
@@ -86,7 +83,7 @@ def wing_GPvsPFN(num_seeds=20,
     qual_dict = learn_encodings(X)
     print(qual_dict)
     X_enc_train_all, cont_cols, cat_cols, source_cols = encode_qual_data(X_train_all, qual_dict=qual_dict, source_col=-1)
-    X_enc_test, _, _, _ = encode_qual_data(X_test, qual_dict=qual_dict, source_col=-1)
+    X_enc_test_all, _, _, _ = encode_qual_data(X_test_all, qual_dict=qual_dict, source_col=-1)
     # print(cat_cols)
     TabPFN_metrics = []
     GPPlus_metrics = []
@@ -118,12 +115,13 @@ def wing_GPvsPFN(num_seeds=20,
             seed_train_indices.extend(source_2d[i].tolist())
         seed_train_indices = torch.tensor(seed_train_indices)
 
-        X_train = X_train_all[seed_train_indices]
-        X_enc_train = X_enc_train_all[seed_train_indices]
+        # Unified encoded train/test for both GP and PFN
+        X_train = X_enc_train_all[seed_train_indices]
         y_train = y_train_all[seed_train_indices]
+        # X_test = X_enc_test_all
 
         # Verify source distribution for this seed
-        source_counts = [torch.sum(X_train[:, -1] == i).item() for i in range(4)]
+        source_counts = [torch.sum(X_train[:, -1] == i).item() for i in range(2)]
         print(f"Source distribution for seed {i}: {source_counts}")
 
         # =============================================================================
@@ -131,37 +129,36 @@ def wing_GPvsPFN(num_seeds=20,
         # =============================================================================
         print(f"\n--- {title} GP Training ---")
         
-        # Reuse PFN split, convert to torch
-        X_gp_train = X_enc_train.detach().clone().to(dtype=dtype)
-        X_gp_test = X_enc_test.detach().clone().to(dtype=dtype)
-        y_gp_train = y_train.detach().clone().to(dtype=dtype)
-        y_gp_test = y_test.detach().clone().to(dtype=dtype)
-        if standardize_X_gp:
+        # Reuse PFN split, convert to torch (unified)
+        X_train = X_train.detach().clone().to(dtype=dtype)
+        X_test = X_enc_test_all.detach().clone().to(dtype=dtype)
+        y_train = y_train.detach().clone().to(dtype=dtype)
+        y_test = y_test_all.detach().clone().to(dtype=dtype)
+        if standardize_X:
             Xscaler = gpplus.utils.StandardScaler()
-            Xscaler.fit(X_gp_train[:, cont_cols])
-            X_gp_train[:, cont_cols] = Xscaler.transform(X_gp_train[:, cont_cols])
-            X_gp_test[:, cont_cols] = Xscaler.transform(X_gp_test[:, cont_cols])
+            Xscaler.fit(X_train[:, cont_cols])
+            X_train[:, cont_cols] = Xscaler.transform(X_train[:, cont_cols])
+            X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])
 
         # Normalize the GP data
-        y_gp_train_mean = y_gp_train.mean()
-        y_gp_train_std = y_gp_train.std()
-        y_gp_train_normal = (y_gp_train - y_gp_train_mean) / y_gp_train_std
+        y_train_mean = y_train.mean()
+        y_train_std = y_train.std()
+        y_train_normal = (y_train - y_train_mean) / y_train_std
 
         # cat_cols was returned by the encoder; CombinedKernel expects only cat indices
         # print(cat_cols)
+        # kernel = gpplus.kernels.LogScaleKernel(gpplus.kernels.CombinedKernel(
         kernel = gpplus.kernels.CombinedKernel(cont_cols=cont_cols, 
                 cat_cols=cat_cols, 
                 source_cols=source_cols)
 
         # Create GP model
-        from gpplus.means import MultiMean
-        from gpplus.likelihoods import MultiLikelihood
         model = gpplus.models.GPR(
-            X_gp_train,
-            y_gp_train_normal if standardize_y_gp else y_gp_train,
+            X_train,
+            y_train_normal if standardize_y else y_train,
             kernel_module=kernel,
             mean_module=gpplus.means.MultiMean(encoded_cols=source_cols),
-            likelihood=gpplus.likelihoods.MultiLikelihood(encoded_cols=source_cols, training_data=X_gp_train),
+            likelihood=gpplus.likelihoods.MultiLikelihood(encoded_cols=source_cols, training_data=X_train),
         )
         if (i == 0) or (i == num_seeds - 1):
             print(model)
@@ -169,8 +166,8 @@ def wing_GPvsPFN(num_seeds=20,
         # Create trainer
         gp_metric, y_pred_gp, output_std_gp = train_eval_gp(
             model,
-            X_gp_test,
-            y_gp_test,
+            X_test,
+            y_test,
             num_epochs=num_epochs,
             seed=seed,
             num_runs=num_runs,
@@ -179,11 +176,10 @@ def wing_GPvsPFN(num_seeds=20,
             optimizer_class=optimizer_class,
             initializer_class=initializer_class,
             device=gp_device,
-            y_train_mean=y_gp_train_mean if standardize_y_gp else None,
-            y_train_std=y_gp_train_std if standardize_y_gp else None,
-            source_cols=source_cols,  # Source column is at index 10 (single int = not encoded)
+            y_train_mean=y_train_mean if standardize_y else None,
+            y_train_std=y_train_std if standardize_y else None,
+            source_cols=source_cols,
         )
-        
         GPPlus_metrics.append(gp_metric)
 
         print(f"\nGP Results (Seed {seed}) [{i+1}/{num_seeds}]")
@@ -196,16 +192,17 @@ def wing_GPvsPFN(num_seeds=20,
         print(f"\n--- {title} TabPFN Training ---")
         
         tabpfn_metric, y_pred_tabpfn, output_std_tabpfn = train_eval_PFN(
-            X_enc_train if encode_PFN_data else X_train,
-            X_enc_test if encode_PFN_data else X_test,
-            y_train,
+            X_train,
+            X_test,
+            y_train_normal if standardize_y else y_train,
             y_test,
             amp_device=amp_device,
             amp_dtype=amp_dtype,
             regressor=regressor,
-            source_cols=source_cols if encode_PFN_data else [source_cols[0]],
+            source_cols=source_cols,
+            y_train_mean=y_train_mean if standardize_y else None,
+            y_train_std=y_train_std if standardize_y else None,
         )
-        
         TabPFN_metrics.append(tabpfn_metric)
 
         # Print results for this seed
@@ -221,13 +218,13 @@ def wing_GPvsPFN(num_seeds=20,
                 "cont_cols": cont_cols,
                 "source_cols": source_cols,
                 "qual_dict": qual_dict,
-                "input_dim": X_gp_train.shape[1],
+                "input_dim": X_train.shape[1],
                 "train_samples": train_per_seed.tolist(),
                 "test_samples": num_test,
-                "y_train_mean": float(y_gp_train_mean.item()),
-                "y_train_std": float(y_gp_train_std.item()),
-                "standardize_X_gp": standardize_X_gp,
-                "standardize_y_gp": standardize_y_gp,
+                "y_train_mean": float(y_train_mean.item()),
+                "y_train_std": float(y_train_std.item()),
+                "standardize_X": standardize_X,
+                "standardize_y": standardize_y,
                 "dtype": str(dtype),
                 "device": str(gp_device),
                 "num_epochs": num_epochs,
@@ -245,7 +242,6 @@ def wing_GPvsPFN(num_seeds=20,
                 "random_state": regressor.random_state,
                 "use_autocast": regressor.use_autocast_,
                 "forced_inference_dtype": str(regressor.forced_inference_dtype_) if regressor.forced_inference_dtype_ else None,
-                "encoded_data": encode_PFN_data,
             }
         
     # =============================================================================
@@ -288,21 +284,21 @@ def wing_GPvsPFN(num_seeds=20,
             pass
     print(f"\nTotal experiment time for {num_seeds} seeds: {time.time() - total_start_time:.2f}s")
     print("="*60)
-    print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\tX_standardize: {standardize_X_gp}\n\ty_standardize: {standardize_y_gp}")
+    print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\tX_standardize: {standardize_X}\n\ty_standardize: {standardize_y}")
     print(f"Experiment details: \n\t{len(X_test)} test samples, {len(X_train)} train samples\n\tseeds: {num_seeds}")
 
     return GPPlus_metrics, TabPFN_metrics
 
 
 if __name__ == "__main__":
-    wing_GPvsPFN(num_seeds=1, train_size=[10, 10, 10, 10], num_runs=1, num_epochs=10000, save_path="./results/wing/temp")
-    # wing_GPvsPFN(num_seeds=4, num_runs=4, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=True, encode_PFN_data=True)
-    # wing_GPvsPFN(num_seeds=4, num_runs=4, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=True, encode_PFN_data=False)
-    # wing_GPvsPFN(num_seeds=1, num_runs=1, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=True)
-    # wing_GPvsPFN(num_seeds=1, num_runs=1, num_epochs=10000, save_path=None, standardize_X_gp=False, standardize_y_gp=False)
-    # wing_GPvsPFN(num_seeds=1, num_runs=1, num_epochs=10000, save_path=None, standardize_X_gp=False, standardize_y_gp=True)
-    # wing_GPvsPFN(num_seeds=1, num_runs=1, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=False)
-
+    borehole_GPvsPFN(num_seeds=1, train_size=[10, 10, 10, 10, 10], num_runs=4, num_epochs=10000, save_path=None)
+    # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp', standardize_X_gp=False, standardize_y_gp=True)
+    # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=False, standardize_y_gp=True)
+    # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=True)
+    # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=False, standardize_y_gp=False)
+    # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=False)
+    # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp', encode_PFN_data=True)
+    # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp', encode_PFN_data=False)
 
 
 

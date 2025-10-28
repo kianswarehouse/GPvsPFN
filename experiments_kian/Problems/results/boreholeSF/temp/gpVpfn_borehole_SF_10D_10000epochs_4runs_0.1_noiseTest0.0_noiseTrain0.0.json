@@ -1,0 +1,134 @@
+{
+  "gp_data": {
+    "summary": {
+      "RRMSE": {
+        "mean": 0.04543057126644741,
+        "std": 0.0,
+        "median": 0.04543057126644741,
+        "min": 0.04543057126644741,
+        "max": 0.04543057126644741,
+        "count": 1
+      },
+      "NIS": {
+        "mean": 0.224679380042836,
+        "std": 0.0,
+        "median": 0.224679380042836,
+        "min": 0.224679380042836,
+        "max": 0.224679380042836,
+        "count": 1
+      },
+      "Total_Time": {
+        "mean": 29.515244483947754,
+        "std": 0.0,
+        "median": 29.515244483947754,
+        "min": 29.515244483947754,
+        "max": 29.515244483947754,
+        "count": 1
+      },
+      "Training_Time": {
+        "mean": 29.34365200996399,
+        "std": 0.0,
+        "median": 29.34365200996399,
+        "min": 29.34365200996399,
+        "max": 29.34365200996399,
+        "count": 1
+      },
+      "Prediction_Time": {
+        "mean": 0.17159247398376465,
+        "std": 0.0,
+        "median": 0.17159247398376465,
+        "min": 0.17159247398376465,
+        "max": 0.17159247398376465,
+        "count": 1
+      }
+    },
+    "metrics": [
+      {
+        "Total_Time": 29.515244483947754,
+        "Training_Time": 29.34365200996399,
+        "Prediction_Time": 0.17159247398376465,
+        "RRMSE": 0.04543057126644741,
+        "RMSE": 2.0715212596151855,
+        "MSE": 4.291200329037684,
+        "NIS": 0.224679380042836
+      }
+    ],
+    "gp_model_info": {
+      "model_str": "GPR(\n  (likelihood): LogGaussianLikelihood(\n    (noise_covar): LogScaleHomoskedasticNoise(\n      (raw_noise_constraint): SoftClamp(-7, 3, margin=0.01)\n    )\n  )\n  (mean_module): ConstantMean()\n  (covar_module): LogScaleKernel(\n    (base_kernel): GaussianKernel(\n      (raw_lengthscale_constraint): SoftClamp(-6, 3, margin=0.01)\n    )\n    (raw_outputscale_constraint): SoftClamp(-5, 3, margin=0.01)\n  )\n)",
+      "cat_cols": [],
+      "cont_cols": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "source_cols": [],
+      "qual_dict": {},
+      "input_dim": 8,
+      "train_samples": 80,
+      "test_samples": 5000,
+      "y_train_mean": 77.5668186106986,
+      "y_train_std": 46.27763064295102,
+      "standardize_X": true,
+      "standardize_y": true,
+      "dtype": "torch.float64",
+      "device": "cpu",
+      "num_epochs": 10000,
+      "num_runs": 4,
+      "lr": 0.1,
+      "optimizer": "Adam",
+      "convergence_patience": 10,
+      "initializer": null
+    }
+  },
+  "tabpfn_data": {
+    "summary": {
+      "RRMSE": {
+        "mean": 0.04753391382913123,
+        "std": 0.0,
+        "median": 0.04753391382913123,
+        "min": 0.04753391382913123,
+        "max": 0.04753391382913123,
+        "count": 1
+      },
+      "NIS": {
+        "mean": 0.35837689543891343,
+        "std": 0.0,
+        "median": 0.35837689543891343,
+        "min": 0.35837689543891343,
+        "max": 0.35837689543891343,
+        "count": 1
+      },
+      "Time": {
+        "mean": 0.6307475566864014,
+        "std": 0.0,
+        "median": 0.6307475566864014,
+        "min": 0.6307475566864014,
+        "max": 0.6307475566864014,
+        "count": 1
+      }
+    },
+    "metrics": [
+      {
+        "Time": 0.6307475566864014,
+        "RRMSE": 0.04753391382913123,
+        "RMSE": 2.1674284585209356,
+        "MSE": 4.697746122806438,
+        "NIS": 0.35837689543891343
+      }
+    ],
+    "pfn_model_info": {
+      "model_path": "auto",
+      "fit_mode": "fit_preprocessors",
+      "device": "cuda",
+      "inference_precision": "auto",
+      "random_state": null,
+      "use_autocast": true,
+      "forced_inference_dtype": null
+    }
+  }
+}

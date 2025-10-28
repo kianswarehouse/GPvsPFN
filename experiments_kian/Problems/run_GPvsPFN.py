@@ -1,8 +1,9 @@
 from M2AX_GPvsPFN import M2AX_GPvsPFN
 from planes_GPvsPFN import planes_GPvsPFN
 from hartmann_GPvsPFN import hartmann_GPvsPFN
-from wing_GPvsPFN import wing_GPvsPFN
-from buckling_GPvsPFN import buckling_GPvsPFN
+from A1_wing_MF_GPvsPFN import wing_GPvsPFN
+from A2_buckling_MF_GPvsPFN import buckling_GPvsPFN
+from A3_borehole_MF_GPvsPFN import borehole_GPvsPFN
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.training.parameter_initializer_kian import KianParameterInitializer as KianInitializer
 

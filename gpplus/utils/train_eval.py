@@ -114,6 +114,8 @@ def train_eval_PFN(
     amp_device: str,
     amp_dtype,
     regressor=None,
+    y_train_mean=None,
+    y_train_std=None,
     source_cols=None,
 ):
     """
@@ -162,6 +164,12 @@ def train_eval_PFN(
     # Metrics only on the test segment
     y_pred_test = y_pred[-len(y_test):]
     output_std_test = output_std[-len(y_test):]
+
+    # If train mean/std are provided (e.g., standardized training targets),
+    # denormalize predictions and std before computing metrics to compare on original scale
+    if (y_train_mean is not None) and (y_train_std is not None):
+        y_pred_test = (y_pred_test * float(y_train_std)) + float(y_train_mean)
+        output_std_test = output_std_test * float(y_train_std)
 
     metrics = compute_metrics(y_test, y_pred_test, output_std_test, start_time=t_start)
 

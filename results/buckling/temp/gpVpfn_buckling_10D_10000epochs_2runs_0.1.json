@@ -1,0 +1,244 @@
+{
+  "gp_data": {
+    "summary": {
+      "RRMSE": {
+        "mean": 0.9036792696579002,
+        "std": 0.0,
+        "median": 0.9036792696579002,
+        "min": 0.9036792696579002,
+        "max": 0.9036792696579002,
+        "count": 1
+      },
+      "NIS": {
+        "mean": 6.250257378516507,
+        "std": 0.0,
+        "median": 6.250257378516507,
+        "min": 6.250257378516507,
+        "max": 6.250257378516507,
+        "count": 1
+      },
+      "Total_Time": {
+        "mean": 0.8346097469329834,
+        "std": 0.0,
+        "median": 0.8346097469329834,
+        "min": 0.8346097469329834,
+        "max": 0.8346097469329834,
+        "count": 1
+      },
+      "Training_Time": {
+        "mean": 0.5674488544464111,
+        "std": 0.0,
+        "median": 0.5674488544464111,
+        "min": 0.5674488544464111,
+        "max": 0.5674488544464111,
+        "count": 1
+      },
+      "Prediction_Time": {
+        "mean": 0.26716089248657227,
+        "std": 0.0,
+        "median": 0.26716089248657227,
+        "min": 0.26716089248657227,
+        "max": 0.26716089248657227,
+        "count": 1
+      },
+      "per_source": {
+        "source_0": {
+          "RRMSE": {
+            "mean": 0.9769906538921699,
+            "std": 0.0,
+            "median": 0.9769906538921699,
+            "min": 0.9769906538921699,
+            "max": 0.9769906538921699,
+            "count": 1
+          },
+          "NIS": {
+            "mean": 6.540917292245098,
+            "std": 0.0,
+            "median": 6.540917292245098,
+            "min": 6.540917292245098,
+            "max": 6.540917292245098,
+            "count": 1
+          }
+        },
+        "source_1": {
+          "RRMSE": {
+            "mean": 0.9304618408470356,
+            "std": 0.0,
+            "median": 0.9304618408470356,
+            "min": 0.9304618408470356,
+            "max": 0.9304618408470356,
+            "count": 1
+          },
+          "NIS": {
+            "mean": 7.53335730747286,
+            "std": 0.0,
+            "median": 7.53335730747286,
+            "min": 7.53335730747286,
+            "max": 7.53335730747286,
+            "count": 1
+          }
+        }
+      }
+    },
+    "metrics": [
+      {
+        "Total_Time": 0.8346097469329834,
+        "Training_Time": 0.5674488544464111,
+        "Prediction_Time": 0.26716089248657227,
+        "RRMSE": 0.9036792696579002,
+        "RMSE": 33988.498489538455,
+        "MSE": 1155218029.573358,
+        "NIS": 6.250257378516507,
+        "source_0_Total_Time": 0.8346097469329834,
+        "source_0_Training_Time": 0.5674488544464111,
+        "source_0_Prediction_Time": 0.26716089248657227,
+        "source_0_RRMSE": 0.9769906538921699,
+        "source_0_RMSE": 15000.549485410695,
+        "source_0_MSE": 225016484.86425504,
+        "source_0_num_samples": 2500,
+        "source_0_NIS": 6.540917292245098,
+        "source_1_Total_Time": 0.8346097469329834,
+        "source_1_Training_Time": 0.5674488544464111,
+        "source_1_Prediction_Time": 0.26716089248657227,
+        "source_1_RRMSE": 0.9304618408470356,
+        "source_1_RMSE": 45666.39436481121,
+        "source_1_MSE": 2085419574.282461,
+        "source_1_num_samples": 2500,
+        "source_1_NIS": 7.53335730747286
+      }
+    ],
+    "gp_model_info": {
+      "model_str": "GPR(\n  (likelihood): MultiLikelihood(\n    (noise_covar): MultiNoise(\n      (raw_noise_constraint): GreaterThan(1.000E-04)\n    )\n  )\n  (mean_module): MultiMean(\n    (mean0): ZeroMean()\n    (mean1): ConstantMean(\n      (mean_prior): NormalPrior()\n    )\n  )\n  (covar_module): LogScaleKernel(\n    (base_kernel): CombinedKernel(\n      (cont_kernel): GaussianKernel(\n        (raw_lengthscale_constraint): SoftClamp(-6, 3, margin=0.01)\n      )\n      (source_kernel): GaussianKernel(\n        (raw_lengthscale_constraint): SoftClamp(-6, 3, margin=0.01)\n      )\n      (source_encoder): MatrixEncoder()\n    )\n    (raw_outputscale_constraint): SoftClamp(-5, 3, margin=0.01)\n  )\n)",
+      "cat_cols": [],
+      "cont_cols": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "source_cols": [
+        4,
+        5
+      ],
+      "qual_dict": {
+        "4": 2
+      },
+      "input_dim": 6,
+      "train_samples": [
+        40,
+        40
+      ],
+      "test_samples": [
+        2500,
+        2500
+      ],
+      "y_train_mean": 18751.41732060652,
+      "y_train_std": 27039.879819216025,
+      "standardize_X": true,
+      "standardize_y": true,
+      "dtype": "torch.float64",
+      "device": "cpu",
+      "num_epochs": 10000,
+      "num_runs": 2,
+      "lr": 0.1,
+      "optimizer": "Adam",
+      "convergence_patience": 10,
+      "initializer": null
+    }
+  },
+  "tabpfn_data": {
+    "summary": {
+      "RRMSE": {
+        "mean": 0.6451276750423512,
+        "std": 0.0,
+        "median": 0.6451276750423512,
+        "min": 0.6451276750423512,
+        "max": 0.6451276750423512,
+        "count": 1
+      },
+      "NIS": {
+        "mean": 4.977643617705647,
+        "std": 0.0,
+        "median": 4.977643617705647,
+        "min": 4.977643617705647,
+        "max": 4.977643617705647,
+        "count": 1
+      },
+      "Time": {
+        "mean": 0.4118971824645996,
+        "std": 0.0,
+        "median": 0.4118971824645996,
+        "min": 0.4118971824645996,
+        "max": 0.4118971824645996,
+        "count": 1
+      },
+      "per_source": {
+        "source_0": {
+          "RRMSE": {
+            "mean": 0.18878948924659503,
+            "std": 0.0,
+            "median": 0.18878948924659503,
+            "min": 0.18878948924659503,
+            "max": 0.18878948924659503,
+            "count": 1
+          },
+          "NIS": {
+            "mean": 2.104932849056001,
+            "std": 0.0,
+            "median": 2.104932849056001,
+            "min": 2.104932849056001,
+            "max": 2.104932849056001,
+            "count": 1
+          }
+        },
+        "source_1": {
+          "RRMSE": {
+            "mean": 0.6966668356460036,
+            "std": 0.0,
+            "median": 0.6966668356460036,
+            "min": 0.6966668356460036,
+            "max": 0.6966668356460036,
+            "count": 1
+          },
+          "NIS": {
+            "mean": 6.970598223145351,
+            "std": 0.0,
+            "median": 6.970598223145351,
+            "min": 6.970598223145351,
+            "max": 6.970598223145351,
+            "count": 1
+          }
+        }
+      }
+    },
+    "metrics": [
+      {
+        "Time": 0.4118971824645996,
+        "RRMSE": 0.6451276750423512,
+        "RMSE": 24264.0522417175,
+        "MSE": 588744231.188796,
+        "NIS": 4.977643617705647,
+        "source_0_RRMSE": 0.18878948924659503,
+        "source_0_RMSE": 2898.6419312067646,
+        "source_0_MSE": 8402125.045350082,
+        "source_0_num_samples": 2500,
+        "source_0_NIS": 2.104932849056001,
+        "source_1_RRMSE": 0.6966668356460036,
+        "source_1_RMSE": 34191.90455842204,
+        "source_1_MSE": 1169086337.3322418,
+        "source_1_num_samples": 2500,
+        "source_1_NIS": 6.970598223145351
+      }
+    ],
+    "pfn_model_info": {
+      "model_path": "auto",
+      "fit_mode": "fit_preprocessors",
+      "device": "cuda",
+      "inference_precision": "auto",
+      "random_state": null,
+      "use_autocast": true,
+      "forced_inference_dtype": null,
+      "encoded_data": false
+    }
+  }
+}

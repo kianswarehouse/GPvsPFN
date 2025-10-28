@@ -422,10 +422,6 @@ def load_model(
     # `True`, dissallowing loading of arbitrary objects.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=FutureWarning)
-        # GITBO's code:
-        import os
-        current_dir = os.getcwd()
-        path = os.path.join(current_dir, "tabpfn/model/tabpfn-v2-regressor.ckpt")
         checkpoint = torch.load(path, map_location="cpu", weights_only=False)
         
     assert "state_dict" in checkpoint
