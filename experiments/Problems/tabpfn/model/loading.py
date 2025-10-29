@@ -425,7 +425,10 @@ def load_model(
         # GITBO's code:
         import os
         current_dir = os.getcwd()
-        path = os.path.join(current_dir, "tabpfn/model/tabpfn-v2-regressor.ckpt")
+        # Use the provided path instead of hardcoded path
+        if not os.path.exists(path):
+            # Fallback to hardcoded path if provided path doesn't exist
+            path = os.path.join(current_dir, "tabpfn/model/tabpfn-v2-regressor.ckpt")
         checkpoint = torch.load(path, map_location="cpu", weights_only=False)
         
     assert "state_dict" in checkpoint

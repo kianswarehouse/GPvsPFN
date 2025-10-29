@@ -388,9 +388,10 @@ def compute_per_source_metrics(y_true, y_hat, output_std, X_test, source_columns
             source_output_std = output_std[source_mask] if output_std is not None else None
 
             # Compute source metrics with source-specific normalization
+            # Compute source metrics with source-specific normalization
             source_rmse = np.sqrt(mean_squared_error(source_y_true, source_y_hat))
             source_std = source_y_true.std()
-            source_rrmse = source_rmse / source_std
+            source_rrmse = source_rmse / source_std if source_std > 0 else np.inf
 
             # Handle time metrics for per-source
             if training_time is not None and prediction_time is not None:
@@ -442,3 +443,138 @@ def compute_per_source_metrics(y_true, y_hat, output_std, X_test, source_columns
     all_metrics = {"overall": overall_metrics, "per_source": per_source_metrics, "num_sources": num_sources}
 
     return all_metrics
+
+
+def extract_parameter_statistics(gp_parameters_file="gp_parameters.json"):
+    """
+    Extract parameter statistics from the gp_parameters.json file.
+    
+    Args:
+        gp_parameters_file: Path to the gp_parameters.json file
+        
+    Returns:
+        dict: Parameter statistics including initial, final, and deltas for each parameter
+    """
+    import json
+    import numpy as np
+    from pathlib import Path
+    
+    try:
+        # Read the gp_parameters.json file
+        param_file = Path(gp_parameters_file)
+        if not param_file.exists():
+            return {"error": f"Parameter file {gp_parameters_file} not found"}
+        
+        with open(param_file, 'r') as f:
+            parameters_data = json.load(f)
+        
+        if not parameters_data:
+            return {"error": "No parameter data found"}
+        
+        # Extract parameter statistics
+        param_stats = {
+            "raw_noise": {
+                "initial": [],
+                "final": [],
+                "deltas": []
+            },
+            "raw_outputscale": {
+                "initial": [],
+                "final": [],
+                "deltas": []
+            },
+            "raw_lengthscales": {
+                "initial": [],
+                "final": [],
+                "deltas": []
+            }
+        }
+        
+        # Collect all parameter values across runs
+        for run_data in parameters_data:
+            for param_name in ["raw_noise", "raw_outputscale", "raw_lengthscales"]:
+                if param_name in run_data.get("initial", {}):
+                    initial_val = run_data["initial"][param_name]
+                    final_val = run_data["final"][param_name]
+                    delta_val = run_data["deltas"][param_name]
+                    
+                    # Handle different data types
+                    if param_name == "raw_lengthscales":
+                        # For lengthscales, store as lists
+                        param_stats[param_name]["initial"].append(initial_val if initial_val is not None else [])
+                        param_stats[param_name]["final"].append(final_val if final_val is not None else [])
+                        param_stats[param_name]["deltas"].append(delta_val if delta_val is not None else [])
+                    else:
+                        # For scalar parameters
+                        param_stats[param_name]["initial"].append(initial_val if initial_val is not None else 0.0)
+                        param_stats[param_name]["final"].append(final_val if final_val is not None else 0.0)
+                        param_stats[param_name]["deltas"].append(delta_val if delta_val is not None else 0.0)
+        
+        # Compute summary statistics for each parameter
+        summary_stats = {}
+        for param_name, param_data in param_stats.items():
+            summary_stats[param_name] = {}
+            
+            for stat_type in ["initial", "final", "deltas"]:
+                values = param_data[stat_type]
+                
+                if param_name == "raw_lengthscales":
+                    # For lengthscales, compute stats across all dimensions
+                    if values and len(values) > 0 and len(values[0]) > 0:
+                        # Flatten all lengthscale values
+                        flat_values = []
+                        for val_list in values:
+                            if val_list:  # Check if not empty
+                                flat_values.extend(val_list)
+                        
+                        if flat_values:
+                            summary_stats[param_name][stat_type] = {
+                                "mean": float(np.mean(flat_values)),
+                                "std": float(np.std(flat_values, ddof=1)) if len(flat_values) > 1 else 0.0,
+                                "median": float(np.median(flat_values)),
+                                "min": float(np.min(flat_values)),
+                                "max": float(np.max(flat_values)),
+                                "count": len(flat_values),
+                                "raw_values": values  # Keep raw values for reference
+                            }
+                        else:
+                            summary_stats[param_name][stat_type] = {
+                                "mean": 0.0, "std": 0.0, "median": 0.0, "min": 0.0, "max": 0.0, "count": 0,
+                                "raw_values": values
+                            }
+                    else:
+                        summary_stats[param_name][stat_type] = {
+                            "mean": 0.0, "std": 0.0, "median": 0.0, "min": 0.0, "max": 0.0, "count": 0,
+                            "raw_values": values
+                        }
+                else:
+                    # For scalar parameters
+                    if values:
+                        values_array = np.array(values)
+                        summary_stats[param_name][stat_type] = {
+                            "mean": float(np.mean(values_array)),
+                            "std": float(np.std(values_array, ddof=1)) if len(values_array) > 1 else 0.0,
+                            "median": float(np.median(values_array)),
+                            "min": float(np.min(values_array)),
+                            "max": float(np.max(values_array)),
+                            "count": len(values_array),
+                            "raw_values": values
+                        }
+                    else:
+                        summary_stats[param_name][stat_type] = {
+                            "mean": 0.0, "std": 0.0, "median": 0.0, "min": 0.0, "max": 0.0, "count": 0,
+                            "raw_values": values
+                        }
+        
+        # Add metadata
+        summary_stats["metadata"] = {
+            "total_runs": len(parameters_data),
+            "parameter_file": str(param_file),
+            "kernel_types": list(set([run.get("initial", {}).get("kernel_type", "Unknown") for run in parameters_data])),
+            "input_dims": list(set([run.get("initial", {}).get("input_dim", "Unknown") for run in parameters_data]))
+        }
+        
+        return summary_stats
+        
+    except Exception as e:
+        return {"error": f"Failed to extract parameter statistics: {str(e)}"}

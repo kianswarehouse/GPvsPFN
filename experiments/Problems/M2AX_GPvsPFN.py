@@ -1,6 +1,10 @@
 import torch
 import os
 import sys
+# Add root directory to path to allow imports from any directory
+_root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if _root_dir not in sys.path:
+    sys.path.insert(0, _root_dir)
 import pandas as pd
 import numpy as np
 import json
@@ -14,64 +18,13 @@ import time
 from gpplus.training.eval import evaluate_gp_model
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
+from gpplus.utils.relative_distance_encoder import RelativeDistanceEncoder
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
-
+from experiments.data.load_experimental_data import load_m2ax_data
+from gpplus.training.optimizers import LBFGSScipy
+from gpplus.utils.relative_distance_encoder import RelativeDistanceEncoder
 # import warnings
 # warnings.filterwarnings("ignore")
-
-def load_m2ax_data(print_info=False):
-    """
-    Load the M2AX dataset and optionally print detailed information about the data.
-    Converts categorical element names to integers using label encoding.
-    
-    Args:
-        print_info (bool): If True, prints detailed information about the loaded data
-        
-    Returns:
-        tuple: (X, y_porosity, y_hardness, label_encoders) where X is features and y are targets
-    """
-    # Path to the data file (from one folder back, "data/data_M.csv")
-    data_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'data_M.csv')
-    data_path = os.path.abspath(data_path)
-    
-    # Load the data
-    df = pd.read_csv(data_path)
-
-    # Label-encode the first three categorical columns before casting to float
-    categorical_columns = df.columns[:3]
-    df_encoded = df.copy()
-    for col in categorical_columns:
-        df_encoded[col] = pd.factorize(df[col])[0]
-
-    # Convert to numpy array for processing
-    arr = df_encoded.values.astype(np.float64)
-    
-    # Remove rows with any NaN values
-    mask = ~np.isnan(arr).any(axis=1)
-    arr = arr[mask]
-    
-    # Features: first 6 columns (3 encoded element names + 3 numerical properties)
-    X = arr[:, :3]  # shape: (n_samples, 6)
-    
-    #y = arr[:, -1]
-    #print("E, Young's Modulus")
-
-    # y = arr[:, -2]
-    # print("G, Shear Modulus")
-
-    y = arr[:, -3]
-    # print("B, Bulk Modulus")
-
-    return X, y
-
-
-# Simple data info prints
-# print("Encoded dataset info:")
-# print(f"  X shape: {tuple(X_enc.shape)}  | y shape: {tuple(y_enc.shape)}")
-# print("  First 5 X rows:\n", X_enc[:5])
-# print("  First 5 y:", y_enc[:5])
-# print("  Last 5 X rows:\n", X_enc[-5:])
-# print("  Last 5 y:", y_enc[-5:])
 def M2AX_GPvsPFN(
         num_seeds=20,
         test_size=0.2, 
@@ -83,8 +36,11 @@ def M2AX_GPvsPFN(
         initializer_class=None,
         gp_device='cpu',
         amp_device='cuda',
+        encode_PFN_data=True, # In this problem, 
         save_path='./results/M2AX',
         title=None,
+        # standardize_X_gp=False, # Not supported for this problem, all categorical
+        standardize_y_gp=True, # True gives best results for PFN
     ):
 
     if title is None:
@@ -93,28 +49,31 @@ def M2AX_GPvsPFN(
         title = f"M2AX_{title}"
     # Load the data
     X, y = load_m2ax_data()
+    
+    # Convert to torch tensors
+    X = torch.tensor(X, dtype=torch.float64)
+    y = torch.tensor(y, dtype=torch.float64)
+    
     if save_path is not None:
         plot_save_path = f"{save_path}/plots"
     else:
         plot_save_path = None
         
-    device = gp_device
     amp_dtype = torch.float32
     dtype = torch.float64
-    print(f" GP Device: {device}")
+    print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
     regressor = VanillaDirectTabPFNRegressor(device=amp_device)
 
     # Initialize results storage
 
-    print("="*60)
+    print("="*10)
     print(f"{title}: TabPFN vs GP Comparison")
-    print("="*60)
+    print("="*10)
     # Prepare encoded data once from already loaded X, y (no extra CSV/label encoding)
-    qual_dict = learn_encodings(torch.tensor(X, dtype=dtype))
+    qual_dict = learn_encodings(X)
 
-    X_enc, cont_cols, cat_cols, source_cols = encode_qual_data(torch.tensor(X, dtype=dtype), noncont_dict=qual_dict, source_col=None)
-    y_enc = torch.tensor(y, dtype=dtype)
+    X_enc, cont_cols, cat_cols, source_cols = encode_qual_data(X, qual_dict=qual_dict)
     # print(qual_dict)
     # print(cat_cols)
     TabPFN_M2AX_metrics = []
@@ -125,17 +84,20 @@ def M2AX_GPvsPFN(
         print(f"\n{'='*20} {title} SEED {i+1}/{num_seeds}: {seed} {'='*20}")
         t0 = time.time()
         
-        X_train, X_test, y_train, y_test = train_test_split(X_enc.numpy(), y_enc.numpy(), test_size=test_size, random_state=seed)
+        X_train_enc, X_test_enc, y_train, y_test = train_test_split(X_enc, y, test_size=test_size, random_state=seed)
+    
+        X_train, X_test, _, _ = train_test_split(X, y, test_size=test_size, random_state=seed)
+        
         # =============================================================================
         # GP M2AX Section 
         # =============================================================================
         print(f"\n--- {title} GP Evaluation ---")
 
         # Reuse PFN split, convert to torch
-        X_gp_train = torch.tensor(X_train, dtype=dtype)
-        X_gp_test = torch.tensor(X_test, dtype=dtype)
-        y_gp_train = torch.tensor(y_train, dtype=dtype)
-        y_gp_test = torch.tensor(y_test, dtype=dtype)
+        X_gp_train = X_train_enc.detach().clone().to(dtype=dtype)
+        X_gp_test = X_test_enc.detach().clone().to(dtype=dtype)
+        y_gp_train = y_train.detach().clone().to(dtype=dtype)
+        y_gp_test = y_test.detach().clone().to(dtype=dtype)
 
         # Normalize the GP data
         y_gp_train_mean = y_gp_train.mean()
@@ -144,12 +106,22 @@ def M2AX_GPvsPFN(
 
         # cat_cols was returned by the encoder; CombinedKernel expects only cat indices
         # print(cat_cols)
-        kernel = gpplus.kernels.LogScaleKernel(gpplus.kernels.CombinedKernel(cat_cols=cat_cols))
+        # Create encoders for each categorical group
+        # Each encoder needs input_dim equal to the number of columns in that specific group
+        cat_cols = [[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]]
+        # cat_encoders = [RelativeDistanceEncoder(input_dim=len(cat_col), z_dim=2, initialization='uniform', init_radius=0.5, seed=seed) for cat_col in cat_cols]
+        cat_encoders = 'nn'
+        kernel = gpplus.kernels.LogScaleKernel(
+            gpplus.kernels.CombinedKernel(
+                cat_cols=cat_cols,
+                cat_encoder=cat_encoders,
+            )
+        )
 
         # Create GP model
         model = gpplus.models.GPR(
             X_gp_train,
-            y_gp_train_normal,
+            y_gp_train_normal if standardize_y_gp else y_gp_train,
             kernel_module=kernel,
             # likelihood=gpytorch.likelihoods.GaussianLikelihood(
                 # noise_constraint=gpytorch.constraints.GreaterThan(1e-6), 
@@ -171,9 +143,10 @@ def M2AX_GPvsPFN(
             convergence_patience=convergence_patience,
             optimizer_class=optimizer_class,
             initializer_class=initializer_class,
-            device=device,
-            y_train_mean=y_gp_train_mean,
-            y_train_std=y_gp_train_std,
+            device=gp_device,
+            y_train_mean=y_gp_train_mean if standardize_y_gp else None,
+            y_train_std=y_gp_train_std if standardize_y_gp else None,
+            # source_cols=source_cols,
         )
         GPPlus_M2AX_metrics.append(gp_metric)
 
@@ -187,13 +160,14 @@ def M2AX_GPvsPFN(
         print(f"\n--- {title} TabPFN Evaluation ---")
         
         tabpfn_metric, y_pred_tabpfn, output_std_tabpfn = train_eval_PFN(
-            X_train,
-            X_test,
+            X_train_enc if encode_PFN_data else X_train,
+            X_test_enc if encode_PFN_data else X_test,
             y_train,
             y_test,
             amp_device=amp_device,
             amp_dtype=amp_dtype,
             regressor=regressor,
+            # source_cols=source_cols,
         )
         TabPFN_M2AX_metrics.append(tabpfn_metric)
 
@@ -214,8 +188,10 @@ def M2AX_GPvsPFN(
                 "test_samples": X_gp_test.shape[0],
                 "y_train_mean": float(y_gp_train_mean.item()),
                 "y_train_std": float(y_gp_train_std.item()),
+                "standardize_X_gp": "All categorical",
+                "standardize_y_gp": standardize_y_gp,
                 "dtype": str(dtype),
-                "device": str(device),
+                "device": str(gp_device),
                 "num_epochs": num_epochs,
                 "num_runs": num_runs,
                 "lr": lr,
@@ -233,8 +209,7 @@ def M2AX_GPvsPFN(
                 "random_state": regressor.random_state,
                 "use_autocast": regressor.use_autocast_,
                 "forced_inference_dtype": str(regressor.forced_inference_dtype_) if regressor.forced_inference_dtype_ else None,
-                "train_samples": len(X_train),
-                "test_samples": len(X_test),
+                "encoded_data": encode_PFN_data,
             }
 
     # =============================================================================
@@ -259,27 +234,28 @@ def M2AX_GPvsPFN(
         try:
             # Combined single file: TabPFN data + GP data + GP model_info at the end
             combined_data = {
-                "tabpfn_data": {
-                    "summary": TabPFN_M2AX_summary,
-                    "metrics": TabPFN_M2AX_metrics,
-                    "pfn_model_info": tabpfn_model_info
-                },
                 "gp_data": {
                     "summary": GPPlus_M2AX_summary,
                     "metrics": GPPlus_M2AX_metrics,
                     "gp_model_info": gp_model_info
                 },
+                "tabpfn_data": {
+                    "summary": TabPFN_M2AX_summary,
+                    "metrics": TabPFN_M2AX_metrics,
+                    "pfn_model_info": tabpfn_model_info
+                },
             }
-            (out_dir / f"combined_{title}.json").write_text(json.dumps(combined_data, indent=2))
+            (out_dir / f"gpVpfn_{title}.json").write_text(json.dumps(combined_data, indent=2))
         except Exception:
             pass
     print(f"\nTotal experiment time for {len(seeds)} seeds: {time.time() - t0:.2f}s")
     print("="*60)
-    print(f"GP trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {device}\n\tinitializer: {initializer_class}\n\tcat_cols: {cat_cols}\n\tqual_dict: {qual_dict}")
+    print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\ty_standardize: {standardize_y_gp}")
     print(f"Experiment details: \n\ttest size: {test_size} ({len(X_test)} test samples, {len(X_train)} train samples)\n\tseeds: {seeds}")
 
     return GPPlus_M2AX_metrics, TabPFN_M2AX_metrics,
 
 if __name__ == "__main__":
     # M2AX_GPvsPFN()
-    M2AX_GPvsPFN(num_seeds=2, num_runs=1, num_epochs=10, save_path=None)
+    M2AX_GPvsPFN(num_seeds=1, num_runs=4, num_epochs=10000, optimizer_class=LBFGSScipy, save_path='./results/M2AX/temp2')
+    # M2AX_GPvsPFN(num_seeds=2, num_runs=4, num_epochs=10000, save_path=None, encode_PFN_data=True)

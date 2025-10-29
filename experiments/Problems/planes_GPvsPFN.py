@@ -1,6 +1,10 @@
 import torch
 import os
 import sys
+# Add root directory to path to allow imports from any directory
+_root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if _root_dir not in sys.path:
+    sys.path.insert(0, _root_dir)
 import pandas as pd
 import numpy as np
 import json
@@ -16,60 +20,11 @@ from gpplus.training.eval import evaluate_gp_model
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
+from experiments.data.load_experimental_data import load_2dplanes_data
 
 
 # import warnings
 # warnings.filterwarnings("ignore")
-
-def load_2dplanes_data(print_info=False):
-    """
-    Load the planes dataset and optionally print detailed information about the data.
-    Converts categorical element names to integers using label encoding.
-    
-    Args:
-        print_info (bool): If True, prints detailed information about the loaded data
-        
-    Returns:
-        tuple: (X, y) where X is features and y are targets
-    """
-    # Path to the preferred CSV and a fallback TSV if CSV is missing
-    data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data'))
-    csv_path = os.path.join(data_dir, 'data_2dplanes.csv')
-    tsv_path = os.path.join(data_dir, '215_2dplanes.tsv')
-
-    # Load the data with graceful fallback
-    if os.path.isfile(csv_path):
-        df = pd.read_csv(csv_path)
-    elif os.path.isfile(tsv_path):
-        df = pd.read_csv(tsv_path, sep='\t', header=None)
-    else:
-        raise FileNotFoundError(f"Could not find 2dplanes data. Expected one of: {csv_path} or {tsv_path}")
-    
-
-    # Convert to numpy array for processing; if header-like first row exists, drop it
-    try:
-        arr = df.values.astype(np.float64)
-    except ValueError:
-        # Drop the first row and retry conversion
-        df = df.iloc[1:].reset_index(drop=True)
-        arr = df.values.astype(np.float64)
-    
-    
-    X = arr[:, :-1]  # shape: (n_samples, 10)
-    
-
-    y = arr[:, -1]
-    
-    return X, y
-
-
-# Simple data info prints
-# print("Encoded dataset info:")
-# print(f"  X shape: {tuple(X_enc.shape)}  | y shape: {tuple(y_enc.shape)}")
-# print("  First 5 X rows:\n", X_enc[:5])
-# print("  First 5 y:", y_enc[:5])
-# print("  Last 5 X rows:\n", X_enc[-5:])
-# print("  Last 5 y:", y_enc[-5:])
 def planes_GPvsPFN(num_seeds=20,
         num_test=5000,
         train_size=10,
@@ -84,17 +39,25 @@ def planes_GPvsPFN(num_seeds=20,
         encode_PFN_data=False,
         save_path='./results/2dplanes',
         title=None,
+        # standardize_X_gp=False, # Not supported for this problem, all categorical
+        standardize_y_gp=False,
     ):
     if title is None:
         title = f"2dplanes_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}"
     else: 
         title = f"2dplanes_{train_size}D_{title}"
     # Load the data
+    set_seed(0)
+
     X, y = load_2dplanes_data()
-    device = gp_device
+    
+    # Convert to torch tensors
+    X = torch.tensor(X, dtype=torch.float64)
+    y = torch.tensor(y, dtype=torch.float64)
+    
     amp_dtype = torch.float32
     dtype = torch.float64
-    print(f" GP Device: {device}")
+    print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
     regressor = VanillaDirectTabPFNRegressor(device=amp_device)
     if save_path is not None:
@@ -103,31 +66,29 @@ def planes_GPvsPFN(num_seeds=20,
         plot_save_path = None
     # Initialize results storage
 
-    print("="*60)
+    print("="*10)
     print(f"{title}: TabPFN vs GP Comparison")
-    print("="*60)
+    print("="*10)
 
     # Prepare encoded data once from already loaded X, y (no extra CSV/label encoding)
-    qual_dict = learn_encodings(torch.tensor(X, dtype=dtype))
+    qual_dict = learn_encodings(X)
     print(qual_dict)
-    X_enc, cont_cols, cat_cols, source_cols = encode_qual_data(torch.tensor(X, dtype=dtype), noncont_dict=qual_dict, source_col=None)
+    X_enc, cont_cols, cat_cols, source_cols = encode_qual_data(X, qual_dict=qual_dict)
     print(cat_cols)
-    TabPFN_planes_metrics = []
-    GPPlus_planes_metrics = []
-    set_seed(0)
+    TabPFN_metrics = []
+    GPPlus_metrics = []
 
     # Simple approach: get all indices, take first 5k for test, rest for training
-    N = X_enc.shape[0]
+    total_data_samples = X.shape[0]
     train_per_seed = train_size * X.shape[1]
     total_train = train_per_seed * num_seeds
-    total_needed = num_test + total_train
+    total_samples = num_test + total_train
     
-    if N < total_needed:
-        raise ValueError(f"Not enough data: need {total_needed}, have {N}")
+    if total_data_samples < total_samples:
+        raise ValueError(f"Not enough data: need {total_samples}, have {total_data_samples}")
     
     # Get deterministic permutation of all indices
-    rng = np.random.RandomState(1337)
-    all_indices = rng.permutation(N)
+    all_indices = torch.randperm(total_samples)
     
     # First 5k are test
     test_indices = all_indices[:num_test]
@@ -167,8 +128,8 @@ def planes_GPvsPFN(num_seeds=20,
         # Reuse PFN split, convert to torch
         X_gp_train = X_train_enc.detach().clone().to(dtype=dtype)
         X_gp_test = X_test_enc.detach().clone().to(dtype=dtype)
-        y_gp_train = torch.tensor(y_train, dtype=dtype)
-        y_gp_test = torch.tensor(y_test, dtype=dtype)
+        y_gp_train = y_train.detach().clone().to(dtype=dtype)
+        y_gp_test = y_test.detach().clone().to(dtype=dtype)
 
         # Normalize the GP data
         y_gp_train_mean = y_gp_train.mean()
@@ -177,12 +138,12 @@ def planes_GPvsPFN(num_seeds=20,
 
         # cat_cols was returned by the encoder; CombinedKernel expects only cat indices
         # print(cat_cols)
-        kernel = gpplus.kernels.LogScaleKernel(gpplus.kernels.CombinedKernel(cat_cols=cat_cols))
+        kernel = gpplus.kernels.CombinedKernel(cat_cols=cat_cols)
 
         # Create GP model
         model = gpplus.models.GPR(
             X_gp_train,
-            y_gp_train_normal,
+            y_gp_train_normal if standardize_y_gp else y_gp_train,
             kernel_module=kernel,
             # likelihood=gpytorch.likelihoods.GaussianLikelihood(noise_constraint=gpytorch.constraints.GreaterThan(1e-6), noise_prior=gpytorch.priors.LogNormalPrior(loc=np.log(y_gp_train_std**2), scale=1.0)),
         )
@@ -202,11 +163,12 @@ def planes_GPvsPFN(num_seeds=20,
             convergence_patience=convergence_patience,
             optimizer_class=optimizer_class,
             initializer_class=initializer_class,
-            device=device,
-            y_train_mean=y_gp_train_mean,
-            y_train_std=y_gp_train_std,
+            device=gp_device,
+            y_train_mean=y_gp_train_mean if standardize_y_gp else None,
+            y_train_std=y_gp_train_std if standardize_y_gp else None,
+            source_cols=source_cols
         )
-        GPPlus_planes_metrics.append(gp_metric)
+        GPPlus_metrics.append(gp_metric)
 
         print(f"\nGP Results (Seed {seed}) [{i+1}/{num_seeds}]")
         for k, v in gp_metric.items():
@@ -225,8 +187,9 @@ def planes_GPvsPFN(num_seeds=20,
             amp_device=amp_device,
             amp_dtype=amp_dtype,
             regressor=regressor,
+            source_cols=source_cols,
         )
-        TabPFN_planes_metrics.append(tabpfn_metric)
+        TabPFN_metrics.append(tabpfn_metric)
 
         # Print results for this seed
         print(f"\nTabPFN Results (Seed {seed}) [{i+1}/{num_seeds}]")
@@ -246,8 +209,10 @@ def planes_GPvsPFN(num_seeds=20,
                 "test_samples": X_gp_test.shape[0],
                 "y_train_mean": float(y_gp_train_mean.item()),
                 "y_train_std": float(y_gp_train_std.item()),
+                "standardize_X_gp": "All categorical",
+                "standardize_y_gp": standardize_y_gp,
                 "dtype": str(dtype),
-                "device": str(device),
+                "device": str(gp_device),
                 "num_epochs": num_epochs,
                 "num_runs": num_runs,
                 "lr": lr,
@@ -263,9 +228,7 @@ def planes_GPvsPFN(num_seeds=20,
                 "random_state": regressor.random_state,
                 "use_autocast": regressor.use_autocast_,
                 "forced_inference_dtype": str(regressor.forced_inference_dtype_) if regressor.forced_inference_dtype_ else None,
-                "input_dim": X_gp_train.shape[1],
-                "train_samples": X_gp_train.shape[0],
-                "test_samples": X_gp_test.shape[0],
+                "encoded_data": encode_PFN_data,
             }
         
     # =============================================================================
@@ -276,13 +239,13 @@ def planes_GPvsPFN(num_seeds=20,
     print("="*60)
 
     # Summaries via analyze_metrics
-    TabPFN_planes_summary = analyze_metrics(TabPFN_planes_metrics, print_summary=True, label="TabPFN")
-    GPPlus_planes_summary = analyze_metrics(GPPlus_planes_metrics, print_summary=True, label="GP")
+    TabPFN_summary = analyze_metrics(TabPFN_metrics, print_summary=True, label="TabPFN", title=title)
+    GPPlus_summary = analyze_metrics(GPPlus_metrics, print_summary=True, label="GP", title=title)
     
     # Add model info to GP summary if available
     
     if save_path is not None:
-        plot_metrics(TabPFN_planes_metrics, GPPlus_planes_metrics, labels=["TabPFN", "GP"], title=title, save_path=plot_save_path)
+        plot_metrics(TabPFN_metrics, GPPlus_metrics, labels=["TabPFN", "GP"], title=title, save_path=plot_save_path)
         # Save raw metrics and summaries
         out_dir = Path(save_path)
         try:
@@ -290,30 +253,29 @@ def planes_GPvsPFN(num_seeds=20,
         except Exception:
             pass
         try:
-            # TabPFN single file: summary + metrics
-            tabpfn_data = {
-                "summary": TabPFN_planes_summary,
-                "metrics": TabPFN_planes_metrics,
-                "pfn_model_info": tabpfn_model_info
+            # Combined single file: TabPFN data + GP data + GP model_info at the end
+            combined_data = {
+                "gp_data": {
+                    "summary": GPPlus_summary,
+                    "metrics": GPPlus_metrics,
+                    "gp_model_info": gp_model_info
+                },
+                "tabpfn_data": {
+                    "summary": TabPFN_summary,
+                    "metrics": TabPFN_metrics,
+                    "pfn_model_info": tabpfn_model_info
+                },
             }
-            (out_dir / f"tabpfn_{title}.json").write_text(json.dumps(tabpfn_data, indent=2))
-            
-            # GP single file: summary + model_info + metrics
-            gp_data = {
-                "summary": GPPlus_planes_summary,
-                "metrics": GPPlus_planes_metrics,
-                "gp_model_info": gp_model_info
-            }
-            (out_dir / f"gp_{title}.json").write_text(json.dumps(gp_data, indent=2))
+            (out_dir / f"gpVpfn_{title}.json").write_text(json.dumps(combined_data, indent=2))
         except Exception:
             pass
     print(f"\nTotal experiment time for {num_seeds} seeds: {time.time() - total_start_time:.2f}s")
     print("="*60)
-    print(f"GP trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {device}\n\tinitializer: {initializer_class}\n\tcat_cols: {cat_cols}\n\tqual_dict: {qual_dict}")
+    print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\ty_standardize: {standardize_y_gp}")
     print(f"Experiment details: \n\t{len(X_test)} test samples, {len(X_train)} train samples\n\tseeds: {num_seeds}")
 
-    return GPPlus_planes_metrics, TabPFN_planes_metrics
+    return GPPlus_metrics, TabPFN_metrics
 
 
 if __name__ == "__main__":
-    planes_GPvsPFN(num_seeds=4, num_runs=4, num_epochs=10000, save_path=None)
+    planes_GPvsPFN(num_seeds=2, num_runs=4, num_epochs=10000, save_path="./results/planes/temp")

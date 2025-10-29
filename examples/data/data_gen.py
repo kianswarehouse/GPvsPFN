@@ -29,6 +29,50 @@ def get_column_types(qual_dict, num_features=None):
     return continuous_cols, discrete_cols
 
 
+def calculate_function_std(function_name, source, l_bound, u_bound, n_samples=100000, seed=42):
+    """
+    Calculate the standard deviation of an analytic function over its entire domain.
+    
+    Args:
+        function_name (str): Name of the function ('wing', 'borehole', 'buckling', 'cal_1D_inverse', 'ex_1D_inverse', 'cal_1D_sin_MF', 'ackley')
+        source (str): Source/fidelity level
+        l_bound (torch.Tensor): Lower bounds of the input domain
+        u_bound (torch.Tensor): Upper bounds of the input domain
+        n_samples (int): Number of samples to use for estimating std (default: 100000)
+        seed (int): Random seed for reproducibility
+        
+    Returns:
+        float: Standard deviation of the function over its entire domain
+    """
+    torch.manual_seed(seed)
+    
+    # Generate dense samples over the entire domain
+    sobol_engine = SobolEngine(dimension=len(l_bound), scramble=True, seed=seed)
+    x_dense = scale(sobol_engine.draw(n_samples).float(), l_bound, u_bound)
+    
+    # Calculate function outputs
+    if function_name == 'wing':
+        y_dense = wing_mixed_variables(x_dense, source)
+    elif function_name == 'borehole':
+        y_dense = borehole_mixed_variables(x_dense, source)
+    elif function_name == 'buckling':
+        y_dense = buckling_mixed_variables(x_dense, source)
+    elif function_name == 'cal_1D_inverse':
+        y_dense = cal_1D_inverse(x_dense, source)
+    elif function_name == 'ex_1D_inverse':
+        y_dense = ex_1D_inverse(x_dense, source)
+    elif function_name == 'cal_1D_sin_MF':
+        y_dense = cal_1D_sin_MF(x_dense, source)
+    elif function_name == 'ackley':
+        # Scale input from [0,1] to [-5,10] for Ackley function
+        x_scaled = x_dense * 15 - 5
+        y_dense = ackley_function(x_scaled, source)
+    else:
+        raise ValueError(f"Unknown function: {function_name}")
+    
+    return y_dense.std().item()
+
+
 def one_hot_encoding(x, qual_dict):
     """One-hot encode categorical variables"""
     if not qual_dict:
@@ -376,6 +420,10 @@ def ex_1D_inverse(X, source="s0"):
         result = 1 / (0.15 * x1**3 + x1**2 + x1 + 1)
     elif source == "s1":
         result = 1 / (0.15 * x1**3 + x1**2 + x1 + 1) + 0.1
+    elif source == "s2":
+        result = 1 / (0.20 * x1**3 + x1**2 + x1 + 0.8)
+    elif source == "s3":
+        result = 1 / (0.15 * x1**3 + x1**2 + x1 + 1) - 0.1
     else:
         raise ValueError(f"Unknown source: {source}. Only s0 is supported.")
 
@@ -691,8 +739,8 @@ def load_data_wing_MV_MF(
     source_to_idx = {source: i for i, source in enumerate(fidelity_levels)}
     source_dim = len(fidelity_levels)
 
-    # Get column types
-    continuous_cols, discrete_cols = get_column_types(qual_dict)
+    # Get column types - for wing problem, we have 10 features total
+    continuous_cols, discrete_cols = get_column_types(qual_dict, num_features=10)
     num_continuous = len(continuous_cols)
 
     # Define bounds
@@ -759,7 +807,9 @@ def load_data_wing_MV_MF(
             y_noiseless_full.append(y)
             if is_train:
                 if noise > 0:
-                    noisy_y = y + noise * torch.randn_like(y) * y.std()
+                    # Use function std instead of training data std
+                    function_std = calculate_function_std('wing', source, l_bound, u_bound)
+                    noisy_y = y + noise * torch.randn_like(y) * function_std
                 else:
                     noisy_y = y.clone()
                 x_full.append(torch.cat([source_vec, x_processed], dim=1))
@@ -1016,7 +1066,9 @@ def load_data_buckling_MF(
             y_noiseless_full.append(y)
             if is_train:
                 if noise > 0:
-                    noisy_y = y + noise * torch.randn_like(y) * y.std()
+                    # Use function std instead of training data std
+                    function_std = calculate_function_std('buckling', source, l_bound, u_bound)
+                    noisy_y = y + noise * torch.randn_like(y) * function_std
                 else:
                     noisy_y = y.clone()
                 x_full.append(torch.cat([source_vec, x_processed], dim=1))
@@ -1218,7 +1270,9 @@ def load_data_borehole_MV_MF(
             y_noiseless_full.append(y)
             if is_train:
                 if noise > 0:
-                    noisy_y = y + noise * torch.randn_like(y) * y.std()
+                    # Use function std instead of training data std
+                    function_std = calculate_function_std('borehole', source, l_bound, u_bound)
+                    noisy_y = y + noise * torch.randn_like(y) * function_std
                 else:
                     noisy_y = y.clone()
                 x_full.append(torch.cat([source_vec, x_processed], dim=1))
@@ -1399,7 +1453,9 @@ def load_data_1D_inverse_cal_MF(
             noise = noise_levels[source_to_idx[source]] if source_to_idx[source] < len(noise_levels) else 0.0
             if is_train:
                 if noise > 0:
-                    noisy_y = y + noise * torch.randn_like(y) * y.std()
+                    # Use function std instead of training data std
+                    function_std = calculate_function_std('cal_1D_inverse', source, l_bound, u_bound)
+                    noisy_y = y + noise * torch.randn_like(y) * function_std
                 else:
                     noisy_y = y.clone()
                 x_full.append(torch.cat([source_vec, x_processed], dim=1))
@@ -1551,7 +1607,9 @@ def load_data_1D_inverse_MF(
             noise = noise_levels[source_to_idx[source]] if source_to_idx[source] < len(noise_levels) else 0.0
             if is_train:
                 if noise > 0:
-                    noisy_y = y + noise * torch.randn_like(y) * y.std()
+                    # Use function std instead of training data std
+                    function_std = calculate_function_std('ex_1D_inverse', source, l_bound, u_bound)
+                    noisy_y = y + noise * torch.randn_like(y) * function_std
                 else:
                     noisy_y = y.clone()
                 x_full.append(torch.cat([source_vec, x_processed], dim=1))
@@ -1711,7 +1769,9 @@ def load_data_1D_inverse_with_bias_cal_MF(
             noise = noise_levels[source_to_idx[source]] if source_to_idx[source] < len(noise_levels) else 0.0
             if is_train:
                 if noise > 0:
-                    noisy_y = y + noise * torch.randn_like(y) * y.std()
+                    # Use function std instead of training data std
+                    function_std = calculate_function_std('cal_1D_inverse', source, l_bound, u_bound)
+                    noisy_y = y + noise * torch.randn_like(y) * function_std
                 else:
                     noisy_y = y.clone()
                 x_full.append(torch.cat([source_vec, x_processed], dim=1))
@@ -1890,7 +1950,9 @@ def load_data_1D_sin_cal_MF(
             noise = noise_levels[source_to_idx[source]] if source_to_idx[source] < len(noise_levels) else 0.0
             if is_train:
                 if noise > 0:
-                    noisy_y = y + noise * torch.randn_like(y) * y.std()
+                    # Use function std instead of training data std
+                    function_std = calculate_function_std('cal_1D_sin_MF', source, l_bound, u_bound)
+                    noisy_y = y + noise * torch.randn_like(y) * function_std
                 else:
                     noisy_y = y.clone()
                 x_full.append(torch.cat([source_vec, x_processed], dim=1))
@@ -2073,7 +2135,9 @@ def load_data_ackley(
             noise = noise_levels[source_to_idx[source]] if source_to_idx[source] < len(noise_levels) else 0.0
             if is_train:
                 if noise > 0:
-                    noisy_y = y + noise * torch.randn_like(y) * y.std()
+                    # Use function std instead of training data std
+                    function_std = calculate_function_std('ackley', source, l_bound, u_bound)
+                    noisy_y = y + noise * torch.randn_like(y) * function_std
                 else:
                     noisy_y = y.clone()
                 x_full.append(torch.cat([source_vec, x_processed], dim=1))
@@ -2256,7 +2320,9 @@ def load_data_wing_simple(
 
     # Add noise to training data if specified
     if noise_level > 0:
-        y_train = y_train + noise_level * torch.randn_like(y_train) * y_train.std()
+        # Use function std instead of training data std
+        function_std = calculate_function_std('wing', 's0', l_bound, u_bound)
+        y_train = y_train + noise_level * torch.randn_like(y_train) * function_std
 
     # Shuffle if requested
     if shuffle:
