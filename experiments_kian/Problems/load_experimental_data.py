@@ -424,7 +424,457 @@ def buckling_mixed_variables(X: torch.Tensor, source: str = "s0") -> torch.Tenso
     return P
 
 
+def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], test_samples_per_source: list[int], 
+                                         num_folds: int = 4, seed: int = None, train_noise: list[float] = None, 
+                                         test_noise: list[float] = None, noise_type: str = 'gaussian', 
+                                         return_categorical: bool = True) -> tuple[list[torch.Tensor], list[torch.Tensor], torch.Tensor, torch.Tensor]:
+    """
+    Generate multi-fidelity Buckling data with pre-stratified folds:
+      - Use Sobol sequences to produce EVEN amounts of E, I, and K categorical inputs
+      - Generate train data directly as num_folds with even categorical distributions
+      - Generate test data with even categorical distributions
+      - Each fold has perfectly balanced categorical distributions
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+    
+    # Default noise values
+    if train_noise is None:
+        train_noise = [0.0] * len(train_samples_per_source)
+    if test_noise is None:
+        test_noise = [0.0] * len(test_samples_per_source)
+    
+    # Validate inputs
+    if len(train_samples_per_source) != len(test_samples_per_source):
+        raise ValueError("train_samples_per_source and test_samples_per_source must have same length")
+    if len(train_noise) != len(train_samples_per_source):
+        raise ValueError("train_noise must be length-2 (one scalar per source)")
+    if len(test_noise) != len(test_samples_per_source):
+        raise ValueError("test_noise must be length-2 (one scalar per source)")
+    
+    sources = ['s0', 's1']  # Two sources
+    total_n = sum(train_samples_per_source) + sum(test_samples_per_source)
+    
+    # Categorical index values (0-based) and positive physical mappings
+    # Use strictly positive physical values to avoid 0/0 or division-by-zero in buckling formula
+    E_values = torch.tensor([0.0, 1.0], dtype=torch.float64)  # indices
+    K_values = torch.tensor([0.0, 1.0, 2.0, 3.0], dtype=torch.float64)  # indices
+    I_values = torch.tensor([0.0, 1.0, 2.0], dtype=torch.float64)  # indices
+    E_phys = torch.tensor([1.0, 2.0], dtype=torch.float64)
+    K_phys = torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.float64)
+    I_phys = torch.tensor([1.0, 2.0, 3.0], dtype=torch.float64)
+    
+    # Generate test data first (one block per source)
+    X_test_list = []
+    y_test_list = []
+    
+    for src_idx, (src, n_test) in enumerate(zip(sources, test_samples_per_source)):
+        if n_test == 0:
+            continue
+            
+        # Generate continuous variables using Sobol
+        sobol_seed = (seed + src_idx * 1000) if seed is not None else None
+        sobol = torch.quasirandom.SobolEngine(1, scramble=True, seed=sobol_seed)
+        L_vals = sobol.draw(n_test).squeeze() * 0.4 + 0.6  # L in [0.6, 1.0]
+        
+        # Create test block
+        x_test_block = torch.zeros((n_test, 4), dtype=torch.float64)
+        x_test_block[:, 0] = L_vals
+        
+        # Generate even categorical distributions for TEST
+        # E values (2 options)
+        n_per_E_test = n_test // len(E_values)
+        remaining_E_test = n_test % len(E_values)
+        E_indices_test = []
+        for i in range(len(E_values)):
+            count = n_per_E_test + (1 if i < remaining_E_test else 0)
+            E_indices_test.append(torch.full((count,), i))
+        E_indices_test = torch.cat(E_indices_test)
+        E_indices_test = E_indices_test[torch.randperm(n_test)]
+        x_test_block[:, 1] = E_phys[E_indices_test]
+
+        # K values (4 options)
+        n_per_K_test = n_test // len(K_values)
+        remaining_K_test = n_test % len(K_values)
+        K_indices_test = []
+        for i in range(len(K_values)):
+            count = n_per_K_test + (1 if i < remaining_K_test else 0)
+            K_indices_test.append(torch.full((count,), i))
+        K_indices_test = torch.cat(K_indices_test)
+        K_indices_test = K_indices_test[torch.randperm(n_test)]
+        x_test_block[:, 2] = K_phys[K_indices_test]
+
+        # I values (3 options)
+        n_per_I_test = n_test // len(I_values)
+        remaining_I_test = n_test % len(I_values)
+        I_indices_test = []
+        for i in range(len(I_values)):
+            count = n_per_I_test + (1 if i < remaining_I_test else 0)
+            I_indices_test.append(torch.full((count,), i))
+        I_indices_test = torch.cat(I_indices_test)
+        I_indices_test = I_indices_test[torch.randperm(n_test)]
+        x_test_block[:, 3] = I_phys[I_indices_test]
+
+        # Compute targets
+        y_test_clean = buckling_mixed_variables(x_test_block, source=src)
+        
+        # Store categorical indices if requested
+        if return_categorical:
+            x_test_block[:, 1] = E_indices_test.to(torch.float64)
+            x_test_block[:, 2] = K_indices_test.to(torch.float64)
+            x_test_block[:, 3] = I_indices_test.to(torch.float64)
+        
+        X_test_list.append(x_test_block)
+        y_test_list.append(y_test_clean)
+    
+    # Combine test data
+    X_test_all = torch.cat(X_test_list, dim=0)
+    y_test_all = torch.cat(y_test_list, dim=0)
+    
+    # Generate train data as folds
+    X_train_folds = []
+    y_train_folds = []
+    
+    total_train_samples = sum(train_samples_per_source)
+    if total_train_samples == 0:
+        return X_train_folds, y_train_folds, X_test_all, y_test_all
+    
+    # Pre-allocate lists for all folds
+    for _ in range(num_folds):
+        X_train_folds.append([])
+        y_train_folds.append([])
+    
+    for src_idx, (src, n_train) in enumerate(zip(sources, train_samples_per_source)):
+        if n_train == 0:
+            continue
+            
+        # Generate continuous variables using Sobol
+        sobol_seed = (seed + src_idx * 2000) if seed is not None else None
+        sobol = torch.quasirandom.SobolEngine(1, scramble=True, seed=sobol_seed)
+        L_vals = sobol.draw(n_train).squeeze() * 0.4 + 0.6  # L in [0.6, 1.0]
+        
+        # Create train block
+        x_train_block = torch.zeros((n_train, 4), dtype=torch.float64)
+        x_train_block[:, 0] = L_vals
+        
+        # Generate even categorical distributions for TRAIN
+        # E values (2 options)
+        n_per_E_train = n_train // len(E_values)
+        remaining_E_train = n_train % len(E_values)
+        E_indices_train = []
+        for i in range(len(E_values)):
+            count = n_per_E_train + (1 if i < remaining_E_train else 0)
+            E_indices_train.append(torch.full((count,), i))
+        E_indices_train = torch.cat(E_indices_train)
+        E_indices_train = E_indices_train[torch.randperm(n_train)]
+        x_train_block[:, 1] = E_phys[E_indices_train]
+
+        # K values (4 options)
+        n_per_K_train = n_train // len(K_values)
+        remaining_K_train = n_train % len(K_values)
+        K_indices_train = []
+        for i in range(len(K_values)):
+            count = n_per_K_train + (1 if i < remaining_K_train else 0)
+            K_indices_train.append(torch.full((count,), i))
+        K_indices_train = torch.cat(K_indices_train)
+        K_indices_train = K_indices_train[torch.randperm(n_train)]
+        x_train_block[:, 2] = K_phys[K_indices_train]
+
+        # I values (3 options)
+        n_per_I_train = n_train // len(I_values)
+        remaining_I_train = n_train % len(I_values)
+        I_indices_train = []
+        for i in range(len(I_values)):
+            count = n_per_I_train + (1 if i < remaining_I_train else 0)
+            I_indices_train.append(torch.full((count,), i))
+        I_indices_train = torch.cat(I_indices_train)
+        I_indices_train = I_indices_train[torch.randperm(n_train)]
+        x_train_block[:, 3] = I_phys[I_indices_train]
+
+        # Compute targets
+        y_train_clean = buckling_mixed_variables(x_train_block, source=src)
+        
+        # Store categorical indices if requested
+        if return_categorical:
+            x_train_block[:, 1] = E_indices_train.to(torch.float64)
+            x_train_block[:, 2] = K_indices_train.to(torch.float64)
+            x_train_block[:, 3] = I_indices_train.to(torch.float64)
+        
+        # Split into folds with even distributions PER (E,K,I) COMBINATION
+        # This guarantees balanced marginals in every fold
+        for e_val in E_values:
+            for k_val in K_values:
+                for i_val in I_values:
+                    mask = (
+                        (x_train_block[:, 1] == e_val)
+                        & (x_train_block[:, 2] == k_val)
+                        & (x_train_block[:, 3] == i_val)
+                    )
+                    combo_indices = torch.where(mask)[0]
+                    if combo_indices.numel() == 0:
+                        continue
+                    # Shuffle within combination to avoid any ordering artifacts
+                    combo_indices = combo_indices[torch.randperm(combo_indices.numel())]
+                    base = combo_indices.numel() // num_folds
+                    rem = combo_indices.numel() % num_folds
+                    start = 0
+                    for fold in range(num_folds):
+                        take = base + (1 if fold < rem else 0)
+                        if take == 0:
+                            continue
+                        sel = combo_indices[start:start + take]
+                        X_train_folds[fold].append(x_train_block[sel])
+                        y_train_folds[fold].append(y_train_clean[sel])
+                        start += take
+    
+    # Concatenate folds from all sources
+    for fold in range(num_folds):
+        if len(X_train_folds[fold]) > 0:
+            X_train_folds[fold] = torch.cat(X_train_folds[fold], dim=0)
+            y_train_folds[fold] = torch.cat(y_train_folds[fold], dim=0)
+        else:
+            # If fold is empty, create empty tensor with correct shape
+            X_train_folds[fold] = torch.empty((0, 4), dtype=torch.float64)
+            y_train_folds[fold] = torch.empty((0,), dtype=torch.float64)
+    
+    return X_train_folds, y_train_folds, X_test_all, y_test_all
+
+
 def generate_mf_buckling_data(train_samples_per_source: list[int], test_samples_per_source: list[int], 
+                              seed: int = None, train_noise: list[float] = None, test_noise: list[float] = None, 
+                              noise_type: str = 'gaussian', return_categorical: bool = True) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Generate multi-fidelity Buckling data following the data_gen.py method:
+      - Use Sobol sequences to produce EVEN amounts of E, I, and K categorical inputs
+      - Draw a single Sobol batch per source (no repeats globally)
+      - Split into test then train per source
+      - Compute per-source test std after the split
+      - Scale both train and test additive noise by that test std
+
+    Returns:
+      - X_train, y_train: Training data with 5 features (4 continuous + 1 source class column in {0,1})
+        Where columns are [L (cont), E, K, I (categorical or values per return_categorical), source]
+      - X_test, y_test: Test data with 5 features (same schema as X_train)
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+    else:
+        seed = 42
+        torch.manual_seed(seed)
+
+    # Defaults and validation for per-source noise (2 sources)
+    if train_noise is None:
+        train_noise = [0.0, 0.0]
+    if test_noise is None:
+        test_noise = [0.0, 0.0]
+    if isinstance(train_noise, (int, float)):
+        train_noise = [float(train_noise)] * 2
+    if isinstance(test_noise, (int, float)):
+        test_noise = [float(test_noise)] * 2
+    if len(train_noise) != 2 or len(test_noise) != 2:
+        raise ValueError("train_noise and test_noise must be length-2 (one scalar per source)")
+
+    sources = ["s0", "s1"]
+
+    # Bounds for the 4 continuous features (L, E, K, I)
+    l_bound = torch.tensor([0.5, 73.1, 0.5, 9.49], dtype=torch.float64)
+    u_bound = torch.tensor([1.5, 200.0, 2.0, 29.5], dtype=torch.float64)
+
+    # Define specific categorical values (same as data_gen.py)
+    E_values = torch.tensor([73.1, 200.0], dtype=torch.float64)  # Column 1: E can only be 73.1 or 200
+    K_values = torch.tensor([0.5, 0.7, 1.0, 2.0], dtype=torch.float64)  # Column 2: K can only be 0.5, 0.7, 1, or 2
+    I_values = torch.tensor([9.49, 12.1, 29.5], dtype=torch.float64)  # Column 3: I can only be 9.49, 12.1, or 29.5
+
+    # Total samples per source and overall
+    total_per_source = [tr + te for tr, te in zip(train_samples_per_source, test_samples_per_source)]
+    total_n = sum(total_per_source)
+
+    # Draw all Sobol samples at once and scale to bounds
+    sobol = torch.quasirandom.SobolEngine(dimension=4, scramble=True, seed=seed)
+    X_raw_all = sobol.draw(total_n).to(dtype=torch.float64)
+    X_raw_all = X_raw_all * (u_bound - l_bound) + l_bound
+
+    # Compute clean targets once per source in contiguous blocks
+    y_clean_all = torch.empty(total_n, dtype=torch.float64)
+    X_src_col_all = torch.empty((total_n, 1), dtype=torch.float64)
+    cursor = 0
+    
+    for idx, (src, n_total, n_test, n_train) in enumerate(
+        zip(sources, total_per_source, test_samples_per_source, train_samples_per_source)
+    ):
+        if n_total == 0:
+            continue
+        
+        # Generate TEST data with even distribution
+        if n_test > 0:
+            x_test_block = X_raw_all[cursor:cursor + n_test].clone()
+            
+            # Column 1: E values (2 options) - ensure even distribution for TEST
+            n_per_E_test = n_test // len(E_values)
+            remaining_E_test = n_test % len(E_values)
+            E_indices_test = []
+            for i in range(len(E_values)):
+                count = n_per_E_test + (1 if i < remaining_E_test else 0)
+                E_indices_test.append(torch.full((count,), i))
+            E_indices_test = torch.cat(E_indices_test)
+            E_indices_test = E_indices_test[torch.randperm(n_test)]
+            x_test_block[:, 1] = E_values[E_indices_test]
+
+            # Column 2: K values (4 options) - ensure even distribution for TEST
+            n_per_K_test = n_test // len(K_values)
+            remaining_K_test = n_test % len(K_values)
+            K_indices_test = []
+            for i in range(len(K_values)):
+                count = n_per_K_test + (1 if i < remaining_K_test else 0)
+                K_indices_test.append(torch.full((count,), i))
+            K_indices_test = torch.cat(K_indices_test)
+            K_indices_test = K_indices_test[torch.randperm(n_test)]
+            x_test_block[:, 2] = K_values[K_indices_test]
+
+            # Column 3: I values (3 options) - ensure even distribution for TEST
+            n_per_I_test = n_test // len(I_values)
+            remaining_I_test = n_test % len(I_values)
+            I_indices_test = []
+            for i in range(len(I_values)):
+                count = n_per_I_test + (1 if i < remaining_I_test else 0)
+                I_indices_test.append(torch.full((count,), i))
+            I_indices_test = torch.cat(I_indices_test)
+            I_indices_test = I_indices_test[torch.randperm(n_test)]
+            x_test_block[:, 3] = I_values[I_indices_test]
+
+            # Compute targets for test data
+            y_test_clean = buckling_mixed_variables(x_test_block, source=src)
+            
+            # Store categorical indices if requested
+            if return_categorical:
+                x_test_block[:, 1] = E_indices_test.to(torch.float64)
+                x_test_block[:, 2] = K_indices_test.to(torch.float64)
+                x_test_block[:, 3] = I_indices_test.to(torch.float64)
+            
+            # Store test data
+            y_clean_all[cursor:cursor + n_test] = y_test_clean
+            X_raw_all[cursor:cursor + n_test] = x_test_block
+            X_src_col_all[cursor:cursor + n_test, 0] = float(idx)
+
+        # Generate TRAIN data with even distribution
+        if n_train > 0:
+            x_train_block = X_raw_all[cursor + n_test:cursor + n_total].clone()
+            
+            # Column 1: E values (2 options) - ensure even distribution for TRAIN
+            n_per_E_train = n_train // len(E_values)
+            remaining_E_train = n_train % len(E_values)
+            E_indices_train = []
+            for i in range(len(E_values)):
+                count = n_per_E_train + (1 if i < remaining_E_train else 0)
+                E_indices_train.append(torch.full((count,), i))
+            E_indices_train = torch.cat(E_indices_train)
+            E_indices_train = E_indices_train[torch.randperm(n_train)]
+            x_train_block[:, 1] = E_values[E_indices_train]
+
+            # Column 2: K values (4 options) - ensure even distribution for TRAIN
+            n_per_K_train = n_train // len(K_values)
+            remaining_K_train = n_train % len(K_values)
+            K_indices_train = []
+            for i in range(len(K_values)):
+                count = n_per_K_train + (1 if i < remaining_K_train else 0)
+                K_indices_train.append(torch.full((count,), i))
+            K_indices_train = torch.cat(K_indices_train)
+            K_indices_train = K_indices_train[torch.randperm(n_train)]
+            x_train_block[:, 2] = K_values[K_indices_train]
+
+            # Column 3: I values (3 options) - ensure even distribution for TRAIN
+            n_per_I_train = n_train // len(I_values)
+            remaining_I_train = n_train % len(I_values)
+            I_indices_train = []
+            for i in range(len(I_values)):
+                count = n_per_I_train + (1 if i < remaining_I_train else 0)
+                I_indices_train.append(torch.full((count,), i))
+            I_indices_train = torch.cat(I_indices_train)
+            I_indices_train = I_indices_train[torch.randperm(n_train)]
+            x_train_block[:, 3] = I_values[I_indices_train]
+
+            # Compute targets for train data
+            y_train_clean = buckling_mixed_variables(x_train_block, source=src)
+            
+            # Store categorical indices if requested
+            if return_categorical:
+                x_train_block[:, 1] = E_indices_train.to(torch.float64)
+                x_train_block[:, 2] = K_indices_train.to(torch.float64)
+                x_train_block[:, 3] = I_indices_train.to(torch.float64)
+            
+            # Store train data
+            y_clean_all[cursor + n_test:cursor + n_total] = y_train_clean
+            X_raw_all[cursor + n_test:cursor + n_total] = x_train_block
+            X_src_col_all[cursor + n_test:cursor + n_total, 0] = float(idx)
+
+        cursor += n_total
+
+    # Split per source into test then train; get test std after split and add noise scaled by it
+    X_train_list: list[torch.Tensor] = []
+    y_train_list: list[torch.Tensor] = []
+    X_test_list: list[torch.Tensor] = []
+    y_test_list: list[torch.Tensor] = []
+
+    cursor = 0
+    for idx, (src, n_total, n_test, n_train) in enumerate(
+        zip(sources, total_per_source, test_samples_per_source, train_samples_per_source)
+    ):
+        if n_total == 0:
+            continue
+        x_block = X_raw_all[cursor:cursor + n_total]
+        y_block = y_clean_all[cursor:cursor + n_total]
+        src_block = X_src_col_all[cursor:cursor + n_total]
+
+        # Split: first n_test -> test, remaining -> train
+        x_test_block = x_block[:n_test] if n_test > 0 else torch.empty((0, 4), dtype=torch.float64)
+        y_test_block = y_block[:n_test] if n_test > 0 else torch.empty((0,), dtype=torch.float64)
+        src_test_block = src_block[:n_test] if n_test > 0 else torch.empty((0, 1), dtype=torch.float64)
+        x_train_block = x_block[n_test:] if n_train > 0 else torch.empty((0, 4), dtype=torch.float64)
+        y_train_block = y_block[n_test:] if n_train > 0 else torch.empty((0,), dtype=torch.float64)
+        src_train_block = src_block[n_test:] if n_train > 0 else torch.empty((0, 1), dtype=torch.float64)
+
+        # Test std after split (per source)
+        if y_test_block.numel() > 1:
+            test_std_value = float(y_test_block.std().item())
+        else:
+            test_std_value = 0.0
+
+        # Apply noise scaled by test std
+        if n_train > 0 and train_noise[idx] > 0 and test_std_value > 0.0:
+            if noise_type == 'gaussian':
+                noise = torch.randn_like(y_train_block) * (train_noise[idx] * test_std_value)
+            elif noise_type == 'uniform':
+                noise = (torch.rand_like(y_train_block) - 0.5) * 2 * (train_noise[idx] * test_std_value)
+            else:
+                raise ValueError(f"Unknown noise_type: {noise_type}")
+            y_train_block = y_train_block + noise
+
+        if n_test > 0 and test_noise[idx] > 0 and test_std_value > 0.0:
+            if noise_type == 'gaussian':
+                noise = torch.randn_like(y_test_block) * (test_noise[idx] * test_std_value)
+            elif noise_type == 'uniform':
+                noise = (torch.rand_like(y_test_block) - 0.5) * 2 * (test_noise[idx] * test_std_value)
+            else:
+                raise ValueError(f"Unknown noise_type: {noise_type}")
+            y_test_block = y_test_block + noise
+
+        # Append source column and collect
+        X_test_list.append(torch.cat([x_test_block, src_test_block], dim=1))
+        y_test_list.append(y_test_block)
+        X_train_list.append(torch.cat([x_train_block, src_train_block], dim=1))
+        y_train_list.append(y_train_block)
+
+        cursor += n_total
+
+    X_train = torch.cat(X_train_list, dim=0) if X_train_list else torch.empty((0, 5), dtype=torch.float64)
+    y_train = torch.cat(y_train_list, dim=0) if y_train_list else torch.empty((0,), dtype=torch.float64)
+    X_test = torch.cat(X_test_list, dim=0) if X_test_list else torch.empty((0, 5), dtype=torch.float64)
+    y_test = torch.cat(y_test_list, dim=0) if y_test_list else torch.empty((0,), dtype=torch.float64)
+
+    return X_train, y_train, X_test, y_test
+
+
+def generate_mf_buckling_data_v2(train_samples_per_source: list[int], test_samples_per_source: list[int], 
                               seed: int = None, train_noise: list[float] = None, test_noise: list[float] = None, 
                               noise_type: str = 'gaussian', return_categorical: bool = True) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """

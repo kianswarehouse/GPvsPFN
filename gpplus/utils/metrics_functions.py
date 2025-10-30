@@ -272,6 +272,11 @@ def plot_metrics(*args, labels: list = None, title: str = None, save_path: str =
             fname = f"{metric_name}" + (f"_{title}" if title else "") + ".png"
             try:
                 fig.savefig(str(p / fname), dpi=300, bbox_inches="tight")
+                # Close only when we actually save, to avoid leaking figures
+                try:
+                    plt.close(fig)
+                except Exception:
+                    pass
             except Exception:
                 pass
 

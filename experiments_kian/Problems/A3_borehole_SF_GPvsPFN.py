@@ -21,7 +21,7 @@ from load_experimental_data import borehole_mixed_variables, generate_mf_borehol
 
 # import warnings
 # warnings.filterwarnings("ignore")
-def borehole_GPvsPFN(num_seeds=20,
+def borehole_SF_GPvsPFN(num_seeds=20,
         num_test=5000,
         train_size=10, # total training size is train_size * number of X input dimensions
         num_runs=16, 
@@ -263,6 +263,6 @@ def borehole_GPvsPFN(num_seeds=20,
 
 
 if __name__ == "__main__":
-    borehole_GPvsPFN(num_seeds=1, train_size=10, num_runs=4, num_epochs=10000, save_path='./results/boreholeSF/temp')
+    borehole_SF_GPvsPFN(num_seeds=1, train_size=10, num_runs=4, num_epochs=10000, save_path='./results/boreholeSF/temp')
 
 

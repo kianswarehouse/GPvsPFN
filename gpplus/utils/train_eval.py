@@ -47,12 +47,23 @@ def train_eval_gp(
         y_pred: numpy array of predictions (denormalized if mean/std provided)
         output_std: numpy array of predictive std (denormalized if mean/std provided)
     """
+    if optimizer_class == torch.optim.LBFGS or (hasattr(optimizer_class, '__name__') and optimizer_class.__name__ == 'LBFGSScipy'):
+        optimizer_kwargs = {
+            'max_iter': 2000,
+            'max_eval': 5000,
+            'tolerance_grad': 1e-5,
+            'tolerance_change': 1e-9,
+            'history_size': 10,
+        }
+    else:
+        optimizer_kwargs = {"lr": lr}
+
     trainer = GPTrainer(
         model=model,
         num_epochs=num_epochs,
         seed=seed,
         num_runs=num_runs,
-        optimizer_kwargs={"lr": lr},
+        optimizer_kwargs=optimizer_kwargs,
         convergence_patience=convergence_patience,
         optimizer_class=optimizer_class,
         device=device,

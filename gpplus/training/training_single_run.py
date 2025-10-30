@@ -294,6 +294,6 @@ class GPTrainerSingleProcess:
 
             loss.backward()
 
-            return loss
+            return loss.detach()
 
         return closure

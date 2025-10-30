@@ -117,12 +117,13 @@ def buckling_GPvsPFN(num_seeds=20,
         seed_train_indices = torch.tensor(seed_train_indices)
 
         # Unified encoded train/test for both GP and PFN
+        X_train_orig = X_train_all[seed_train_indices]
         X_train = X_enc_train_all[seed_train_indices]
         y_train = y_train_all[seed_train_indices]
         # X_test = X_enc_test_all
 
         # Verify source distribution for this seed
-        source_counts = [torch.sum(X_train[:, -1] == i).item() for i in range(2)]
+        source_counts = [torch.sum(X_train_orig[:, -1] == i).item() for i in range(2)]
         print(f"Source distribution for seed {i}: {source_counts}")
 
         # =============================================================================
@@ -148,10 +149,11 @@ def buckling_GPvsPFN(num_seeds=20,
 
         # cat_cols was returned by the encoder; CombinedKernel expects only cat indices
         # print(cat_cols)
-        # kernel = gpplus.kernels.LogScaleKernel(gpplus.kernels.CombinedKernel(
-        kernel = gpplus.kernels.CombinedKernel(cont_cols=cont_cols, 
+        kernel = gpplus.kernels.LogScaleKernel(gpplus.kernels.CombinedKernel(
+        # kernel = gpplus.kernels.CombinedKernel(cont_cols=cont_cols, 
                 cat_cols=cat_cols, 
                 source_cols=source_cols)
+        )
 
         # Create GP model
         model = gpplus.models.GPR(

@@ -118,13 +118,14 @@ def wing_GPvsPFN(num_seeds=20,
         seed_train_indices = torch.tensor(seed_train_indices)
 
         # Unified train/test tensors used by BOTH GP and PFN
+        X_train_orig = X_train_all[seed_train_indices]
         X_train = X_enc_train_all[seed_train_indices]
         y_train = y_train_all[seed_train_indices]
         # Tests are fixed across seeds; use encoded version
         # X_test = X_enc_test
 
         # Verify source distribution for this seed
-        source_counts = [torch.sum(X_train[:, -1] == i).item() for i in range(4)]
+        source_counts = [torch.sum(X_train_orig[:, -1] == i).item() for i in range(4)]
         print(f"Source distribution for seed {i}: {source_counts}")
 
         # =============================================================================
@@ -154,7 +155,8 @@ def wing_GPvsPFN(num_seeds=20,
                 cont_cols=cont_cols, 
                 cat_cols=cat_cols, 
                 source_cols=source_cols)
-
+        # )
+        
         # Create GP model
         from gpplus.means import MultiMean
         from gpplus.likelihoods import MultiLikelihood

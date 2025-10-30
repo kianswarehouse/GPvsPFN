@@ -16,12 +16,12 @@ from gpplus.training.eval import evaluate_gp_model
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
-from load_experimental_data import buckling_mixed_variables, generate_mf_buckling_data
+from load_experimental_data import buckling_mixed_variables, generate_mf_buckling_data_with_folds
 
 
 # import warnings
 # warnings.filterwarnings("ignore")
-def buckling_GPvsPFN(num_seeds=20,
+def buckling_SF_GPvsPFN(num_seeds=20,
         num_test=5000,
         train_size=10, # total training size is train_size * number of X input dimensions (4)
         num_runs=16, 
@@ -67,19 +67,23 @@ def buckling_GPvsPFN(num_seeds=20,
     
     # Generate all unique Sobol samples at once for single-fidelity (use only s0)
     print(f"Generating {total_samples} unique Sobol samples...")
-    X_train_all, y_train_all, X_test_all, y_test_all = generate_mf_buckling_data(
+    X_train_folds, y_train_folds, X_test_all, y_test_all = generate_mf_buckling_data_with_folds(
         train_samples_per_source=[total_train, 0],
         test_samples_per_source=[num_test, 0],
-        train_noise=noise_train,
-        test_noise=noise_test,
+        num_folds=num_seeds,
+        train_noise=[noise_train, 0.0],
+        test_noise=[noise_test, 0.0],
         noise_type=noise_type,
     )
     # Drop the 5th (source) column since SF uses only s0
-    if X_train_all.shape[1] == 5:
-        X_train_all = X_train_all[:, :4]
+    for i in range(len(X_train_folds)):
+        if X_train_folds[i].shape[1] == 5:
+            X_train_folds[i] = X_train_folds[i][:, :4]
     if X_test_all.shape[1] == 5:
         X_test_all = X_test_all[:, :4]
     
+    # Combine all train folds for TabPFN
+    X_train_all = torch.cat(X_train_folds, dim=0)
     X = torch.cat([X_test_all, X_train_all], dim=0)
 
     print("="*10)
@@ -89,14 +93,41 @@ def buckling_GPvsPFN(num_seeds=20,
     # Prepare encoded data once from already loaded X, y (no extra CSV/label encoding)
     qual_dict = learn_encodings(X)
     print(qual_dict)
-    _, cont_cols, cat_cols, source_cols = encode_qual_data(X_train_all, qual_dict=qual_dict, source_col=None)
+    X_enc_test_all, cont_cols, cat_cols, source_cols = encode_qual_data(X_test_all, qual_dict=qual_dict, source_col=None)
+    # X_enc_train_all, _, _, _ = encode_qual_data(X_train_all, qual_dict=qual_dict, source_col=None)
+    
+    # Encode each fold individually for GP training
+    X_train_folds_enc = []
+    for fold_data in X_train_folds:
+        fold_enc, _, _, _ = encode_qual_data(fold_data, qual_dict=qual_dict, source_col=None)
+        X_train_folds_enc.append(fold_enc)
+    
     # print(cat_cols)
     TabPFN_metrics = []
     GPPlus_metrics = []
 
-    # Randomize across the single source, then split across seeds
-    all_indices = torch.randperm(total_train)
-    train_indices_2d = all_indices.reshape(num_seeds, train_per_seed)
+    # Debug: Print categorical distributions for each fold
+    print(f"\n{'='*20} PRE-STRATIFIED FOLDS VERIFICATION {'='*20}")
+    for fold in range(min(3, num_seeds)):  # Show first 3 folds
+        fold_data = X_train_folds[fold]
+        
+        print(f"\nFold {fold + 1} categorical distributions:")
+        # Check I distribution (column 3)
+        for i in range(3):
+            count = (fold_data[:, 3] == i).sum().item()
+            print(f"  I={i}: {count} samples")
+        
+        # Check E distribution (column 1) 
+        for i in range(2):
+            count = (fold_data[:, 1] == i).sum().item()
+            print(f"  E={i}: {count} samples")
+            
+        # Check K distribution (column 2)
+        for i in range(4):
+            count = (fold_data[:, 2] == i).sum().item()
+            print(f"  K={i}: {count} samples")
+    
+    print(f"{'='*60}")
         
     total_start_time = time.time()
     for i in range(num_seeds):
@@ -104,12 +135,10 @@ def buckling_GPvsPFN(num_seeds=20,
         print(f"\n{'='*20} {title} SEED {i+1}/{num_seeds}: {seed} {'='*20}")
         t0 = time.time()
 
-        # Get training indices for this seed
-        seed_train_indices = train_indices_2d[i]
-
-        X_train = X_train_all[seed_train_indices]
-        y_train = y_train_all[seed_train_indices]
-
+        # Use pre-generated fold
+        X_train = X_train_folds_enc[i]
+        y_train = y_train_folds[i]
+        
         # =============================================================================
         # GP Section 
         # =============================================================================
@@ -117,24 +146,32 @@ def buckling_GPvsPFN(num_seeds=20,
         
         # Convert to torch dtype and optionally standardize X
         X_train = X_train.detach().clone().to(dtype=dtype)
-        X_test = X_test_all.detach().clone().to(dtype=dtype)
+        X_test = X_enc_test_all.detach().clone().to(dtype=dtype)
         y_train = y_train.detach().clone().to(dtype=dtype)
         y_test = y_test_all.detach().clone().to(dtype=dtype)
         if standardize_X:
             Xscaler = gpplus.utils.StandardScaler()
-            Xscaler.fit(X_train)
-            X_train = Xscaler.transform(X_train)
-            X_test = Xscaler.transform(X_test)
+            Xscaler.fit(X_train[:, cont_cols])
+            X_train[:, cont_cols] = Xscaler.transform(X_train[:, cont_cols])
+            X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])
 
         # Normalize the GP data
         y_train_mean = y_train.mean()
         y_train_std = y_train.std()
         y_train_normal = (y_train - y_train_mean) / y_train_std
 
-        # Create GP model (default kernel like SF wing)
+        kernel = gpplus.kernels.LogScaleKernel(
+            gpplus.kernels.CombinedKernel(
+                cat_cols=cat_cols,
+                source_cols=source_cols,
+                cont_cols=cont_cols,
+            )
+        )
+
         model = gpplus.models.GPR(
             X_train,
             y_train_normal if standardize_y else y_train,
+            kernel_module=kernel,
         )
         if (i == 0) or (i == num_seeds - 1):
             print(model)
@@ -267,7 +304,7 @@ def buckling_GPvsPFN(num_seeds=20,
 
 
 if __name__ == "__main__":
-    buckling_GPvsPFN(num_seeds=1, train_size=10, num_runs=4, num_epochs=10000, save_path=None)
+    buckling_SF_GPvsPFN(num_seeds=10, train_size=10, num_runs=4, num_epochs=10000, save_path=None)
     # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp', standardize_X_gp=False, standardize_y_gp=True)
     # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=False, standardize_y_gp=True)
     # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=True)
