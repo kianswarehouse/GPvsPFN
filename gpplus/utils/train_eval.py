@@ -5,7 +5,8 @@ from gpplus.training import GPTrainer
 from gpplus.training.eval import evaluate_gp_model
 from gpplus.utils.metrics_functions import compute_metrics, compute_per_source_metrics
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
-
+from gpplus.training.callbacks import FinalParameterStorageCallback
+from gpplus.training.optimizers import LBFGSScipy
 
 def train_eval_gp(
     model,
@@ -47,7 +48,8 @@ def train_eval_gp(
         y_pred: numpy array of predictions (denormalized if mean/std provided)
         output_std: numpy array of predictive std (denormalized if mean/std provided)
     """
-    if optimizer_class == torch.optim.LBFGS or (hasattr(optimizer_class, '__name__') and optimizer_class.__name__ == 'LBFGSScipy'):
+    # Set optimizer kwargs based on optimizer type
+    if optimizer_class == LBFGSScipy or (hasattr(optimizer_class, '__name__') and optimizer_class.__name__ == 'LBFGSScipy'):
         optimizer_kwargs = {
             'max_iter': 2000,
             'max_eval': 5000,
@@ -57,7 +59,7 @@ def train_eval_gp(
         }
     else:
         optimizer_kwargs = {"lr": lr}
-
+    
     trainer = GPTrainer(
         model=model,
         num_epochs=num_epochs,
