@@ -6,6 +6,13 @@ import torch
 from sklearn.metrics import mean_squared_error
 # from sklearn.metrics import mean_absolute_error, r2_score
 
+# Use a non-interactive backend to avoid Tkinter dependency in non-main threads
+try:
+    import matplotlib
+    matplotlib.use('Agg', force=True)
+except Exception:
+    pass
+
 
 def compute_metrics(y_true, y_hat, output_std=None, start_time=None, training_time=None, prediction_time=None):
     """
@@ -97,7 +104,8 @@ def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None
     # Mean/std for all available metric columns
     # Detailed stats for specific metrics
     detailed = {}
-    for m in ["RRMSE", "NIS", "Time", "Total_Time", "Training_Time", "Prediction_Time"]:
+    for m in ["RRMSE", "NIS", "Time", "Total_Time", "Training_Time", "Prediction_Time", 
+              "num_epochs", "best_epoch", "jitter", "noise", "outputscale"]:
         if m in df.columns:
             vals = df[m].dropna().values
             if len(vals) == 0:
@@ -111,6 +119,22 @@ def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None
                 "max": float(np.max(vals)),
                 "count": int(len(vals)),
             }
+    
+    # Handle individual lengthscale metrics (lengthscale_0, lengthscale_1, etc.)
+    lengthscale_columns = [col for col in df.columns if col.startswith("lengthscale_")]
+    for lengthscale_col in sorted(lengthscale_columns):  # Sort to ensure consistent ordering
+        vals = df[lengthscale_col].dropna().values
+        if len(vals) == 0:
+            continue
+        vals = vals.astype(float)
+        detailed[lengthscale_col] = {
+            "mean": float(np.mean(vals)),
+            "std": float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0,
+            "median": float(np.median(vals)),
+            "min": float(np.min(vals)),
+            "max": float(np.max(vals)),
+            "count": int(len(vals)),
+        }
 
     # Extract per-source metrics for RRMSE and NIS
     per_source_stats = {}
@@ -154,10 +178,24 @@ def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None
             print(f"\n{label_print} over {len(metrics_list)} seeds (RRMSE, NIS):")
 
         for m, s in detailed.items():
-            print(
-                f"  {m}: median={s['median']:.6f} | min={s['min']:.6f} | max={s['max']:.6f} | "
-                f"mean={s['mean']:.6f} ± {s['std']:.6f} (n={s['count']})"
-            )
+            # Format output based on metric type
+            if m.startswith("lengthscale_"):
+                # For individual lengthscales
+                print(
+                    f"  {m}: median={s['median']:.6f} | min={s['min']:.6f} | max={s['max']:.6f} | "
+                    f"mean={s['mean']:.6f} ± {s['std']:.6f} (n={s['count']})"
+                )
+            elif m in ["num_epochs", "best_epoch"]:
+                # For integer metrics, show as integers
+                print(
+                    f"  {m}: median={s['median']:.0f} | min={s['min']:.0f} | max={s['max']:.0f} | "
+                    f"mean={s['mean']:.1f} ± {s['std']:.1f} (n={s['count']})"
+                )
+            else:
+                print(
+                    f"  {m}: median={s['median']:.6f} | min={s['min']:.6f} | max={s['max']:.6f} | "
+                    f"mean={s['mean']:.6f} ± {s['std']:.6f} (n={s['count']})"
+                )
         
         # Print per-source statistics
         if per_source_stats:

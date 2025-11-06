@@ -108,9 +108,9 @@ def M2AX_GPvsPFN(
         # print(cat_cols)
         # Create encoders for each categorical group
         # Each encoder needs input_dim equal to the number of columns in that specific group
-        cat_cols = [[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]]
+        # cat_cols = [[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]]
         # cat_encoders = [RelativeDistanceEncoder(input_dim=len(cat_col), z_dim=2, initialization='uniform', init_radius=0.5, seed=seed) for cat_col in cat_cols]
-        cat_encoders = 'nn'
+        cat_encoders = 'matrix'
         kernel = gpplus.kernels.LogScaleKernel(
             gpplus.kernels.CombinedKernel(
                 cat_cols=cat_cols,
@@ -257,5 +257,5 @@ def M2AX_GPvsPFN(
 
 if __name__ == "__main__":
     # M2AX_GPvsPFN()
-    M2AX_GPvsPFN(num_seeds=1, num_runs=4, num_epochs=10000, optimizer_class=LBFGSScipy, save_path='./results/M2AX/temp2')
+    M2AX_GPvsPFN(num_seeds=1, num_runs=4, num_epochs=10000, optimizer_class=LBFGSScipy, save_path='./results/M2AX/CallbackTest')
     # M2AX_GPvsPFN(num_seeds=2, num_runs=4, num_epochs=10000, save_path=None, encode_PFN_data=True)
