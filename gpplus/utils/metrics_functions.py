@@ -123,6 +123,29 @@ def adjust_predictive_variance_for_test_noise(output_std, test_noise_std):
     return adjusted_std
 
 
+def format_metric_value(key: str, value: float, precision: int = 4) -> str:
+    """
+    Format a metric value appropriately based on its key.
+    
+    Args:
+        key: The metric key (e.g., 'jitter', 'noise', 'RRMSE')
+        value: The value to format
+        precision: Number of decimal places (for non-scientific notation)
+    
+    Returns:
+        Formatted string representation of the value
+    """
+    if key in ['jitter', 'noise']:
+        # Use scientific notation for jitter and noise
+        return f"{value:.6e}"
+    elif key in ['num_epochs', 'best_epoch']:
+        # Integer values
+        return f"{int(value)}"
+    else:
+        # Default formatting
+        return f"{value:.{precision}f}"
+
+
 def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None, title: str = None):
     """
     Summarize metrics across seeds for RRMSE and NIS, including per-source statistics.
@@ -146,7 +169,7 @@ def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None
     # Detailed stats for specific metrics
     detailed = {}
     for m in ["RRMSE", "NIS", "Time", "Total_Time", "Training_Time", "Prediction_Time", 
-              "num_epochs", "best_epoch", "jitter", "noise", "outputscale"]:
+              "num_epochs", "best_epoch", "jitter", "raw_noise", "outputscale"]:
         if m in df.columns:
             vals = df[m].dropna().values
             if len(vals) == 0:
@@ -231,6 +254,12 @@ def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None
                 print(
                     f"  {m}: median={s['median']:.0f} | min={s['min']:.0f} | max={s['max']:.0f} | "
                     f"mean={s['mean']:.1f} ± {s['std']:.1f} (n={s['count']})"
+                )
+            elif m in ["jitter", "noise"]:
+                # Use scientific notation for jitter and noise
+                print(
+                    f"  {m}: median={s['median']:.6e} | min={s['min']:.6e} | max={s['max']:.6e} | "
+                    f"mean={s['mean']:.6e} ± {s['std']:.6e} (n={s['count']})"
                 )
             else:
                 print(

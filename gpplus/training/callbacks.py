@@ -168,10 +168,18 @@ class FinalParameterStorageCallback(Callback):
                 print(f"Jitter: {final_params.get('jitter', 'N/A')}")
                 print(f"Noise (transformed): {final_params.get('noise', 'N/A')}")
                 print(f"Outputscale (transformed): {final_params.get('outputscale', 'N/A')}")
-                print(f"Lengthscales (transformed): {final_params.get('lengthscales', 'N/A')}")
+                lengthscales = final_params.get('lengthscales', [])
+                if lengthscales:
+                    print(f"Lengthscales (transformed): {lengthscales} (count: {len(lengthscales)})")
+                else:
+                    print(f"Lengthscales (transformed): N/A (not found)")
                 print(f"Raw noise: {final_params['raw_noise']}")
                 print(f"Raw outputscale: {final_params['raw_outputscale']}")
-                print(f"Raw lengthscales: {final_params['raw_lengthscales']}")
+                raw_lengthscales = final_params.get('raw_lengthscales', [])
+                if raw_lengthscales:
+                    print(f"Raw lengthscales: {raw_lengthscales} (count: {len(raw_lengthscales)})")
+                else:
+                    print(f"Raw lengthscales: N/A (not found)")
                 print(f"Best loss: {best_loss}")
                 # If we have initial, also print deltas
                 if self._initial_params is not None:
@@ -294,7 +302,20 @@ class FinalParameterStorageCallback(Callback):
         if outputscale_params:
             params['raw_outputscale'] = outputscale_params[0]
         
-        if lengthscale_params:
+        # Always check base_kernel for raw lengthscales - it's the authoritative source
+        # This ensures we get all lengthscales for ARD kernels
+        if hasattr(model, 'covar_module') and hasattr(model.covar_module, 'base_kernel'):
+            base_kernel = model.covar_module.base_kernel
+            if hasattr(base_kernel, 'raw_lengthscale'):
+                try:
+                    ls = base_kernel.raw_lengthscale.data.flatten().tolist()
+                    if ls:
+                        params['raw_lengthscales'] = ls
+                except Exception:
+                    pass
+        
+        # Fallback to recursive search results if base_kernel didn't have raw_lengthscale
+        if not params.get('raw_lengthscales') and lengthscale_params:
             params['raw_lengthscales'] = lengthscale_params
         
         # Extract transformed parameters
@@ -322,6 +343,52 @@ class FinalParameterStorageCallback(Callback):
         
         # Recursively extract transformed outputscale and lengthscales
         self._recursive_extract_transformed_kernel_params(model, params)
+        
+        # ALWAYS check base_kernel directly for ARD lengthscales and override any previous results
+        # This is the authoritative source for ARD kernels wrapped in LogScaleKernel
+        # The recursive search might find lengthscales from wrapper kernels, but we want the base_kernel ones
+        if hasattr(model, 'covar_module'):
+            covar = model.covar_module
+            # Check if we have a LogScaleKernel wrapping a base_kernel
+            if hasattr(covar, 'base_kernel'):
+                base_kernel = covar.base_kernel
+                # Try to get lengthscale - it might be a property from GPyTorch
+                try:
+                    # Try the lengthscale property first (GPyTorch provides this when has_lengthscale=True)
+                    ls_list = None
+                    if hasattr(base_kernel, 'lengthscale'):
+                        try:
+                            ls = base_kernel.lengthscale
+                            if ls is not None and ls.numel() > 0:
+                                ls_list = ls.detach().cpu().numpy().flatten().tolist()
+                        except (AttributeError, RuntimeError) as e:
+                            # If lengthscale property doesn't work, try raw_lengthscale
+                            pass
+                    
+                    # If lengthscale property didn't work, try raw_lengthscale and transform it
+                    if ls_list is None and hasattr(base_kernel, 'raw_lengthscale'):
+                        raw_ls = base_kernel.raw_lengthscale
+                        if raw_ls is not None and raw_ls.numel() > 0:
+                            # Transform raw_lengthscale using the constraint if available
+                            if hasattr(base_kernel, 'raw_lengthscale_constraint'):
+                                constraint = base_kernel.raw_lengthscale_constraint
+                                transformed = constraint.transform(raw_ls)
+                                ls_list = transformed.detach().cpu().numpy().flatten().tolist()
+                            else:
+                                # No constraint, use raw values (they're already in log scale)
+                                ls_list = raw_ls.detach().cpu().numpy().flatten().tolist()
+                    
+                    # ALWAYS override with base_kernel lengthscales if we found them
+                    if ls_list is not None:
+                        params["lengthscales"] = ls_list
+                        # Debug output to verify extraction
+                        if self.verbose:
+                            print(f"[DEBUG] Extracted {len(ls_list)} lengthscales from base_kernel: {ls_list[:5]}..." if len(ls_list) > 5 else f"[DEBUG] Extracted {len(ls_list)} lengthscales from base_kernel: {ls_list}")
+                except Exception as e:
+                    # Log the error for debugging but continue
+                    import logging
+                    logging.debug(f"Error extracting lengthscales from base_kernel: {e}")
+                    pass
     
     def _recursive_extract_transformed_kernel_params(self, obj, params, visited=None, depth=0):
         """Recursively search through model components for transformed kernel parameters."""
@@ -347,30 +414,22 @@ class FinalParameterStorageCallback(Callback):
                     pass
             
             # Extract transformed lengthscales
-            # Prioritize base_kernel lengthscales for ARD kernels
-            if hasattr(obj, 'lengthscale'):
+            # Skip lengthscale extraction here - we'll get it directly from base_kernel in the fallback
+            # This avoids picking up lengthscales from the wrong kernel components
+            if hasattr(obj, 'lengthscale') and not hasattr(obj, 'base_kernel'):
+                # Only extract if this is a base kernel (doesn't have base_kernel attribute)
+                # This ensures we get the ARD kernel's lengthscales, not from wrapper kernels
                 try:
                     lengthscale = obj.lengthscale
                     if lengthscale.numel() > 0:
                         lengthscale_list = lengthscale.detach().cpu().numpy().flatten().tolist()
-                        # Check if this is a base_kernel (the actual ARD kernel)
-                        # base_kernel typically doesn't have a base_kernel attribute itself
-                        is_base_kernel = (not hasattr(obj, 'base_kernel') and 
-                                        hasattr(obj, 'raw_lengthscale') and
-                                        obj.raw_lengthscale.numel() > 1)  # ARD has > 1 lengthscale
-                        
-                        if is_base_kernel and len(lengthscale_list) > 1:
-                            # This is the main ARD kernel with multiple lengthscales, use it
+                        # Only use if this has multiple lengthscales (ARD) or we haven't found any yet
+                        if len(lengthscale_list) > 1:
+                            # This is an ARD kernel, use it
                             params["lengthscales"] = lengthscale_list
-                        elif not params["lengthscales"]:
-                            # No lengthscales found yet, use these
+                        elif not params.get("lengthscales"):
+                            # No lengthscales found yet, use these (might be isotropic)
                             params["lengthscales"] = lengthscale_list
-                        elif len(lengthscale_list) > len(params["lengthscales"]):
-                            # Found a kernel with more lengthscales (likely the ARD kernel), replace
-                            params["lengthscales"] = lengthscale_list
-                        else:
-                            # Merge lengthscales (for multi-kernel scenarios)
-                            params["lengthscales"].extend(lengthscale_list)
                 except Exception as e:
                     # Silently continue if extraction fails for this object
                     pass
@@ -550,14 +609,29 @@ class FinalParameterStorageCallback(Callback):
             return None
         
         # Extract relevant metrics
+        final_dict = best_run.get("final", {})
+        lengthscales = final_dict.get("lengthscales")
+        
+        # Debug output
+        if self.verbose:
+            print(f"[DEBUG get_best_model_metrics] best_run keys: {list(best_run.keys())}")
+            print(f"[DEBUG get_best_model_metrics] final_dict keys: {list(final_dict.keys())}")
+            if lengthscales is not None:
+                if isinstance(lengthscales, (list, tuple)):
+                    print(f"[DEBUG get_best_model_metrics] Found {len(lengthscales)} lengthscales in final dict")
+                else:
+                    print(f"[DEBUG get_best_model_metrics] lengthscales is not a list: {type(lengthscales)}, value: {lengthscales}")
+            else:
+                print(f"[DEBUG get_best_model_metrics] lengthscales is None in final_dict")
+        
         metrics = {
             "num_epochs": best_run.get("num_epochs"),
             "best_epoch": best_run.get("best_epoch"),
             "best_loss": best_run.get("best_loss"),
             "jitter": best_run.get("jitter"),
-            "noise": best_run.get("final", {}).get("noise"),
-            "outputscale": best_run.get("final", {}).get("outputscale"),
-            "lengthscales": best_run.get("final", {}).get("lengthscales"),
+            "noise": final_dict.get("noise"),
+            "outputscale": final_dict.get("outputscale"),
+            "lengthscales": lengthscales,
         }
         
         return metrics

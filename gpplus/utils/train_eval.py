@@ -94,62 +94,75 @@ def train_eval_gp(
 
     gp_metric = compute_metrics(y_test, y_pred_np, output_std_np, training_time=training_time, prediction_time=prediction_time)
 
-    # Extract best model metrics from callback and add to gp_metric
-    if callbacks and len(callbacks) > 0:
-        for callback in callbacks:
-            if isinstance(callback, FinalParameterStorageCallback):
-                best_model_metrics = callback.get_best_model_metrics()
-                # If callback doesn't have metrics (multi-run case), try to extract from best model
-                if not best_model_metrics:
-                    # Find best run from train_results
-                    best_run = min(
-                        [r for r in train_results if r.get("loss") is not None],
-                        key=lambda x: x.get("loss", float("inf")),
-                        default=None
-                    ) if train_results else None
-                    
-                    if best_run and hasattr(trainer, 'cholesky_jitter'):
-                        # Extract metrics directly from the loaded best model
-                        # Create a temporary callback instance to use the extraction method
-                        temp_callback = FinalParameterStorageCallback(verbose=False)
-                        best_model_metrics = temp_callback._extract_final_parameters(
-                            model,
-                            epoch=best_run.get("run_index", 0),  # Use run_index as proxy for epoch
-                            best_loss=best_run.get("loss"),
-                            cholesky_jitter=trainer.cholesky_jitter,
-                            best_epoch=None  # Not available from results
-                        )
-                        # Convert to expected format
-                        if best_model_metrics:
-                            best_model_metrics = {
-                                "num_epochs": best_model_metrics.get("num_epochs"),
-                                "best_epoch": best_model_metrics.get("best_epoch"),
-                                "best_loss": best_model_metrics.get("best_loss"),
-                                "jitter": best_model_metrics.get("jitter"),
-                                "noise": best_model_metrics.get("noise"),
-                                "outputscale": best_model_metrics.get("outputscale"),
-                                "lengthscales": best_model_metrics.get("lengthscales"),
-                            }
-                
-                if best_model_metrics:
-                    # Add best model metrics to gp_metric
-                    gp_metric.update({
-                        "num_epochs": best_model_metrics.get("num_epochs"),
-                        "best_epoch": best_model_metrics.get("best_epoch"),
-                        "jitter": best_model_metrics.get("jitter"),
-                        "noise": best_model_metrics.get("noise"),
-                        "outputscale": best_model_metrics.get("outputscale"),
-                    })
-                    # Add individual lengthscales as separate metrics
-                    lengthscales = best_model_metrics.get("lengthscales")
-                    if lengthscales is not None:
-                        if isinstance(lengthscales, (list, tuple)):
-                            for i, ls_val in enumerate(lengthscales):
-                                gp_metric[f"lengthscale_{i}"] = ls_val
-                        elif lengthscales is not None:
-                            # Single value case
-                            gp_metric["lengthscale_0"] = lengthscales
-                break
+    # Always extract directly from the model after training (the best model is already loaded)
+    # This is more reliable than relying on callbacks, especially with multi-run training
+    # where callbacks are deep-copied and JSON files get overwritten
+    best_model_metrics = None
+    
+    # Find best run from train_results to get metadata
+    best_run = min(
+        [r for r in train_results if r.get("loss") is not None],
+        key=lambda x: x.get("loss", float("inf")),
+        default=None
+    ) if train_results else None
+    
+    # Determine num_epochs from trainer
+    num_epochs_actual = trainer.num_epochs if hasattr(trainer, 'num_epochs') else None
+    
+    if hasattr(trainer, 'cholesky_jitter'):
+        # Extract metrics directly from the loaded best model (which is already in model after training)
+        # Create a temporary callback instance to use the extraction method
+        temp_callback = FinalParameterStorageCallback(verbose=False)
+        extracted_params = temp_callback._extract_final_parameters(
+            model,
+            epoch=best_run.get("run_index", 0) if best_run else 0,  # Use run_index as proxy for epoch
+            best_loss=best_run.get("loss") if best_run else None,
+            cholesky_jitter=trainer.cholesky_jitter,
+            best_epoch=None  # Not available from results
+        )
+        if extracted_params:
+            lengthscales_extracted = extracted_params.get("lengthscales")
+            # Convert to expected format
+            best_model_metrics = {
+                "num_epochs": num_epochs_actual if num_epochs_actual is not None else extracted_params.get("num_epochs"),
+                "best_epoch": extracted_params.get("best_epoch"),
+                "best_loss": best_run.get("loss") if best_run else extracted_params.get("best_loss"),
+                "jitter": extracted_params.get("jitter"),
+                "raw_noise": extracted_params.get("raw_noise"),
+                "outputscale": extracted_params.get("outputscale"),
+                "lengthscales": lengthscales_extracted,
+            }
+    
+    if best_model_metrics:
+        # Add best model metrics to gp_metric
+        gp_metric.update({
+            "num_epochs": best_model_metrics.get("num_epochs"),
+            "best_epoch": best_model_metrics.get("best_epoch"),
+            "jitter": best_model_metrics.get("jitter"),
+            "raw_noise": best_model_metrics.get("raw_noise"),
+            "outputscale": best_model_metrics.get("outputscale"),
+        })
+        # Add individual lengthscales as separate metrics
+        lengthscales = best_model_metrics.get("lengthscales")
+        # Debug output
+        if lengthscales is None:
+            print(f"[DEBUG train_eval] lengthscales is None. best_model_metrics keys: {list(best_model_metrics.keys())}")
+            print(f"[DEBUG train_eval] best_model_metrics content: {best_model_metrics}")
+        elif isinstance(lengthscales, (list, tuple)):
+            print(f"[DEBUG train_eval] Found {len(lengthscales)} lengthscales: {lengthscales[:5]}..." if len(lengthscales) > 5 else f"[DEBUG train_eval] Found {len(lengthscales)} lengthscales: {lengthscales}")
+            if len(lengthscales) > 0:
+                for i, ls_val in enumerate(lengthscales):
+                    gp_metric[f"lengthscale_{i}"] = ls_val
+            else:
+                # Empty list - this shouldn't happen but handle it
+                import logging
+                logging.warning("lengthscales is an empty list")
+        else:
+            # Single value case (scalar)
+            print(f"[DEBUG train_eval] lengthscales is a scalar: {lengthscales}")
+            gp_metric["lengthscale_0"] = lengthscales
+    else:
+        print(f"[DEBUG train_eval] No best_model_metrics found at all!")
 
     # Compute per-source metrics if source_cols is provided
     if (

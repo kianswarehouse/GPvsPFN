@@ -1,10 +1,7 @@
 import torch
 import os
 import sys
-# Add root directory to path to allow imports from any directory
-_root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-if _root_dir not in sys.path:
-    sys.path.insert(0, _root_dir)
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import pandas as pd
 import numpy as np
 import json
@@ -20,14 +17,15 @@ from gpplus.training.eval import evaluate_gp_model
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
-from experiments.data.load_experimental_data import load_2dplanes_data
+from data.load_experimental_data import generate_ackley_data
 
 
 # import warnings
 # warnings.filterwarnings("ignore")
-def planes_GPvsPFN(num_seeds=20,
+def ackley_GPvsPFN(num_seeds=20,
         num_test=5000,
-        train_size=10,
+        train_size=10, # total training size is train_size * number of X input dimensions
+        dimensions=5,
         num_runs=16, 
         num_epochs=10000, 
         lr=0.1, 
@@ -36,24 +34,21 @@ def planes_GPvsPFN(num_seeds=20,
         initializer_class=None,
         gp_device='cpu',
         amp_device='cuda',
-        encode_PFN_data=False,
-        save_path='./results/2dplanes',
+        save_path='./results/Ackley',
         title=None,
-        # standardize_X_gp=False, # Not supported for this problem, all categorical
-        standardize_y_gp=False,
+        standardize_X=False,
+        standardize_y=True,
+        noise_train=0.0,
+        noise_test=0.0,
+        noise_type='gaussian',
+        seed=42,
+        V2=False,
     ):
     if title is None:
-        title = f"2dplanes_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}"
+        title = f"Ackley_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"2dplanes_{train_size}D_{title}"
-    # Load the data
-    set_seed(0)
-
-    X, y = load_2dplanes_data()
+        title = f"Ackley_{train_size}D_{title}"
     
-    # Convert to torch tensors
-    X = torch.tensor(X, dtype=torch.float64)
-    y = torch.tensor(y, dtype=torch.float64)
     
     amp_dtype = torch.float32
     dtype = torch.float64
@@ -64,7 +59,29 @@ def planes_GPvsPFN(num_seeds=20,
         plot_save_path = f"{save_path}/plots"
     else:
         plot_save_path = None
-    # Initialize results storage
+
+    # Generate data
+    set_seed(seed)
+    
+    # Calculate total samples needed
+    train_per_seed = train_size * dimensions  # train_size * dimensions for Ackley
+    total_train = num_seeds * train_per_seed
+    total_samples = num_test + total_train
+    
+    print(f"Generating {total_samples} unique Sobol samples for {dimensions}D Ackley function...")
+    
+    # Generate train and test data in one call
+    X_train_all, y_train_all, X_test, y_test = generate_ackley_data(
+        n_train=total_train,
+        n_test=num_test,
+        dimensions=dimensions,
+        train_noise=noise_train,
+        test_noise=noise_test,
+        noise_type=noise_type,
+        seed=seed,
+        V2=V2
+    )
+    X = torch.cat([X_test, X_train_all], dim=0)
 
     print("="*10)
     print(f"{title}: TabPFN vs GP Comparison")
@@ -73,38 +90,16 @@ def planes_GPvsPFN(num_seeds=20,
     # Prepare encoded data once from already loaded X, y (no extra CSV/label encoding)
     qual_dict = learn_encodings(X)
     print(qual_dict)
-    X_enc, cont_cols, cat_cols, source_cols = encode_qual_data(X, qual_dict=qual_dict)
-    print(cat_cols)
+    _, cont_cols, cat_cols, source_cols = encode_qual_data(X_train_all, qual_dict=qual_dict, source_col=None)
+    _, _, _, _ = encode_qual_data(X_test, qual_dict=qual_dict, source_col=None)
+    # print(cat_cols)
     TabPFN_metrics = []
     GPPlus_metrics = []
 
-    # Simple approach: get all indices, take first 5k for test, rest for training
-    total_data_samples = X.shape[0]
-    train_per_seed = train_size * X.shape[1]
-    total_train = train_per_seed * num_seeds
-    total_samples = num_test + total_train
-    
-    if total_data_samples < total_samples:
-        raise ValueError(f"Not enough data: need {total_samples}, have {total_data_samples}")
-    
-    # Get deterministic permutation of all indices
-    all_indices = torch.randperm(total_samples)
-    
-    # First 5k are test
-    test_indices = all_indices[:num_test]
-
-    # Remaining indices for training (repeated to get enough for all seeds)
-    train_indices = all_indices[num_test:num_test+total_train]
-    
-    
-
-    X_test_enc = X_enc[test_indices]
-    X_test = X[test_indices]
-    y_test = y[test_indices]
-    
-    # Reshape into (num_seeds, train_per_seed) array
-    train_indices_2d = train_indices.reshape(num_seeds, train_per_seed)
-
+    # Randomize across the single source, then split across seeds
+    all_indices = torch.randperm(total_train)
+    train_indices_2d = all_indices.reshape(num_seeds, train_per_seed)
+        
     total_start_time = time.time()
     for i in range(num_seeds):
         seed = i  # deterministic seed per split
@@ -113,49 +108,43 @@ def planes_GPvsPFN(num_seeds=20,
 
         # Get training indices for this seed
         seed_train_indices = train_indices_2d[i]
-
-        X_train = X[seed_train_indices]
-        y_train = y[seed_train_indices]
-
-        X_train_enc = X_enc[seed_train_indices]
-
+        X_train = X_train_all[seed_train_indices]
+        y_train = y_train_all[seed_train_indices]
 
         # =============================================================================
-        # GP planes Section 
+        # GP Section 
         # =============================================================================
         print(f"\n--- {title} GP Training ---")
-
-        # Reuse PFN split, convert to torch
-        X_gp_train = X_train_enc.detach().clone().to(dtype=dtype)
-        X_gp_test = X_test_enc.detach().clone().to(dtype=dtype)
-        y_gp_train = y_train.detach().clone().to(dtype=dtype)
-        y_gp_test = y_test.detach().clone().to(dtype=dtype)
+        
+        # Reuse PFN split, convert to torch (unified)
+        X_train = X_train.detach().clone().to(dtype=dtype)
+        X_test = X_test.detach().clone().to(dtype=dtype)
+        y_train = y_train.detach().clone().to(dtype=dtype)
+        y_test = y_test.detach().clone().to(dtype=dtype)
+        if standardize_X:
+            Xscaler = gpplus.utils.StandardScaler()
+            Xscaler.fit(X_train[:, cont_cols])
+            X_train[:, cont_cols] = Xscaler.transform(X_train[:, cont_cols])
+            X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])
 
         # Normalize the GP data
-        y_gp_train_mean = y_gp_train.mean()
-        y_gp_train_std = y_gp_train.std()
-        y_gp_train_normal = (y_gp_train - y_gp_train_mean) / y_gp_train_std
+        y_train_mean = y_train.mean()
+        y_train_std = y_train.std()
+        y_train_normal = (y_train - y_train_mean) / y_train_std
 
-        # cat_cols was returned by the encoder; CombinedKernel expects only cat indices
-        # print(cat_cols)
-        kernel = gpplus.kernels.CombinedKernel(cat_cols=cat_cols)
-
-        # Create GP model
+        # Create GP model (default kernel like SF wing)
         model = gpplus.models.GPR(
-            X_gp_train,
-            y_gp_train_normal if standardize_y_gp else y_gp_train,
-            kernel_module=kernel,
-            # likelihood=gpytorch.likelihoods.GaussianLikelihood(noise_constraint=gpytorch.constraints.GreaterThan(1e-6), noise_prior=gpytorch.priors.LogNormalPrior(loc=np.log(y_gp_train_std**2), scale=1.0)),
+            X_train,
+            y_train_normal if standardize_y else y_train,
         )
-
         if (i == 0) or (i == num_seeds - 1):
             print(model)
 
         # Create trainer
         gp_metric, y_pred_gp, output_std_gp = train_eval_gp(
             model,
-            X_gp_test,
-            y_gp_test,
+            X_test,
+            y_test,
             num_epochs=num_epochs,
             seed=seed,
             num_runs=num_runs,
@@ -164,9 +153,9 @@ def planes_GPvsPFN(num_seeds=20,
             optimizer_class=optimizer_class,
             initializer_class=initializer_class,
             device=gp_device,
-            y_train_mean=y_gp_train_mean if standardize_y_gp else None,
-            y_train_std=y_gp_train_std if standardize_y_gp else None,
-            source_cols=source_cols
+            y_train_mean=y_train_mean if standardize_y else None,
+            y_train_std=y_train_std if standardize_y else None,
+            source_cols=source_cols,
         )
         GPPlus_metrics.append(gp_metric)
 
@@ -181,14 +170,16 @@ def planes_GPvsPFN(num_seeds=20,
         print(f"\n--- {title} TabPFN Training ---")
         
         tabpfn_metric, y_pred_tabpfn, output_std_tabpfn = train_eval_PFN(
-            X_train_enc if encode_PFN_data else X_train,
-            X_test_enc if encode_PFN_data else X_test,
-            y_train,
+            X_train,
+            X_test,
+            y_train_normal if standardize_y else y_train,
             y_test,
             amp_device=amp_device,
             amp_dtype=amp_dtype,
             regressor=regressor,
             source_cols=source_cols,
+            y_train_mean=y_train_mean if standardize_y else None,
+            y_train_std=y_train_std if standardize_y else None,
         )
         TabPFN_metrics.append(tabpfn_metric)
 
@@ -205,13 +196,13 @@ def planes_GPvsPFN(num_seeds=20,
                 "cont_cols": cont_cols,
                 "source_cols": source_cols,
                 "qual_dict": qual_dict,
-                "input_dim": X_gp_train.shape[1],
-                "train_samples": X_gp_train.shape[0],
-                "test_samples": X_gp_test.shape[0],
-                "y_train_mean": float(y_gp_train_mean.item()),
-                "y_train_std": float(y_gp_train_std.item()),
-                "standardize_X_gp": "All categorical",
-                "standardize_y_gp": standardize_y_gp,
+                "input_dim": X_train.shape[1],
+                "train_samples": X_train.shape[0],
+                "test_samples": num_test,
+                "y_train_mean": float(y_train_mean.item()),
+                "y_train_std": float(y_train_std.item()),
+                "standardize_X": standardize_X,
+                "standardize_y": standardize_y,
                 "dtype": str(dtype),
                 "device": str(gp_device),
                 "num_epochs": num_epochs,
@@ -229,7 +220,6 @@ def planes_GPvsPFN(num_seeds=20,
                 "random_state": regressor.random_state,
                 "use_autocast": regressor.use_autocast_,
                 "forced_inference_dtype": str(regressor.forced_inference_dtype_) if regressor.forced_inference_dtype_ else None,
-                "encoded_data": encode_PFN_data,
             }
         
     # =============================================================================
@@ -272,11 +262,14 @@ def planes_GPvsPFN(num_seeds=20,
             pass
     print(f"\nTotal experiment time for {num_seeds} seeds: {time.time() - total_start_time:.2f}s")
     print("="*60)
-    print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\ty_standardize: {standardize_y_gp}")
+    print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\tX_standardize: {standardize_X}\n\ty_standardize: {standardize_y}")
     print(f"Experiment details: \n\t{len(X_test)} test samples, {len(X_train)} train samples\n\tseeds: {num_seeds}")
 
     return GPPlus_metrics, TabPFN_metrics
 
 
 if __name__ == "__main__":
-    planes_GPvsPFN(num_seeds=2, num_runs=4, num_epochs=10000, save_path="./results/planes/temp")
+    Ackley_GPvsPFN(num_seeds=1, train_size=10, num_runs=4, num_epochs=10000, save_path='./results/Ackley/temp')
+    Ackley_GPvsPFN(num_seeds=1, train_size=10, num_runs=4, num_epochs=10000, save_path='./results/Ackley/tempv2', V2=True)
+
+
