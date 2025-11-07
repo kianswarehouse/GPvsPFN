@@ -150,12 +150,12 @@ def wing_GPvsPFN(num_seeds=20,
         y_train_normal = (y_train - y_train_mean) / y_train_std
 
         # cat_cols was returned by the encoder; CombinedKernel expects only cat indices
-        # kernel = gpplus.kernels.LogScaleKernel(gpplus.kernels.CombinedKernel(
-        kernel = gpplus.kernels.CombinedKernel(
+        kernel = gpplus.kernels.LogScaleKernel(gpplus.kernels.CombinedKernel(
+        # kernel = gpplus.kernels.CombinedKernel(
                 cont_cols=cont_cols, 
                 cat_cols=cat_cols, 
                 source_cols=source_cols)
-        # )
+        )
         
         # Create GP model
         from gpplus.means import MultiMean

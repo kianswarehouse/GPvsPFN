@@ -3,6 +3,7 @@ import torch
 
 from gpplus.training import GPTrainer
 from gpplus.training.eval import evaluate_gp_model
+from gpplus.training.eval2 import evaluate_gp_model as evaluate_gp_model2
 from gpplus.utils.metrics_functions import compute_metrics, compute_per_source_metrics
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
 from gpplus.training.callbacks import FinalParameterStorageCallback
@@ -12,7 +13,6 @@ def train_eval_gp(
     model,
     X_test: torch.Tensor,
     y_test,
-    *,
     num_epochs: int,
     seed: int,
     num_runs: int,
@@ -20,8 +20,8 @@ def train_eval_gp(
     convergence_patience: int,
     optimizer_class = torch.optim.Adam,
     initializer_class = None,
-    device: str,
-    dtype: torch.dtype = torch.float64,
+    device: str = 'cpu',
+    # dtype: torch.dtype = torch.float64,
     y_train_mean: torch.Tensor | None = None,
     y_train_std: torch.Tensor | None = None,
     source_cols: int | list[int] | None = None,
@@ -60,7 +60,7 @@ def train_eval_gp(
     else:
         optimizer_kwargs = {"lr": lr}
     
-    callbacks = [FinalParameterStorageCallback(save_file="gp_parameters.json", verbose=True)]
+    callbacks = [FinalParameterStorageCallback(save_file="gp_parameters.json", verbose=False)]
     
     trainer = GPTrainer(
         model=model,
@@ -82,7 +82,7 @@ def train_eval_gp(
 
     # Measure prediction time
     t_pred_start = time.time()
-    y_pred, _, _, output_std = evaluate_gp_model(model, X_test)
+    y_pred, _, _, output_std = evaluate_gp_model2(model, X_test)
     prediction_time = time.time() - t_pred_start
 
     if y_train_mean is not None and y_train_std is not None:

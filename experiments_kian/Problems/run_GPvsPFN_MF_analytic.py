@@ -7,7 +7,7 @@ from A3_borehole_MF_GPvsPFN import borehole_GPvsPFN
 from A4_Ackley_GPvsPFN import ackley_GPvsPFN
 
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
-date = "10_29/no_logscalekernel"
+date = "10_30"
 
 from gpplus.training.optimizers import LBFGSScipy
 optimizer = LBFGSScipy
@@ -21,7 +21,7 @@ gp_metrics_20, tabpfn_metrics_20 = wing_GPvsPFN(train_size=[20, 20, 20, 20], sav
 # gp_metrics_40, tabpfn_metrics_40 = wing_GPvsPFN(train_size=[40, 40, 40, 40], save_path=save_path_wing, optimizer_class=optimizer)
 # gp_metrics_80, tabpfn_metrics_80 = wing_GPvsPFN(train_size=[80, 80, 80, 80], save_path=save_path_wing, optimizer_class=optimizer)
 
-save_path_wing = f"./results/wing/{date}/x_not_standardized"
+# save_path_wing = f"./results/wing/{date}/x_not_standardized"
 # gp_metrics_10, tabpfn_metrics_10 = wing_GPvsPFN(train_size=[10, 10, 10, 10], save_path=save_path_wing, standardize_X=False, optimizer_class=optimizer)
 # gp_metrics_20, tabpfn_metrics_20 = wing_GPvsPFN(train_size=[20, 20, 20, 20], save_path=save_path_wing, standardize_X=False, optimizer_class=optimizer)
 # gp_metrics_40, tabpfn_metrics_40 = wing_GPvsPFN(train_size=[40, 40, 40, 40], save_path=save_path_wing, standardize_X=False, optimizer_class=optimizer)

@@ -274,7 +274,7 @@ def wing_SF_GPvsPFN(num_seeds=20,
 
 
 if __name__ == "__main__":
-    wing_SF_GPvsPFN(num_seeds=4, train_size=20, num_test=5000, noise_train=0.05, noise_test=0.05, num_runs=4, num_epochs=10000, save_path=None)
+    wing_SF_GPvsPFN(num_seeds=5, train_size=80, num_test=5000, noise_train=0.05, noise_test=0.05, num_runs=4, num_epochs=10000, save_path="./results/wing/temp")
     # wing_GPvsPFN(num_seeds=4, train_size=20, num_test=5000, noise_train=0.05, noise_test=0.05, num_runs=16, num_epochs=10000, save_path="./results/wingSF/temp")
     # wing_GPvsPFN(num_seeds=4, num_runs=4, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=True, encode_PFN_data=True)
     # wing_GPvsPFN(num_seeds=4, num_runs=4, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=True, encode_PFN_data=False)
