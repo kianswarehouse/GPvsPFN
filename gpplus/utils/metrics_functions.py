@@ -82,6 +82,47 @@ def compute_metrics(y_true, y_hat, output_std=None, start_time=None, training_ti
     return metrics
 
 
+def adjust_predictive_variance_for_test_noise(output_std, test_noise_std):
+    """
+    Adjust predictive standard deviation to account for additional test noise.
+    
+    When test data has noise added that is not accounted for in the model's
+    predictive variance, this function adds the test noise variance to the
+    predictive variance to get the total uncertainty.
+    
+    Args:
+        output_std: Predictive standard deviation from the model (includes training noise)
+        test_noise_std: Standard deviation of the noise added to test targets
+        
+    Returns:
+        Adjusted standard deviation: sqrt(predictive_variance + test_noise_variance)
+        
+    Example:
+        If model predicts with std=0.1 and test noise has std=0.05:
+        >>> adjusted_std = adjust_predictive_variance_for_test_noise(0.1, 0.05)
+        >>> # adjusted_std = sqrt(0.1^2 + 0.05^2) = sqrt(0.01 + 0.0025) ≈ 0.112
+        
+    Note:
+        This is useful when evaluating with noisy test data. The model's predictive
+        variance includes training noise, but not test noise. Adding test noise variance
+        gives the total uncertainty for comparing against noisy test targets.
+    """
+    if isinstance(output_std, torch.Tensor):
+        output_std = output_std.detach().cpu().numpy()
+    if isinstance(test_noise_std, torch.Tensor):
+        test_noise_std = test_noise_std.detach().cpu().numpy()
+    
+    # Convert to numpy arrays if needed
+    output_std = np.asarray(output_std)
+    test_noise_std = np.asarray(test_noise_std)
+    
+    # Add variances (var = std^2)
+    adjusted_variance = output_std**2 + test_noise_std**2
+    adjusted_std = np.sqrt(adjusted_variance)
+    
+    return adjusted_std
+
+
 def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None, title: str = None):
     """
     Summarize metrics across seeds for RRMSE and NIS, including per-source statistics.
