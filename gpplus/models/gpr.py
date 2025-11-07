@@ -54,8 +54,10 @@ class GPR(gpytorch.models.ExactGP):
             logger.warning("No mean_module provided. Using ConstantMean as default.")
 
         if kernel_module is None:
-            kernel_module = LogScaleKernel(GaussianKernel())
-            logger.warning("No kernel_module provided. Using Gaussian Kernel as default.")
+            # Use ARD (one lengthscale per dimension) by default
+            input_dim = train_x.shape[-1]
+            kernel_module = LogScaleKernel(GaussianKernel(ard_num_dims=input_dim))
+            logger.warning(f"No kernel_module provided. Using Gaussian Kernel with ARD (ard_num_dims={input_dim}) as default.")
 
         if not isinstance(train_x, torch.Tensor) or not isinstance(train_y, torch.Tensor):
             logger.error("train_x and train_y must be torch.Tensor instances.")

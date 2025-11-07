@@ -347,23 +347,39 @@ class FinalParameterStorageCallback(Callback):
                     pass
             
             # Extract transformed lengthscales
+            # Prioritize base_kernel lengthscales for ARD kernels
             if hasattr(obj, 'lengthscale'):
                 try:
                     lengthscale = obj.lengthscale
                     if lengthscale.numel() > 0:
                         lengthscale_list = lengthscale.detach().cpu().numpy().flatten().tolist()
-                        # Only add if we haven't found lengthscales yet, or merge if multiple
-                        if not params["lengthscales"]:
+                        # Check if this is a base_kernel (the actual ARD kernel)
+                        # base_kernel typically doesn't have a base_kernel attribute itself
+                        is_base_kernel = (not hasattr(obj, 'base_kernel') and 
+                                        hasattr(obj, 'raw_lengthscale') and
+                                        obj.raw_lengthscale.numel() > 1)  # ARD has > 1 lengthscale
+                        
+                        if is_base_kernel and len(lengthscale_list) > 1:
+                            # This is the main ARD kernel with multiple lengthscales, use it
+                            params["lengthscales"] = lengthscale_list
+                        elif not params["lengthscales"]:
+                            # No lengthscales found yet, use these
+                            params["lengthscales"] = lengthscale_list
+                        elif len(lengthscale_list) > len(params["lengthscales"]):
+                            # Found a kernel with more lengthscales (likely the ARD kernel), replace
                             params["lengthscales"] = lengthscale_list
                         else:
                             # Merge lengthscales (for multi-kernel scenarios)
                             params["lengthscales"].extend(lengthscale_list)
-                except:
+                except Exception as e:
+                    # Silently continue if extraction fails for this object
                     pass
             
             # Recursively search through specific attributes that are likely to contain kernels/parameters
+            # Search base_kernel first to prioritize ARD kernel lengthscales
             search_attrs = [
-                'covar_module', 'likelihood', 'mean_module', 'base_kernel', 
+                'base_kernel',  # Search base_kernel first for ARD kernels
+                'covar_module', 'likelihood', 'mean_module', 
                 'cat_kernel', 'cont_kernel', 'source_kernel', 'kernels',
                 'noise_covar', 'cat_encoder', 'source_encoder'
             ]
