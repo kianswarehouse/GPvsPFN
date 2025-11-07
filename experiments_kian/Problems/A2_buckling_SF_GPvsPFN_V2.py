@@ -131,11 +131,17 @@ def buckling_SF_GPvsPFN(num_seeds=20,
         y_train_mean = y_train.mean()
         y_train_std = y_train.std()
         y_train_normal = (y_train - y_train_mean) / y_train_std
-
+        
+        kernel = gpplus.kernels.LogScaleKernel(gpplus.kernels.CombinedKernel(
+                cont_cols=cont_cols, 
+                cat_cols=cat_cols, 
+                source_cols=source_cols)
+        )
         # Create GP model (default kernel like SF wing)
         model = gpplus.models.GPR(
             X_train,
             y_train_normal if standardize_y else y_train,
+            kernel_module=kernel,
         )
         if (i == 0) or (i == num_seeds - 1):
             print(model)
