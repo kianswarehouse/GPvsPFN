@@ -182,7 +182,7 @@ class FinalParameterStorageCallback(Callback):
                     print(f"Delta raw_lengthscales: {deltas.get('raw_lengthscales')}")
             
             # Save to file
-            self._save_parameters()
+            # self._save_parameters()
             
         except Exception as e:
             print(f"Error storing final parameters: {e}")
