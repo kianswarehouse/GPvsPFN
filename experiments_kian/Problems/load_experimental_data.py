@@ -467,6 +467,7 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
     # Generate test data first (one block per source)
     X_test_list = []
     y_test_list = []
+    test_std_per_source = {}  # Store test std for each source
     
     for src_idx, (src, n_test) in enumerate(zip(sources, test_samples_per_source)):
         if n_test == 0:
@@ -518,6 +519,24 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
         # Compute targets
         y_test_clean = buckling_mixed_variables(x_test_block, source=src)
         
+        # Compute test std for noise scaling
+        if y_test_clean.numel() > 1:
+            test_std_value = float(y_test_clean.std().item())
+        else:
+            test_std_value = 0.0
+        test_std_per_source[src_idx] = test_std_value
+        
+        # Add noise to test data
+        y_test_block = y_test_clean.clone()
+        if n_test > 0 and test_noise[src_idx] > 0 and test_std_value > 0.0:
+            if noise_type == 'gaussian':
+                noise = torch.randn_like(y_test_block) * (test_noise[src_idx] * test_std_value)
+            elif noise_type == 'uniform':
+                noise = (torch.rand_like(y_test_block) - 0.5) * 2 * (test_noise[src_idx] * test_std_value)
+            else:
+                raise ValueError(f"Unknown noise_type: {noise_type}")
+            y_test_block = y_test_block + noise
+        
         # Store categorical indices if requested
         if return_categorical:
             x_test_block[:, 1] = E_indices_test.to(torch.float64)
@@ -525,7 +544,7 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
             x_test_block[:, 3] = I_indices_test.to(torch.float64)
         
         X_test_list.append(x_test_block)
-        y_test_list.append(y_test_clean)
+        y_test_list.append(y_test_block)
     
     # Combine test data
     X_test_all = torch.cat(X_test_list, dim=0)
@@ -594,6 +613,20 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
         # Compute targets
         y_train_clean = buckling_mixed_variables(x_train_block, source=src)
         
+        # Get test std for noise scaling (from same source)
+        test_std_value = test_std_per_source.get(src_idx, 0.0)
+        
+        # Add noise to train data
+        y_train_block = y_train_clean.clone()
+        if n_train > 0 and train_noise[src_idx] > 0 and test_std_value > 0.0:
+            if noise_type == 'gaussian':
+                noise = torch.randn_like(y_train_block) * (train_noise[src_idx] * test_std_value)
+            elif noise_type == 'uniform':
+                noise = (torch.rand_like(y_train_block) - 0.5) * 2 * (train_noise[src_idx] * test_std_value)
+            else:
+                raise ValueError(f"Unknown noise_type: {noise_type}")
+            y_train_block = y_train_block + noise
+        
         # Store categorical indices if requested
         if return_categorical:
             x_train_block[:, 1] = E_indices_train.to(torch.float64)
@@ -624,7 +657,7 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
                             continue
                         sel = combo_indices[start:start + take]
                         X_train_folds[fold].append(x_train_block[sel])
-                        y_train_folds[fold].append(y_train_clean[sel])
+                        y_train_folds[fold].append(y_train_block[sel])
                         start += take
     
     # Concatenate folds from all sources

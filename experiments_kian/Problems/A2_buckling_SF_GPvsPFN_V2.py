@@ -70,8 +70,8 @@ def buckling_SF_GPvsPFN(num_seeds=20,
     X_train_all, y_train_all, X_test_all, y_test_all = generate_mf_buckling_data(
         train_samples_per_source=[total_train, 0],
         test_samples_per_source=[num_test, 0],
-        train_noise=noise_train,
-        test_noise=noise_test,
+        train_noise=[noise_train, 0.0],
+        test_noise=[noise_test, 0.0],
         noise_type=noise_type,
     )
     # Drop the 5th (source) column since SF uses only s0
