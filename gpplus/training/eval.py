@@ -33,19 +33,11 @@ def evaluate_gp_model(model, test_x: torch.Tensor, include_likelihood_noise: boo
     """
     # Set the model and likelihood to evaluation mode
     model.eval()
-    if hasattr(model, 'likelihood'):
-        model.likelihood.eval()
 
     with torch.no_grad():
-        # Get latent function distribution
-        latent_pred = model(test_x)
-        
-        # Apply likelihood to get observed predictions (includes training noise in variance)
-        if include_likelihood_noise and hasattr(model, 'likelihood'):
-            observed_pred = model.likelihood(latent_pred)
-        else:
-            observed_pred = latent_pred
+        # observed_pred = model.likelihood(model(test_x))
 
+        observed_pred = model(test_x)
         # Get the mean, lower and upper confidence bounds
         mean = observed_pred.mean
         lower, upper = observed_pred.confidence_region()
