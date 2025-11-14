@@ -117,15 +117,29 @@ def M2AX_GPvsPFN(
                 cat_encoder=cat_encoders,
             )
         )
+        # kernel = gpplus.kernels.LogScaleKernel(
+        #     gpplus.kernels.CombinedKernel_OneCatK(
+        #         cat_cols=cat_cols,
+        #         cat_encoder=cat_encoders,
+        #         z_dim=2,
+        #     )
+        # )
+
+        # kernel = gpplus.kernels.LogScaleKernel(
+        #     gpplus.kernels.CombinedKernel_MultCatKs(
+        #         cat_cols=cat_cols,
+        #         cat_encoder=cat_encoders,
+        #     )
+        # )
 
         # Create GP model
         model = gpplus.models.GPR(
             X_gp_train,
             y_gp_train_normal if standardize_y_gp else y_gp_train,
             kernel_module=kernel,
-            # likelihood=gpytorch.likelihoods.GaussianLikelihood(
+            likelihood=gpplus.likelihoods.LogGaussianLikelihood(
                 # noise_constraint=gpytorch.constraints.GreaterThan(1e-6), 
-                # noise_prior=gpytorch.priors.LogNormalPrior(loc=np.log(y_gp_train_std**2), scale=1.0)),
+                noise_prior=gpytorch.priors.LogNormalPrior(loc=np.log(y_gp_train_std**2), scale=1.0)),
 
         )
         if (i == 0) or (i == len(seeds) - 1):
@@ -148,11 +162,21 @@ def M2AX_GPvsPFN(
             y_train_std=y_gp_train_std if standardize_y_gp else None,
             # source_cols=source_cols,
         )
-        GPPlus_M2AX_metrics.append(gp_metric)
+        # Collect metrics in a list first (like wFolds version does) to ensure consistent processing
+        seed_gp_metrics = [gp_metric]
+        
+        # Process metrics the same way as wFolds version (even though we only have one entry)
+        # This ensures the same code path is used for lengthscale tracking
+        processed_gp_metric = {}
+        if seed_gp_metrics:
+            for key in seed_gp_metrics[0].keys():
+                processed_gp_metric[key] = seed_gp_metrics[0][key]
+        
+        GPPlus_M2AX_metrics.append(processed_gp_metric)
 
         print(f"\nGP Results (Seed {seed}) [{i+1}/{len(seeds)}]")
         from gpplus.utils.metrics_functions import format_metric_value
-        for k, v in gp_metric.items():
+        for k, v in processed_gp_metric.items():
             print(f"  {k}: {format_metric_value(k, v)}")
 
         # =============================================================================

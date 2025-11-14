@@ -113,7 +113,17 @@ class FinalParameterStorageCallback(Callback):
                 print(f"\n=== Initial Parameters (Run {self._run_count}, Epoch 0) ===")
                 print(f"Raw noise: {self._initial_params['raw_noise']}")
                 print(f"Raw outputscale: {self._initial_params['raw_outputscale']}")
-                print(f"Raw lengthscales: {self._initial_params['raw_lengthscales']}")
+                raw_lengthscales = self._initial_params.get('raw_lengthscales', [])
+                if raw_lengthscales:
+                    print(f"Raw lengthscales: {raw_lengthscales} (count: {len(raw_lengthscales)})")
+                else:
+                    print(f"Raw lengthscales: N/A (not found)")
+                raw_cat_lengthscales = self._initial_params.get('raw_cat_lengthscales', [])
+                if raw_cat_lengthscales:
+                    print(f"Raw cat lengthscales: {raw_cat_lengthscales} (count: {len(raw_cat_lengthscales)})")
+                raw_source_lengthscales = self._initial_params.get('raw_source_lengthscales', [])
+                if raw_source_lengthscales:
+                    print(f"Raw source lengthscales: {raw_source_lengthscales} (count: {len(raw_source_lengthscales)})")
         except Exception as e:
             print(f"Error capturing initial parameters: {e}")
             import traceback
@@ -173,6 +183,17 @@ class FinalParameterStorageCallback(Callback):
                     print(f"Lengthscales (transformed): {lengthscales} (count: {len(lengthscales)})")
                 else:
                     print(f"Lengthscales (transformed): N/A (not found)")
+                
+                # Show cat_kernel lengthscales if they exist
+                cat_lengthscales = final_params.get('cat_lengthscales', [])
+                if cat_lengthscales:
+                    print(f"Cat lengthscales (transformed): {cat_lengthscales} (count: {len(cat_lengthscales)})")
+                
+                # Show source_kernel lengthscales if they exist
+                source_lengthscales = final_params.get('source_lengthscales', [])
+                if source_lengthscales:
+                    print(f"Source lengthscales (transformed): {source_lengthscales} (count: {len(source_lengthscales)})")
+                
                 print(f"Raw noise: {final_params['raw_noise']}")
                 print(f"Raw outputscale: {final_params['raw_outputscale']}")
                 raw_lengthscales = final_params.get('raw_lengthscales', [])
@@ -180,6 +201,15 @@ class FinalParameterStorageCallback(Callback):
                     print(f"Raw lengthscales: {raw_lengthscales} (count: {len(raw_lengthscales)})")
                 else:
                     print(f"Raw lengthscales: N/A (not found)")
+                
+                # Show raw cat_kernel and source_kernel lengthscales if they exist
+                raw_cat_lengthscales = final_params.get('raw_cat_lengthscales', [])
+                if raw_cat_lengthscales:
+                    print(f"Raw cat lengthscales: {raw_cat_lengthscales} (count: {len(raw_cat_lengthscales)})")
+                
+                raw_source_lengthscales = final_params.get('raw_source_lengthscales', [])
+                if raw_source_lengthscales:
+                    print(f"Raw source lengthscales: {raw_source_lengthscales} (count: {len(raw_source_lengthscales)})")
                 print(f"Best loss: {best_loss}")
                 # If we have initial, also print deltas
                 if self._initial_params is not None:
@@ -219,9 +249,13 @@ class FinalParameterStorageCallback(Callback):
             "raw_noise": final.get("raw_noise"),
             "raw_outputscale": final.get("raw_outputscale"),
             "raw_lengthscales": final.get("raw_lengthscales"),
+            "raw_cat_lengthscales": final.get("raw_cat_lengthscales"),
+            "raw_source_lengthscales": final.get("raw_source_lengthscales"),
             "noise": final.get("noise"),  # Transformed
             "outputscale": final.get("outputscale"),  # Transformed
-            "lengthscales": final.get("lengthscales"),  # Transformed
+            "lengthscales": final.get("lengthscales"),  # Transformed (from cont_kernel)
+            "cat_lengthscales": final.get("cat_lengthscales"),  # Transformed (from cat_kernel)
+            "source_lengthscales": final.get("source_lengthscales"),  # Transformed (from source_kernel)
             "kernel_type": final.get("kernel_type"),
             "input_dim": final.get("input_dim"),
         }
@@ -233,6 +267,8 @@ class FinalParameterStorageCallback(Callback):
             "raw_noise": initial.get("raw_noise"),
             "raw_outputscale": initial.get("raw_outputscale"),
             "raw_lengthscales": initial.get("raw_lengthscales"),
+            "raw_cat_lengthscales": initial.get("raw_cat_lengthscales"),
+            "raw_source_lengthscales": initial.get("raw_source_lengthscales"),
             "kernel_type": initial.get("kernel_type"),
             "input_dim": initial.get("input_dim"),
         }
@@ -306,7 +342,88 @@ class FinalParameterStorageCallback(Callback):
         # This ensures we get all lengthscales for ARD kernels
         if hasattr(model, 'covar_module') and hasattr(model.covar_module, 'base_kernel'):
             base_kernel = model.covar_module.base_kernel
-            if hasattr(base_kernel, 'raw_lengthscale'):
+            
+            # Special handling for CombinedKernel - extract from cont_kernel, cat_kernel, and source_kernel
+            if hasattr(base_kernel, 'cont_kernel') and base_kernel.cont_kernel is not None:
+                # Extract from cont_kernel (trainable lengthscales)
+                cont_kernel = base_kernel.cont_kernel
+                if hasattr(cont_kernel, 'raw_lengthscale'):
+                    try:
+                        ls = cont_kernel.raw_lengthscale.data.flatten().tolist()
+                        if ls:
+                            params['raw_lengthscales'] = ls
+                    except Exception:
+                        pass
+                
+                # Extract from cat_kernel (fixed at 0)
+                if hasattr(base_kernel, 'cat_kernel') and base_kernel.cat_kernel is not None:
+                    cat_kernel = base_kernel.cat_kernel
+                    # Check if it's a single kernel or a list (MultCatKs)
+                    if isinstance(cat_kernel, list):
+                        # MultCatKs - extract from all cat_kernels
+                        all_cat_ls = []
+                        for idx, ck in enumerate(cat_kernel):
+                            if hasattr(ck, 'raw_lengthscale'):
+                                try:
+                                    cat_ls = ck.raw_lengthscale.data.flatten().tolist()
+                                    if cat_ls:
+                                        all_cat_ls.extend(cat_ls)
+                                except Exception:
+                                    pass
+                        if all_cat_ls:
+                            params['raw_cat_lengthscales'] = all_cat_ls
+                    else:
+                        # Single cat_kernel
+                        if hasattr(cat_kernel, 'raw_lengthscale'):
+                            try:
+                                cat_ls = cat_kernel.raw_lengthscale.data.flatten().tolist()
+                                if cat_ls:
+                                    params['raw_cat_lengthscales'] = cat_ls
+                            except Exception:
+                                pass
+                
+                # Extract from source_kernel (fixed at 0)
+                if hasattr(base_kernel, 'source_kernel') and base_kernel.source_kernel is not None:
+                    source_kernel = base_kernel.source_kernel
+                    if hasattr(source_kernel, 'raw_lengthscale'):
+                        try:
+                            source_ls = source_kernel.raw_lengthscale.data.flatten().tolist()
+                            if source_ls:
+                                params['raw_source_lengthscales'] = source_ls
+                        except Exception:
+                            pass
+            # Special handling for CombinedKernel_MultCatKs (no cont_kernel, but has multiple cat_kernels)
+            elif hasattr(base_kernel, 'cat_kernel'):
+                cat_kernel_attr = base_kernel.cat_kernel
+                # Check if cat_kernel is a list (MultCatKs) or if we have cat_kernel_0, cat_kernel_1, etc.
+                if isinstance(cat_kernel_attr, list) or hasattr(base_kernel, 'cat_kernel_0'):
+                    # This is CombinedKernel_MultCatKs
+                    all_cat_ls = []
+                    
+                    # Get list of cat_kernels
+                    if isinstance(cat_kernel_attr, list):
+                        cat_kernels = cat_kernel_attr
+                    else:
+                        # Extract all cat_kernel_* modules
+                        cat_kernels = []
+                        i = 0
+                        while hasattr(base_kernel, f'cat_kernel_{i}'):
+                            cat_kernels.append(getattr(base_kernel, f'cat_kernel_{i}'))
+                            i += 1
+                    
+                    # Extract raw lengthscales from each cat_kernel
+                    for ck in cat_kernels:
+                        if hasattr(ck, 'raw_lengthscale'):
+                            try:
+                                cat_ls = ck.raw_lengthscale.data.flatten().tolist()
+                                if cat_ls:
+                                    all_cat_ls.extend(cat_ls)
+                            except Exception:
+                                pass
+                    
+                    if all_cat_ls:
+                        params['raw_lengthscales'] = all_cat_ls
+            elif hasattr(base_kernel, 'raw_lengthscale'):
                 try:
                     ls = base_kernel.raw_lengthscale.data.flatten().tolist()
                     if ls:
@@ -352,43 +469,196 @@ class FinalParameterStorageCallback(Callback):
             # Check if we have a LogScaleKernel wrapping a base_kernel
             if hasattr(covar, 'base_kernel'):
                 base_kernel = covar.base_kernel
-                # Try to get lengthscale - it might be a property from GPyTorch
-                try:
-                    # Try the lengthscale property first (GPyTorch provides this when has_lengthscale=True)
-                    ls_list = None
-                    if hasattr(base_kernel, 'lengthscale'):
+                
+                # Special handling for CombinedKernel - extract from cont_kernel, cat_kernel, and source_kernel
+                if hasattr(base_kernel, 'cont_kernel') and base_kernel.cont_kernel is not None:
+                    # This is a CombinedKernel, extract lengthscales from cont_kernel
+                    cont_kernel = base_kernel.cont_kernel
+                    try:
+                        ls_list = None
+                        if hasattr(cont_kernel, 'lengthscale'):
+                            try:
+                                ls = cont_kernel.lengthscale
+                                if ls is not None and ls.numel() > 0:
+                                    ls_list = ls.detach().cpu().numpy().flatten().tolist()
+                            except (AttributeError, RuntimeError):
+                                pass
+                        
+                        if ls_list is None and hasattr(cont_kernel, 'raw_lengthscale'):
+                            raw_ls = cont_kernel.raw_lengthscale
+                            if raw_ls is not None and raw_ls.numel() > 0:
+                                if hasattr(cont_kernel, 'raw_lengthscale_constraint'):
+                                    constraint = cont_kernel.raw_lengthscale_constraint
+                                    transformed = constraint.transform(raw_ls)
+                                    ls_list = transformed.detach().cpu().numpy().flatten().tolist()
+                                else:
+                                    ls_list = raw_ls.detach().cpu().numpy().flatten().tolist()
+                        
+                        if ls_list is not None:
+                            params["lengthscales"] = ls_list
+                            if self.verbose:
+                                print(f"[DEBUG] Extracted {len(ls_list)} lengthscales from cont_kernel: {ls_list[:5]}..." if len(ls_list) > 5 else f"[DEBUG] Extracted {len(ls_list)} lengthscales from cont_kernel: {ls_list}")
+                    except Exception as e:
+                        import logging
+                        logging.debug(f"Error extracting lengthscales from cont_kernel: {e}")
+                    
+                    # Extract from cat_kernel (should be fixed at 0)
+                    if hasattr(base_kernel, 'cat_kernel') and base_kernel.cat_kernel is not None:
+                        cat_kernel = base_kernel.cat_kernel
                         try:
-                            ls = base_kernel.lengthscale
-                            if ls is not None and ls.numel() > 0:
-                                ls_list = ls.detach().cpu().numpy().flatten().tolist()
-                        except (AttributeError, RuntimeError) as e:
-                            # If lengthscale property doesn't work, try raw_lengthscale
-                            pass
+                            cat_ls_list = None
+                            if hasattr(cat_kernel, 'lengthscale'):
+                                try:
+                                    cat_ls = cat_kernel.lengthscale
+                                    if cat_ls is not None and cat_ls.numel() > 0:
+                                        cat_ls_list = cat_ls.detach().cpu().numpy().flatten().tolist()
+                                except (AttributeError, RuntimeError):
+                                    pass
+                            
+                            if cat_ls_list is None and hasattr(cat_kernel, 'raw_lengthscale'):
+                                cat_raw_ls = cat_kernel.raw_lengthscale
+                                if cat_raw_ls is not None and cat_raw_ls.numel() > 0:
+                                    if hasattr(cat_kernel, 'raw_lengthscale_constraint'):
+                                        constraint = cat_kernel.raw_lengthscale_constraint
+                                        transformed = constraint.transform(cat_raw_ls)
+                                        cat_ls_list = transformed.detach().cpu().numpy().flatten().tolist()
+                                    else:
+                                        cat_ls_list = cat_raw_ls.detach().cpu().numpy().flatten().tolist()
+                            
+                            if cat_ls_list is not None:
+                                params["cat_lengthscales"] = cat_ls_list
+                                if self.verbose:
+                                    print(f"[DEBUG] Extracted {len(cat_ls_list)} lengthscales from cat_kernel: {cat_ls_list}")
+                        except Exception as e:
+                            import logging
+                            logging.debug(f"Error extracting lengthscales from cat_kernel: {e}")
                     
-                    # If lengthscale property didn't work, try raw_lengthscale and transform it
-                    if ls_list is None and hasattr(base_kernel, 'raw_lengthscale'):
-                        raw_ls = base_kernel.raw_lengthscale
-                        if raw_ls is not None and raw_ls.numel() > 0:
-                            # Transform raw_lengthscale using the constraint if available
-                            if hasattr(base_kernel, 'raw_lengthscale_constraint'):
-                                constraint = base_kernel.raw_lengthscale_constraint
-                                transformed = constraint.transform(raw_ls)
-                                ls_list = transformed.detach().cpu().numpy().flatten().tolist()
-                            else:
-                                # No constraint, use raw values (they're already in log scale)
-                                ls_list = raw_ls.detach().cpu().numpy().flatten().tolist()
-                    
-                    # ALWAYS override with base_kernel lengthscales if we found them
-                    if ls_list is not None:
-                        params["lengthscales"] = ls_list
-                        # Debug output to verify extraction
-                        if self.verbose:
-                            print(f"[DEBUG] Extracted {len(ls_list)} lengthscales from base_kernel: {ls_list[:5]}..." if len(ls_list) > 5 else f"[DEBUG] Extracted {len(ls_list)} lengthscales from base_kernel: {ls_list}")
-                except Exception as e:
-                    # Log the error for debugging but continue
-                    import logging
-                    logging.debug(f"Error extracting lengthscales from base_kernel: {e}")
-                    pass
+                    # Extract from source_kernel (should be fixed at 0)
+                    if hasattr(base_kernel, 'source_kernel') and base_kernel.source_kernel is not None:
+                        source_kernel = base_kernel.source_kernel
+                        try:
+                            source_ls_list = None
+                            if hasattr(source_kernel, 'lengthscale'):
+                                try:
+                                    source_ls = source_kernel.lengthscale
+                                    if source_ls is not None and source_ls.numel() > 0:
+                                        source_ls_list = source_ls.detach().cpu().numpy().flatten().tolist()
+                                except (AttributeError, RuntimeError):
+                                    pass
+                            
+                            if source_ls_list is None and hasattr(source_kernel, 'raw_lengthscale'):
+                                source_raw_ls = source_kernel.raw_lengthscale
+                                if source_raw_ls is not None and source_raw_ls.numel() > 0:
+                                    if hasattr(source_kernel, 'raw_lengthscale_constraint'):
+                                        constraint = source_kernel.raw_lengthscale_constraint
+                                        transformed = constraint.transform(source_raw_ls)
+                                        source_ls_list = transformed.detach().cpu().numpy().flatten().tolist()
+                                    else:
+                                        source_ls_list = source_raw_ls.detach().cpu().numpy().flatten().tolist()
+                            
+                            if source_ls_list is not None:
+                                params["source_lengthscales"] = source_ls_list
+                                if self.verbose:
+                                    print(f"[DEBUG] Extracted {len(source_ls_list)} lengthscales from source_kernel: {source_ls_list}")
+                        except Exception as e:
+                            import logging
+                            logging.debug(f"Error extracting lengthscales from source_kernel: {e}")
+                
+                # Special handling for CombinedKernel_MultCatKs - extract from all cat_kernel_* modules
+                # Check if this is CombinedKernel_MultCatKs by looking for multiple cat_kernel modules
+                if hasattr(base_kernel, 'cat_kernel'):
+                    cat_kernel_attr = base_kernel.cat_kernel
+                    # Check if cat_kernel is a list (MultCatKs) or if we have cat_kernel_0, cat_kernel_1, etc.
+                    if isinstance(cat_kernel_attr, list) or hasattr(base_kernel, 'cat_kernel_0'):
+                        # This is CombinedKernel_MultCatKs
+                        all_cat_lengthscales = []
+                        
+                        # Get list of cat_kernels
+                        if isinstance(cat_kernel_attr, list):
+                            cat_kernels = cat_kernel_attr
+                        else:
+                            # Extract all cat_kernel_* modules
+                            cat_kernels = []
+                            i = 0
+                            while hasattr(base_kernel, f'cat_kernel_{i}'):
+                                cat_kernels.append(getattr(base_kernel, f'cat_kernel_{i}'))
+                                i += 1
+                        
+                        # Extract lengthscales from each cat_kernel
+                        for idx, cat_kernel in enumerate(cat_kernels):
+                            try:
+                                cat_ls_list = None
+                                if hasattr(cat_kernel, 'lengthscale'):
+                                    try:
+                                        cat_ls = cat_kernel.lengthscale
+                                        if cat_ls is not None and cat_ls.numel() > 0:
+                                            cat_ls_list = cat_ls.detach().cpu().numpy().flatten().tolist()
+                                    except (AttributeError, RuntimeError):
+                                        pass
+                                
+                                if cat_ls_list is None and hasattr(cat_kernel, 'raw_lengthscale'):
+                                    cat_raw_ls = cat_kernel.raw_lengthscale
+                                    if cat_raw_ls is not None and cat_raw_ls.numel() > 0:
+                                        if hasattr(cat_kernel, 'raw_lengthscale_constraint'):
+                                            constraint = cat_kernel.raw_lengthscale_constraint
+                                            transformed = constraint.transform(cat_raw_ls)
+                                            cat_ls_list = transformed.detach().cpu().numpy().flatten().tolist()
+                                        else:
+                                            cat_ls_list = cat_raw_ls.detach().cpu().numpy().flatten().tolist()
+                                
+                                if cat_ls_list is not None:
+                                    all_cat_lengthscales.extend(cat_ls_list)
+                                    if self.verbose:
+                                        print(f"[DEBUG] Extracted {len(cat_ls_list)} lengthscales from cat_kernel_{idx}: {cat_ls_list}")
+                            except Exception as e:
+                                import logging
+                                logging.debug(f"Error extracting lengthscales from cat_kernel_{idx}: {e}")
+                        
+                        # Store all cat lengthscales in the main lengthscales list
+                        if all_cat_lengthscales:
+                            params["lengthscales"] = all_cat_lengthscales
+                            if self.verbose:
+                                print(f"[DEBUG] Extracted {len(all_cat_lengthscales)} total lengthscales from {len(cat_kernels)} cat_kernels: {all_cat_lengthscales[:10]}..." if len(all_cat_lengthscales) > 10 else f"[DEBUG] Extracted {len(all_cat_lengthscales)} total lengthscales from {len(cat_kernels)} cat_kernels: {all_cat_lengthscales}")
+                
+                # If we haven't extracted lengthscales yet, try regular kernel extraction
+                if "lengthscales" not in params or params["lengthscales"] is None:
+                    # Regular kernel (not CombinedKernel), extract from base_kernel directly
+                    try:
+                        # Try the lengthscale property first (GPyTorch provides this when has_lengthscale=True)
+                        ls_list = None
+                        if hasattr(base_kernel, 'lengthscale'):
+                            try:
+                                ls = base_kernel.lengthscale
+                                if ls is not None and ls.numel() > 0:
+                                    ls_list = ls.detach().cpu().numpy().flatten().tolist()
+                            except (AttributeError, RuntimeError) as e:
+                                # If lengthscale property doesn't work, try raw_lengthscale
+                                pass
+                        
+                        # If lengthscale property didn't work, try raw_lengthscale and transform it
+                        if ls_list is None and hasattr(base_kernel, 'raw_lengthscale'):
+                            raw_ls = base_kernel.raw_lengthscale
+                            if raw_ls is not None and raw_ls.numel() > 0:
+                                # Transform raw_lengthscale using the constraint if available
+                                if hasattr(base_kernel, 'raw_lengthscale_constraint'):
+                                    constraint = base_kernel.raw_lengthscale_constraint
+                                    transformed = constraint.transform(raw_ls)
+                                    ls_list = transformed.detach().cpu().numpy().flatten().tolist()
+                                else:
+                                    # No constraint, use raw values (they're already in log scale)
+                                    ls_list = raw_ls.detach().cpu().numpy().flatten().tolist()
+                        
+                        # ALWAYS override with base_kernel lengthscales if we found them
+                        if ls_list is not None:
+                            params["lengthscales"] = ls_list
+                            # Debug output to verify extraction
+                            if self.verbose:
+                                print(f"[DEBUG] Extracted {len(ls_list)} lengthscales from base_kernel: {ls_list[:5]}..." if len(ls_list) > 5 else f"[DEBUG] Extracted {len(ls_list)} lengthscales from base_kernel: {ls_list}")
+                    except Exception as e:
+                        # Log the error for debugging but continue
+                        import logging
+                        logging.debug(f"Error extracting lengthscales from base_kernel: {e}")
+                        pass
     
     def _recursive_extract_transformed_kernel_params(self, obj, params, visited=None, depth=0):
         """Recursively search through model components for transformed kernel parameters."""
