@@ -82,7 +82,7 @@ def train_eval_gp(
 
     # Measure prediction time
     t_pred_start = time.time()
-    y_pred, _, _, output_std = evaluate_gp_model(model, X_test)
+    y_pred, _, _, output_std = evaluate_gp_model2(model, X_test)
     prediction_time = time.time() - t_pred_start
 
     if y_train_mean is not None and y_train_std is not None:

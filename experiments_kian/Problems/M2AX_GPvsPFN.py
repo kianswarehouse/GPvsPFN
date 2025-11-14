@@ -9,9 +9,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from gpplus.utils.onehot_encode_data import encode_qual_data, learn_encodings
 import gpplus
-import gpytorch
 import time
-from gpplus.training.eval import evaluate_gp_model
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
@@ -26,7 +24,7 @@ def M2AX_GPvsPFN(
         num_epochs=10000, 
         lr=0.1, 
         convergence_patience=10,
-        optimizer_class=torch.optim.Adam,
+        optimizer_class=gpplus.training.optimizers.LBFGSScipy,
         initializer_class=None,
         gp_device='cpu',
         amp_device='cuda',
@@ -95,7 +93,7 @@ def M2AX_GPvsPFN(
 
         # cat_cols was returned by the encoder; CombinedKernel expects only cat indices
         # print(cat_cols)
-        kernel = gpplus.kernels.CombinedKernel(cat_cols=cat_cols)
+        kernel = gpplus.kernels.LogScaleKernel(gpplus.kernels.CombinedKernel(cat_cols=cat_cols))
 
         # Create GP model
         model = gpplus.models.GPR(
