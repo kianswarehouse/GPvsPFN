@@ -13,9 +13,9 @@ from gpplus.training.optimizers import LBFGSScipy
 optimizer = LBFGSScipy
 # optimizer = torch.optim.Adam
 
-num_seeds = 10
-num_runs = 8
-# %% Wing ------------------------------------------------------------------------------------------------
+num_seeds = 5
+num_runs = 16
+# # %% Wing ------------------------------------------------------------------------------------------------
 save_path_wing = f"./results/wing/{date}/default"
 gp_metrics_10, tabpfn_metrics_10 = wing_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, save_path=save_path_wing, optimizer_class=optimizer)
 # gp_metrics_20, tabpfn_metrics_20 = wing_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, save_path=save_path_wing, optimizer_class=optimizer)
@@ -54,7 +54,7 @@ gp_metrics_10, tabpfn_metrics_10 = wing_GPvsPFN(num_seeds=num_seeds, num_runs=nu
 # gp_metrics_80_noise, tabpfn_metrics_80_noise = wing_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, save_path=save_path_wing_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
 
 
-# # %% Buckling ------------------------------------------------------------------------------------------------
+# %% Buckling ------------------------------------------------------------------------------------------------
 
 # save_path_buckling = f"./results/buckling/{date}/default"
 # # gp_metrics_10, tabpfn_metrics_10 = buckling_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, save_path=save_path_buckling, num_runs=num_runs, num_seeds=num_seeds, optimizer_class=optimizer)
@@ -64,7 +64,7 @@ gp_metrics_10, tabpfn_metrics_10 = wing_GPvsPFN(num_seeds=num_seeds, num_runs=nu
 # gp_metrics_40, tabpfn_metrics_40 = buckling_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, save_path=save_path_buckling, optimizer_class=optimizer)
 # gp_metrics_80, tabpfn_metrics_80 = buckling_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, save_path=save_path_buckling, optimizer_class=optimizer)
 
-# save_path_buckling_noise = f"./results/buckling/{date}/noise"
+save_path_buckling_noise = f"./results/buckling/{date}/noise"
 # gp_metrics_10_noise, tabpfn_metrics_10_noise = buckling_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, save_path=save_path_buckling_noise, noise_train=0.05, noise_test=0.0, optimizer_class=optimizer)
 # gp_metrics_20_noise, tabpfn_metrics_20_noise = buckling_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, save_path=save_path_buckling_noise, noise_train=0.05, noise_test=0.0, optimizer_class=optimizer)
 # gp_metrics_40_noise, tabpfn_metrics_40_noise = buckling_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, save_path=save_path_buckling_noise, noise_train=0.05, noise_test=0.0, optimizer_class=optimizer)

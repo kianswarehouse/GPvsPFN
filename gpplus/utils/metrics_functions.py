@@ -305,6 +305,12 @@ def plot_metrics(*args, labels: list = None, title: str = None, save_path: str =
     """
     import matplotlib.pyplot as plt
     import numpy as np
+    
+    # Debug: print save_path if provided
+    if save_path is not None:
+        print(f"[DEBUG plot_metrics] save_path provided: {save_path}")
+    else:
+        print(f"[DEBUG plot_metrics] save_path is None - plots will not be saved")
 
     # Normalize inputs: allow plot_metric_values(run1, run2, ...) or plot_metric_values([run1, run2, ...])
     if len(args) == 1 and isinstance(args[0], list) and (
@@ -375,18 +381,23 @@ def plot_metrics(*args, labels: list = None, title: str = None, save_path: str =
             p = Path(save_path)
             try:
                 p.mkdir(parents=True, exist_ok=True)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[WARNING] Failed to create directory {save_path}: {e}")
+                return
             fname = f"{metric_name}" + (f"_{title}" if title else "") + ".png"
+            full_path = p / fname
             try:
-                fig.savefig(str(p / fname), dpi=300, bbox_inches="tight")
+                fig.savefig(str(full_path), dpi=300, bbox_inches="tight")
+                print(f"[INFO] Saved plot to: {full_path}")
                 # Close only when we actually save, to avoid leaking figures
                 try:
                     plt.close(fig)
                 except Exception:
                     pass
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[WARNING] Failed to save plot to {full_path}: {e}")
+                import traceback
+                traceback.print_exc()
 
     # Always create individual plots
     individual_figs = {}

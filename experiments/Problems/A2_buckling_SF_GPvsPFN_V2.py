@@ -1,7 +1,6 @@
 import torch
 import os
 import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import pandas as pd
 import numpy as np
 import json
@@ -17,7 +16,7 @@ from gpplus.training.eval import evaluate_gp_model
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
-from data.load_experimental_data import buckling_mixed_variables, generate_mf_buckling_data
+from load_experimental_data import buckling_mixed_variables, generate_mf_buckling_data
 
 
 # import warnings
@@ -71,8 +70,8 @@ def buckling_SF_GPvsPFN(num_seeds=20,
     X_train_all, y_train_all, X_test_all, y_test_all = generate_mf_buckling_data(
         train_samples_per_source=[total_train, 0],
         test_samples_per_source=[num_test, 0],
-        train_noise=noise_train,
-        test_noise=noise_test,
+        train_noise=[noise_train, 0.0],
+        test_noise=[noise_test, 0.0],
         noise_type=noise_type,
     )
     # Drop the 5th (source) column since SF uses only s0
@@ -161,9 +160,8 @@ def buckling_SF_GPvsPFN(num_seeds=20,
         GPPlus_metrics.append(gp_metric)
 
         print(f"\nGP Results (Seed {seed}) [{i+1}/{num_seeds}]")
-        from gpplus.utils.metrics_functions import format_metric_value
         for k, v in gp_metric.items():
-            print(f"  {k}: {format_metric_value(k, v)}")
+            print(f"  {k}: {v:.4f}")
 
         # =============================================================================
         # TabPFN Section

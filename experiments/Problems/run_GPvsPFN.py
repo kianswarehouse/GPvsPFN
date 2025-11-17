@@ -8,19 +8,20 @@ initializer_class = DefaultParameterInitializer
 # %% M2AX ------------------------------------------------------------------------------------------------
 # num_epochs_list = [10, 10000, 10, 10000, 10, 10000]
 num_epochs_list = [10000]
-num_runs_list = [8]
+num_runs_list = [16]
 lr = 0.1
-save_path_m2ax = "./results/m2ax/MatrixEncoder"
+save_path_m2ax = "./results/m2ax/1Folds20Seeds/"
 for i in range(len(num_epochs_list)):
     num_epochs = num_epochs_list[i]
     num_runs = num_runs_list[i]
-    gp_metrics_2, tabpfn_metrics_2 = M2AX_GPvsPFN(num_seeds=20, test_size=0.2, num_epochs=num_epochs, num_runs=num_runs, lr=lr, optimizer_class=LBFGSScipy, save_path=save_path_m2ax, initializer_class=initializer_class)
+    # gp_metrics_2, tabpfn_metrics_2 = M2AX_GPvsPFN(num_seeds=20, train_size=180, test_size=0.103, num_folds=1, num_epochs=num_epochs, num_runs=num_runs, lr=lr, optimizer_class=LBFGSScipy, save_path=save_path_m2ax, initializer_class=initializer_class)
+    gp_metrics_2, tabpfn_metrics_2 = M2AX_GPvsPFN(num_seeds=20, test_size=0.103, num_epochs=num_epochs, num_runs=num_runs, lr=lr, optimizer_class=LBFGSScipy, save_path=save_path_m2ax, initializer_class=initializer_class)
     # # gp_metrics_4, tabpfn_metrics_4 = M2AX_GPvsPFN(num_seeds=20, test_size=0.4, num_epochs=num_epochs, num_runs=num_runs, lr=lr, optimizer_class=LBFGSScipy, save_path=save_path_m2ax, initializer_class=initializer_class)
     # gp_metrics_6, tabpfn_metrics_6 = M2AX_GPvsPFN(num_seeds=20, test_size=0.6, num_epochs=num_epochs, num_runs=num_runs, lr=lr, optimizer_class=LBFGSScipy, save_path=save_path_m2ax, initializer_class=initializer_class)
     # gp_metrics_8, tabpfn_metrics_8 = M2AX_GPvsPFN(num_seeds=20, test_size=0.8, num_epochs=num_epochs, num_runs=num_runs, lr=lr, optimizer_class=LBFGSScipy, save_path=save_path_m2ax, initializer_class=initializer_class)
 
-    analyze_metrics(gp_metrics_2, print_summary=True, label="GP", title="M2AX_0.2test")
-    analyze_metrics(tabpfn_metrics_2, print_summary=True, label="TabPFN", title="M2AX_0.2test")
+    # analyze_metrics(gp_metrics_2, print_summary=True, label="GP", title="M2AX_0.2test")
+    # analyze_metrics(tabpfn_metrics_2, print_summary=True, label="TabPFN", title="M2AX_0.2test")
     # # analyze_metrics(gp_metrics_4, print_summary=True, label="GP", title="M2AX_0.4test")
     # analyze_metrics(tabpfn_metrics_4, print_summary=True, label="TabPFN", title="M2AX_0.4test")
     # analyze_metrics(gp_metrics_6, print_summary=True, label="GP", title="M2AX_0.6test")

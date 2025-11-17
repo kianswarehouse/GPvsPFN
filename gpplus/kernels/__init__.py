@@ -10,6 +10,8 @@ from .advanced_kernels import (
     SinhKernel,
 )
 from .combined_kernel import CombinedKernel
+from .combined_kernel_OneCatK import CombinedKernel_OneCatK
+from .combined_kernel_MultCatKs import CombinedKernel_MultCatKs
 from .unconstrained_kernel import UnconstrainedKernel
 from .gaussian_kernel import GaussianKernel
 from .kronecker import KroneckerKernel
