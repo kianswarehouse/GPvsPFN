@@ -32,6 +32,8 @@ def evaluate_gp_model(model, test_x: torch.Tensor):
         
         # Option 2: With nugget (noisy observations y) - follows Equation 31b structure
         # This adds δI to the predictive covariance: Σ* = K_test_test - ... + δI
+        # if hasattr(model.likelihood, '_test_x'):
+        #     model.likelihood._test_x = test_x
         observed_pred = model.likelihood(model(test_x))
 
         # Get the mean, lower and upper confidence bounds

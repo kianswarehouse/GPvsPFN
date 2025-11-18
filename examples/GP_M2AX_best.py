@@ -150,7 +150,6 @@ encoded_data = torch.cat([encoded_cols, data[:, 3:]], dim=1)
 # data_all = torch.cat((data1_t, data2_t, data3_t), dim=0)  # dim=0 → stack rows
 t00 = time.time()
 
-
 for c in classes:
     print(c)
 print("Final shape:", tuple(encoded_cols.shape))

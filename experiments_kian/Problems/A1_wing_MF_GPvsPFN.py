@@ -42,9 +42,9 @@ def wing_GPvsPFN(num_seeds=20,
         encode_PFN_data=True, # False gives best results for PFN
     ):
     if title is None:
-        title = f"wing_{train_size[0]}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test[0]}_noiseTrain{noise_train[0]}"
+        title = f"wingMF_{train_size[0]}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test[0]}_noiseTrain{noise_train[0]}"
     else: 
-        title = f"wing_{train_size[0]}D_{title}"
+        title = f"wingMF_{train_size[0]}D_{title}"
     
     
     amp_dtype = torch.float32
@@ -192,7 +192,12 @@ def wing_GPvsPFN(num_seeds=20,
 
         print(f"\nGP Results (Seed {seed}) [{i+1}/{num_seeds}]")
         for k, v in gp_metric.items():
-            print(f"  {k}: {v:.4f}")
+            if v is None:
+                print(f"  {k}: None")
+            elif isinstance(v, (int, float)) and not isinstance(v, bool):
+                print(f"  {k}: {v:.4f}")
+            else:
+                print(f"  {k}: {v}")
 
         # =============================================================================
         # TabPFN Section
