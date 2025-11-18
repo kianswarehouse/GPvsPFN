@@ -71,9 +71,15 @@ def M2AX_GPvsPFN(
     print(f"{title}: TabPFN vs GP Comparison")
     print("="*10)
     # Prepare encoded data once from already loaded X, y (no extra CSV/label encoding)
-    qual_dict = learn_encodings(X)
-
-    X_enc, cont_cols, cat_cols, source_cols = encode_qual_data(X, qual_dict=qual_dict)
+    # print(X.shape)
+    qual_dict = learn_encodings(X[:,[0,1]])
+    # qual_dict = {0: 10, 1:12}
+    X_enc, cont_cols, cat_cols, source_cols = encode_qual_data(X[:,[0,1]], qual_dict=qual_dict)
+    # print(X_enc.shape)
+    # print(X_enc[:5])
+    X_enc = torch.concatenate([X_enc, X[:,[2]]], axis=1)
+    # print(X_enc.shape)
+    # print(X_enc[:100])
     # print(qual_dict)
     # print(cat_cols)
     TabPFN_M2AX_metrics = []
@@ -111,19 +117,29 @@ def M2AX_GPvsPFN(
         # cat_cols = [[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]]
         # cat_encoders = [RelativeDistanceEncoder(input_dim=len(cat_col), z_dim=2, initialization='uniform', init_radius=0.5, seed=seed) for cat_col in cat_cols]
         cat_encoders = 'matrix'
-        kernel = gpplus.kernels.LogScaleKernel(
-            gpplus.kernels.CombinedKernel(
-                cat_cols=cat_cols,
-                cat_encoder=cat_encoders,
-            )
-        )
+        cont_cols = [22]
         # kernel = gpplus.kernels.LogScaleKernel(
-        #     gpplus.kernels.CombinedKernel_OneCatK(
+        #     gpplus.kernels.CombinedKernel(
         #         cat_cols=cat_cols,
         #         cat_encoder=cat_encoders,
-        #         z_dim=2,
         #     )
         # )
+        # architecture_config = {
+        #     "hidden_dims": [4, 8], 
+        #     "activation": "tanh", 
+        #     "dropout": 0.0}
+        # cat_encoder1 = gpplus.utils.NeuralEncoder(input_dim=len(cat_cols[0]), architecture_config=architecture_config, z_dim=2)
+        # cat_encoder2 = gpplus.utils.NeuralEncoder(input_dim=len(cat_cols[1]), architecture_config=architecture_config, z_dim=2)
+        # cat_encoder3 = gpplus.utils.NeuralEncoder(input_dim=len(cat_cols[2]), architecture_config=architecture_config, z_dim=2)
+        # cat_encoders = [cat_encoder1, cat_encoder2, cat_encoder3]
+        kernel = gpplus.kernels.LogScaleKernel(
+            gpplus.kernels.CombinedKernel_OneCatK(
+                cat_cols=cat_cols,
+                cont_cols=cont_cols,
+                cat_encoder=cat_encoders,
+                z_dim=2,
+            )
+        )
 
         # kernel = gpplus.kernels.LogScaleKernel(
         #     gpplus.kernels.CombinedKernel_MultCatKs(
@@ -137,9 +153,9 @@ def M2AX_GPvsPFN(
             X_gp_train,
             y_gp_train_normal if standardize_y_gp else y_gp_train,
             kernel_module=kernel,
-            likelihood=gpplus.likelihoods.LogGaussianLikelihood(
-                # noise_constraint=gpytorch.constraints.GreaterThan(1e-6), 
-                noise_prior=gpytorch.priors.LogNormalPrior(loc=np.log(y_gp_train_std**2), scale=1.0)),
+            # likelihood=gpplus.likelihoods.LogGaussianLikelihood(
+            #     # noise_constraint=gpytorch.constraints.GreaterThan(1e-6), 
+            #     noise_prior=gpytorch.priors.LogNormalPrior(loc=np.log(y_gp_train_std**2), scale=1.0)),
 
         )
         if (i == 0) or (i == len(seeds) - 1):

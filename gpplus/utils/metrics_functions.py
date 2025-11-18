@@ -169,7 +169,7 @@ def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None
     # Detailed stats for specific metrics
     detailed = {}
     for m in ["RRMSE", "NIS", "Time", "Total_Time", "Training_Time", "Prediction_Time", 
-              "num_epochs", "best_epoch", "jitter", "raw_noise", "outputscale"]:
+              "num_epochs", "best_epoch", "jitter", "raw_noise", "noise_std", "outputscale"]:
         if m in df.columns:
             vals = df[m].dropna().values
             if len(vals) == 0:

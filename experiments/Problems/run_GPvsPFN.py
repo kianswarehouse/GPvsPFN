@@ -7,10 +7,10 @@ from gpplus.training.optimizers import LBFGSScipy
 initializer_class = DefaultParameterInitializer
 # %% M2AX ------------------------------------------------------------------------------------------------
 # num_epochs_list = [10, 10000, 10, 10000, 10, 10000]
-num_epochs_list = [10000]
-num_runs_list = [16]
+num_epochs_list = [100, 100, 100, 100, 100]
+num_runs_list = [4, 8, 16, 32, 64]
 lr = 0.1
-save_path_m2ax = "./results/m2ax/1Folds20Seeds/"
+save_path_m2ax = "./results/m2ax/MatrixEncoder/Nov17/ThirdColumnContInput/WithLengthscales/"
 for i in range(len(num_epochs_list)):
     num_epochs = num_epochs_list[i]
     num_runs = num_runs_list[i]

@@ -1,5 +1,6 @@
 import time
 import torch
+import numpy as np
 
 from gpplus.training import GPTrainer
 from gpplus.training.eval import evaluate_gp_model
@@ -82,7 +83,7 @@ def train_eval_gp(
 
     # Measure prediction time
     t_pred_start = time.time()
-    y_pred, _, _, output_std = evaluate_gp_model2(model, X_test)
+    y_pred, _, _, output_std = evaluate_gp_model(model, X_test)
     prediction_time = time.time() - t_pred_start
 
     if y_train_mean is not None and y_train_std is not None:
@@ -93,6 +94,25 @@ def train_eval_gp(
     output_std_np = output_std.detach().cpu().numpy().reshape(-1)
 
     gp_metric = compute_metrics(y_test, y_pred_np, output_std_np, training_time=training_time, prediction_time=prediction_time)
+
+    # Extract noise std from the model and convert to original scale if needed
+    try:
+        # Get noise (variance) from likelihood - this is already transformed (10^raw_noise)
+        noise_variance = model.likelihood.noise.detach().cpu().item()
+        # Compute noise std = sqrt(noise)
+        noise_std = np.sqrt(noise_variance)
+        
+        # Convert to original output scale if y was standardized
+        if y_train_std is not None:
+            noise_std_original_scale = noise_std * y_train_std.item()
+        else:
+            noise_std_original_scale = noise_std
+        
+        gp_metric["noise_std"] = float(noise_std_original_scale)
+    except Exception as e:
+        # If extraction fails, don't break the function
+        import logging
+        logging.warning(f"Could not extract noise std: {e}")
 
     # Always extract directly from the model after training (the best model is already loaded)
     # This is more reliable than relying on callbacks, especially with multi-run training
@@ -122,6 +142,7 @@ def train_eval_gp(
         )
         if extracted_params:
             lengthscales_extracted = extracted_params.get("lengthscales")
+            cat_lengthscales_extracted = extracted_params.get("cat_lengthscales")
             # Convert to expected format
             best_model_metrics = {
                 "num_epochs": num_epochs_actual if num_epochs_actual is not None else extracted_params.get("num_epochs"),
@@ -131,6 +152,7 @@ def train_eval_gp(
                 "raw_noise": extracted_params.get("raw_noise"),
                 "outputscale": extracted_params.get("outputscale"),
                 "lengthscales": lengthscales_extracted,
+                "cat_lengthscales": cat_lengthscales_extracted,
             }
     
     if best_model_metrics:
@@ -149,10 +171,10 @@ def train_eval_gp(
             print(f"[DEBUG train_eval] lengthscales is None. best_model_metrics keys: {list(best_model_metrics.keys())}")
             print(f"[DEBUG train_eval] best_model_metrics content: {best_model_metrics}")
         elif isinstance(lengthscales, (list, tuple)):
-            print(f"[DEBUG train_eval] Found {len(lengthscales)} lengthscales: {lengthscales[:5]}..." if len(lengthscales) > 5 else f"[DEBUG train_eval] Found {len(lengthscales)} lengthscales: {lengthscales}")
+            print(f"[DEBUG train_eval] Found {len(lengthscales)} cont_lengthscales: {lengthscales[:5]}..." if len(lengthscales) > 5 else f"[DEBUG train_eval] Found {len(lengthscales)} cont_lengthscales: {lengthscales}")
             if len(lengthscales) > 0:
                 for i, ls_val in enumerate(lengthscales):
-                    gp_metric[f"lengthscale_{i}"] = ls_val
+                    gp_metric[f"cont_lengthscale_{i}"] = ls_val
             else:
                 # Empty list - this shouldn't happen but handle it
                 import logging
@@ -160,7 +182,20 @@ def train_eval_gp(
         else:
             # Single value case (scalar)
             print(f"[DEBUG train_eval] lengthscales is a scalar: {lengthscales}")
-            gp_metric["lengthscale_0"] = lengthscales
+            gp_metric["cont_lengthscale_0"] = lengthscales
+        
+        # Add individual cat_lengthscales as separate metrics
+        cat_lengthscales = best_model_metrics.get("cat_lengthscales")
+        if cat_lengthscales is not None:
+            if isinstance(cat_lengthscales, (list, tuple)):
+                print(f"[DEBUG train_eval] Found {len(cat_lengthscales)} cat_lengthscales: {cat_lengthscales[:5]}..." if len(cat_lengthscales) > 5 else f"[DEBUG train_eval] Found {len(cat_lengthscales)} cat_lengthscales: {cat_lengthscales}")
+                if len(cat_lengthscales) > 0:
+                    for i, ls_val in enumerate(cat_lengthscales):
+                        gp_metric[f"cat_lengthscale_{i}"] = ls_val
+            else:
+                # Single value case (scalar)
+                print(f"[DEBUG train_eval] cat_lengthscales is a scalar: {cat_lengthscales}")
+                gp_metric["cat_lengthscale_0"] = cat_lengthscales
     else:
         print(f"[DEBUG train_eval] No best_model_metrics found at all!")
 

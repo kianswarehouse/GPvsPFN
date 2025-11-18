@@ -186,8 +186,8 @@ class CombinedKernel_OneCatK(gpytorch.kernels.Kernel):
             if cat_kernel is None:
                 total_z_dim = sum(encoder.z_dim for encoder in temp_cat_encoder)
                 shared_gauss_k = GaussianKernel(ard_num_dims=total_z_dim)
-                shared_gauss_k.raw_lengthscale.requires_grad_(False)
-                shared_gauss_k.raw_lengthscale.data = torch.ones(total_z_dim) * 0.0
+                shared_gauss_k.raw_lengthscale.requires_grad_(True)
+                # shared_gauss_k.raw_lengthscale.data = torch.ones(total_z_dim) * 0.0
                 self.cat_kernel = shared_gauss_k
             else:
                 self.cat_kernel = cat_kernel
