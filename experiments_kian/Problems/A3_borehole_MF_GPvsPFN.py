@@ -19,6 +19,7 @@ from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
 from load_experimental_data import borehole_mixed_variables, generate_mf_borehole_data
 
 
+
 # import warnings
 # warnings.filterwarnings("ignore")
 def borehole_GPvsPFN(num_seeds=20,
@@ -28,7 +29,7 @@ def borehole_GPvsPFN(num_seeds=20,
         num_epochs=10000, 
         lr=0.1, 
         convergence_patience=10,
-        optimizer_class=torch.optim.Adam,
+        optimizer_class=gpplus.training.optimizers.LBFGSScipy,
         initializer_class=None,
         gp_device='cpu',
         amp_device='cuda',
@@ -41,9 +42,9 @@ def borehole_GPvsPFN(num_seeds=20,
         noise_type='gaussian',
     ):
     if title is None:
-        title = f"borehole_{train_size[0]}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test[0]}_noiseTrain{noise_train[0]}"
+        title = f"borehole_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test[0]}_noiseTrain{noise_train[0]}"
     else: 
-        title = f"borehole_{train_size[0]}D_{title}"
+        title = f"borehole_{train_size}D_{title}"
     
     
     amp_dtype = torch.float32
@@ -135,21 +136,33 @@ def borehole_GPvsPFN(num_seeds=20,
         X_test = X_enc_test_all.detach().clone().to(dtype=dtype)
         y_train = y_train.detach().clone().to(dtype=dtype)
         y_test = y_test_all.detach().clone().to(dtype=dtype)
+        hf_mask = X_train_orig[:, -1] == 0  # Source 0 is high-fidelity
+
         if standardize_X:
-            Xscaler = gpplus.utils.StandardScaler()
-            Xscaler.fit(X_train[:, cont_cols])
+            X_train_hf = X_train[hf_mask]
+            if len(X_train_hf) > 0:
+                Xscaler = gpplus.utils.StandardScaler()
+                Xscaler.fit(X_train_hf[:, cont_cols])
+            else:
+                Xscaler = gpplus.utils.StandardScaler()
+                Xscaler.fit(X_train[:, cont_cols])
             X_train[:, cont_cols] = Xscaler.transform(X_train[:, cont_cols])
             X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])
 
-        # Normalize the GP data
-        y_train_mean = y_train.mean()
-        y_train_std = y_train.std()
+        # Normalize the GP data using only high-fidelity data when available
+        y_train_hf = y_train[hf_mask]
+        if len(y_train_hf) > 0:
+            y_train_mean = y_train_hf.mean()
+            y_train_std = y_train_hf.std()
+        else:
+            y_train_mean = y_train.mean()
+            y_train_std = y_train.std()
         y_train_normal = (y_train - y_train_mean) / y_train_std
 
         # cat_cols was returned by the encoder; CombinedKernel expects only cat indices
         # print(cat_cols)
         # kernel = gpplus.kernels.LogScaleKernel(gpplus.kernels.CombinedKernel(
-        kernel = gpplus.kernels.CombinedKernel(cont_cols=cont_cols, 
+        kernel = gpplus.kernels.CombinedKernel_OneCatK(cont_cols=cont_cols, 
                 cat_cols=cat_cols, 
                 source_cols=source_cols)
 

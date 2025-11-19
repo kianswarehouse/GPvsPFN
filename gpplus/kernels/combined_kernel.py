@@ -16,6 +16,7 @@ class CombinedKernel(gpytorch.kernels.Kernel):
         source_kernel: gpytorch.kernels.Kernel = None,
         cat_encoder=None,  # Accepts: "matrix", "nn", or a list of encoders [enc1, enc2, enc3]
         source_encoder=None,
+        z_dim: int = 2,
         **kwargs,
     ):
         """
@@ -50,6 +51,7 @@ class CombinedKernel(gpytorch.kernels.Kernel):
         self.cont_cols = cont_cols
         self.cat_cols = cat_cols
         self.source_cols = source_cols
+        self.z_dim = z_dim
 
         self._process_cont(cont_kernel)
         self._process_cat(cat_encoder, cat_kernel)
@@ -156,7 +158,7 @@ class CombinedKernel(gpytorch.kernels.Kernel):
                     if cat_encoder == "nn":
                         encoder = NeuralEncoder(len(cat_group))
                     elif cat_encoder == "matrix":  # Default cat_encoder
-                        encoder = MatrixEncoder(len(cat_group), z_dim=2)
+                        encoder = MatrixEncoder(len(cat_group), z_dim=self.z_dim)
                     else:
                         raise ValueError("Only string inputs for cat_encoder are 'nn' and 'matrix'")
                 elif cat_encoder is not None:
@@ -172,7 +174,7 @@ class CombinedKernel(gpytorch.kernels.Kernel):
                     else:
                         raise ValueError("Numbers of encoders provided does not match number of categorical groups")
                 else:
-                    encoder = MatrixEncoder(len(cat_group), z_dim=2)
+                    encoder = MatrixEncoder(len(cat_group), z_dim=self.z_dim)
                 temp_cat_encoder.append(encoder)
             # Set cat_kernel
             if cat_kernel is None:
@@ -201,7 +203,7 @@ class CombinedKernel(gpytorch.kernels.Kernel):
                 if source_encoder == "nn":
                     encoder = NeuralEncoder(len(self.source_cols))
                 elif source_encoder == "matrix":  # Default source_encoder
-                    encoder = MatrixEncoder(len(self.source_cols), z_dim=2)
+                    encoder = MatrixEncoder(len(self.source_cols), z_dim=self.z_dim)
                 else:
                     raise ValueError("Only string inputs for source_encoder are 'nn' and 'matrix'")
             elif source_encoder is not None:
@@ -217,7 +219,7 @@ class CombinedKernel(gpytorch.kernels.Kernel):
                 else:
                     raise ValueError("Numbers of encoders provided does not match number of source groups")
             else:
-                encoder = MatrixEncoder(len(self.source_cols), z_dim=2)
+                encoder = MatrixEncoder(len(self.source_cols), z_dim=self.z_dim)
 
             # Set source_kernel
             if source_kernel is None:

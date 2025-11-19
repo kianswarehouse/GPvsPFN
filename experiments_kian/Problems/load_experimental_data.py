@@ -543,7 +543,8 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
             x_test_block[:, 2] = K_indices_test.to(torch.float64)
             x_test_block[:, 3] = I_indices_test.to(torch.float64)
         
-        X_test_list.append(x_test_block)
+        source_column = torch.full((x_test_block.shape[0], 1), src_idx, dtype=torch.float64)
+        X_test_list.append(torch.cat([x_test_block, source_column], dim=1))
         y_test_list.append(y_test_block)
     
     # Combine test data
@@ -576,39 +577,32 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
         x_train_block = torch.zeros((n_train, 4), dtype=torch.float64)
         x_train_block[:, 0] = L_vals
         
-        # Generate even categorical distributions for TRAIN
+        def _balanced_indices(num_categories, values_tensor):
+            n_per = n_train // num_categories
+            rem = n_train % num_categories
+            order = list(range(num_categories))
+            # Rotate which categories get the remainder so sources don't always favor the same class
+            offset = src_idx % num_categories
+            order = order[offset:] + order[:offset]
+            idx_parts = []
+            for j, cat in enumerate(order):
+                count = n_per + (1 if j < rem else 0)
+                idx_parts.append(torch.full((count,), cat))
+            idx = torch.cat(idx_parts)
+            idx = idx[torch.randperm(n_train)]
+            return values_tensor[idx], idx
+
         # E values (2 options)
-        n_per_E_train = n_train // len(E_values)
-        remaining_E_train = n_train % len(E_values)
-        E_indices_train = []
-        for i in range(len(E_values)):
-            count = n_per_E_train + (1 if i < remaining_E_train else 0)
-            E_indices_train.append(torch.full((count,), i))
-        E_indices_train = torch.cat(E_indices_train)
-        E_indices_train = E_indices_train[torch.randperm(n_train)]
-        x_train_block[:, 1] = E_phys[E_indices_train]
+        E_vals_shuffled, E_indices_train = _balanced_indices(len(E_values), E_phys)
+        x_train_block[:, 1] = E_vals_shuffled
 
         # K values (4 options)
-        n_per_K_train = n_train // len(K_values)
-        remaining_K_train = n_train % len(K_values)
-        K_indices_train = []
-        for i in range(len(K_values)):
-            count = n_per_K_train + (1 if i < remaining_K_train else 0)
-            K_indices_train.append(torch.full((count,), i))
-        K_indices_train = torch.cat(K_indices_train)
-        K_indices_train = K_indices_train[torch.randperm(n_train)]
-        x_train_block[:, 2] = K_phys[K_indices_train]
+        K_vals_shuffled, K_indices_train = _balanced_indices(len(K_values), K_phys)
+        x_train_block[:, 2] = K_vals_shuffled
 
         # I values (3 options)
-        n_per_I_train = n_train // len(I_values)
-        remaining_I_train = n_train % len(I_values)
-        I_indices_train = []
-        for i in range(len(I_values)):
-            count = n_per_I_train + (1 if i < remaining_I_train else 0)
-            I_indices_train.append(torch.full((count,), i))
-        I_indices_train = torch.cat(I_indices_train)
-        I_indices_train = I_indices_train[torch.randperm(n_train)]
-        x_train_block[:, 3] = I_phys[I_indices_train]
+        I_vals_shuffled, I_indices_train = _balanced_indices(len(I_values), I_phys)
+        x_train_block[:, 3] = I_vals_shuffled
 
         # Compute targets
         y_train_clean = buckling_mixed_variables(x_train_block, source=src)
@@ -656,7 +650,8 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
                         if take == 0:
                             continue
                         sel = combo_indices[start:start + take]
-                        X_train_folds[fold].append(x_train_block[sel])
+                        source_column = torch.full((x_train_block.shape[0], 1), src_idx, dtype=torch.float64)
+                        X_train_folds[fold].append(torch.cat([x_train_block[sel], source_column[sel]], dim=1))
                         y_train_folds[fold].append(y_train_block[sel])
                         start += take
     
@@ -667,7 +662,7 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
             y_train_folds[fold] = torch.cat(y_train_folds[fold], dim=0)
         else:
             # If fold is empty, create empty tensor with correct shape
-            X_train_folds[fold] = torch.empty((0, 4), dtype=torch.float64)
+            X_train_folds[fold] = torch.empty((0, 5), dtype=torch.float64)
             y_train_folds[fold] = torch.empty((0,), dtype=torch.float64)
     
     return X_train_folds, y_train_folds, X_test_all, y_test_all

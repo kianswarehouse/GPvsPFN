@@ -71,7 +71,7 @@ def DNS_ROM_GPvsPFN(
         num_epochs=10000, 
         lr=0.1, 
         convergence_patience=10,
-        optimizer_class=torch.optim.Adam,
+        optimizer_class=gpplus.training.optimizers.LBFGSScipy,
         initializer_class=None,
         gp_device='cpu',
         amp_device='cuda',

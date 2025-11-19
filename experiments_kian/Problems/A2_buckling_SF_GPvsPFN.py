@@ -28,7 +28,7 @@ def buckling_SF_GPvsPFN(num_seeds=20,
         num_epochs=10000, 
         lr=0.1, 
         convergence_patience=10,
-        optimizer_class=torch.optim.Adam,
+        optimizer_class=gpplus.training.optimizers.LBFGSScipy,
         initializer_class=None,
         gp_device='cpu',
         amp_device='cuda',
@@ -304,7 +304,7 @@ def buckling_SF_GPvsPFN(num_seeds=20,
 
 
 if __name__ == "__main__":
-    buckling_SF_GPvsPFN(num_seeds=10, train_size=10, num_runs=4, num_epochs=10000, save_path=None)
+    buckling_SF_GPvsPFN(num_seeds=1, train_size=20, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp')
     # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp', standardize_X_gp=False, standardize_y_gp=True)
     # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=False, standardize_y_gp=True)
     # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=True)

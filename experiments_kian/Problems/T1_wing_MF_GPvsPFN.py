@@ -84,8 +84,8 @@ def wing_GPvsPFN(num_seeds=20,
     # Prepare encoded data once from already loaded X, y (no extra CSV/label encoding)
     qual_dict = learn_encodings(X)
     print(qual_dict)
-    X_enc_train_all, cont_cols, cat_cols, source_cols = encode_qual_data(X_train_all, qual_dict=qual_dict, source_col=-1)
-    X_enc_test_all, _, _, _ = encode_qual_data(X_test_all, qual_dict=qual_dict, source_col=-1)
+    X_enc_train_all, cont_cols, cat_cols, source_cols = encode_qual_data(X_train_all, qual_dict=qual_dict, source_col=None)
+    X_enc_test_all, _, _, _ = encode_qual_data(X_test_all, qual_dict=qual_dict, source_col=None)
     # print(cat_cols)
     TabPFN_metrics = []
     GPPlus_metrics = []
@@ -166,7 +166,7 @@ def wing_GPvsPFN(num_seeds=20,
         y_train_normal = (y_train - y_train_mean) / y_train_std
 
         # cat_cols was returned by the encoder; CombinedKernel expects only cat indices
-        kernel = gpplus.kernels.LogScaleKernel(gpplus.kernels.CombinedKernel_OneCatK(
+        kernel = gpplus.kernels.LogScaleKernel(gpplus.kernels.CombinedKernel(
         # kernel = gpplus.kernels.CombinedKernel(
                 cont_cols=cont_cols, 
                 cat_cols=cat_cols, 
@@ -180,8 +180,8 @@ def wing_GPvsPFN(num_seeds=20,
             X_train,
             y_train_normal if standardize_y else y_train,
             kernel_module=kernel,
-            mean_module=gpplus.means.MultiMean(encoded_cols=source_cols),
-            likelihood=gpplus.likelihoods.MultiLikelihood(encoded_cols=source_cols, training_data=X_train),
+            # mean_module=gpplus.means.MultiMean(encoded_cols=source_cols),
+            # likelihood=gpplus.likelihoods.MultiLikelihood(encoded_cols=source_cols, training_data=X_train),
         )
         if (i == 0) or (i == num_seeds - 1):
             print(model)
@@ -201,7 +201,7 @@ def wing_GPvsPFN(num_seeds=20,
             device=gp_device,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
-            source_cols=source_cols,  # Source column is at index 10 (single int = not encoded)
+            source_cols=[10,11,12,13],  # Source column is at index 10 (single int = not encoded)
         )
         
         GPPlus_metrics.append(gp_metric)

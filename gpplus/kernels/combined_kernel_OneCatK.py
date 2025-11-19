@@ -17,6 +17,7 @@ class CombinedKernel_OneCatK(gpytorch.kernels.Kernel):
         cat_encoder=None,  # Accepts: "matrix", "nn", or a list of encoders [enc1, enc2, enc3]
         source_encoder=None,
         z_dim=2,
+        fix_lengthscale=False,
         **kwargs,
     ):
         """
@@ -52,6 +53,7 @@ class CombinedKernel_OneCatK(gpytorch.kernels.Kernel):
         self.cat_cols = cat_cols
         self.source_cols = source_cols
         self.z_dim = z_dim
+        self.fix_lengthscale = fix_lengthscale
 
         self._process_cont(cont_kernel)
         self._process_cat(cat_encoder, cat_kernel)
@@ -186,8 +188,11 @@ class CombinedKernel_OneCatK(gpytorch.kernels.Kernel):
             if cat_kernel is None:
                 total_z_dim = sum(encoder.z_dim for encoder in temp_cat_encoder)
                 shared_gauss_k = GaussianKernel(ard_num_dims=total_z_dim)
-                shared_gauss_k.raw_lengthscale.requires_grad_(True)
-                # shared_gauss_k.raw_lengthscale.data = torch.ones(total_z_dim) * 0.0
+                if self.fix_lengthscale:
+                    shared_gauss_k.raw_lengthscale.requires_grad_(False)
+                    shared_gauss_k.raw_lengthscale.data = torch.ones(total_z_dim) * 0.0
+                else:
+                    shared_gauss_k.raw_lengthscale.requires_grad_(True)
                 self.cat_kernel = shared_gauss_k
             else:
                 self.cat_kernel = cat_kernel
