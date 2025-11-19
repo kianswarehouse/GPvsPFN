@@ -236,8 +236,11 @@ class CombinedKernel_OneCatK(gpytorch.kernels.Kernel):
             # Set source_kernel
             if source_kernel is None:
                 gauss_k_source = GaussianKernel(ard_num_dims=encoder.z_dim)
-                gauss_k_source.raw_lengthscale.requires_grad_(False)
-                gauss_k_source.raw_lengthscale.data = torch.ones(encoder.z_dim) * 0.0
+                if self.fix_lengthscale:
+                    gauss_k_source.raw_lengthscale.requires_grad_(False)
+                    gauss_k_source.raw_lengthscale.data = torch.ones(encoder.z_dim) * 0.0
+                else:
+                    gauss_k_source.raw_lengthscale.requires_grad_(True)
                 self.source_kernel = gauss_k_source
             else:
                 self.source_kernel = source_kernel

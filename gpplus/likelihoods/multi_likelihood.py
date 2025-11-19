@@ -5,9 +5,11 @@ import torch
 from gpytorch.distributions import MultivariateNormal
 from gpytorch.likelihoods import _GaussianLikelihoodBase
 from gpytorch.likelihoods.noise_models import _HomoskedasticNoiseBase
+from gpytorch.priors import Prior
 from linear_operator.operators import ConstantDiagLinearOperator, DiagLinearOperator
 from torch import Tensor
 
+from gpplus.constraints import SoftClamp
 
 class MultiLikelihood(_GaussianLikelihoodBase):
     """
@@ -42,15 +44,26 @@ class MultiLikelihood(_GaussianLikelihoodBase):
             self.all_fidelities = torch.arange(self.num_fidelities)
         else:
             self.source_col = int(encoded_cols)
-            self.num_fidelities = None  # Will be determined from data
-            self.all_fidelities = None  # Will be determined from data
+            # MUST determine num_fidelities BEFORE initializing noise model
+            if training_data is not None:
+                # Extract fidelities from training data immediately
+                fidel_indices = training_data[:, self.source_col].long()
+                unique_fidelities = torch.unique(fidel_indices)
+                self.all_fidelities = unique_fidelities
+                self.num_fidelities = len(unique_fidelities)
+            else:
+                # Cannot determine num_fidelities without data - raise error
+                raise ValueError(
+                    "For single-column fidelity encoding, training_data must be provided "
+                    "at initialization to determine the number of fidelities for noise model."
+                )
 
-        # Initialize noise model
-        noise_covar = MultiNoise(
+        # Initialize noise model with log-scale parameterization for better performance
+        noise_covar = LogScaleMultiNoise(
             noise_prior=noise_prior,
             noise_constraint=noise_constraint,
             batch_shape=batch_shape,
-            num_noises=self.num_fidelities if self.is_onehot else 1,
+            num_noises=self.num_fidelities,
         )
 
         # Initialize parent class with noise_covar FIRST (needed before registering buffers)
@@ -162,9 +175,130 @@ class MultiLikelihood(_GaussianLikelihoodBase):
         return function_dist.__class__(mean, full_covar)
 
 
+class LogScaleMultiNoise(_HomoskedasticNoiseBase):
+    """
+    Multifidelity noise model with log-scale parameterization.
+    
+    This applies different noise levels based on fidelity indices, but uses log-scale
+    parameterization (10^raw_noise) for better numerical stability and optimization,
+    similar to LogScaleHomoskedasticNoise.
+
+    Args:
+        noise_prior: Prior distribution for noise parameters
+        noise_constraint: Constraint for noise parameters (default: SoftClamp(-7.0, 3.0))
+        batch_shape: Batch shape for the noise model
+        num_noises: Number of different noise levels to learn
+    """
+
+    def __init__(self, noise_prior=None, noise_constraint=None, batch_shape=torch.Size(), num_noises=1):
+        # Default constraint for log noise (allows noise from 0.0000001 to 1000)
+        if noise_constraint is None:
+            noise_constraint = SoftClamp(lower_bound=-7.0, upper_bound=3.0)
+        
+        super().__init__(noise_prior, noise_constraint, batch_shape, num_tasks=num_noises)
+    
+    @property
+    def noise(self):
+        """Get the actual noise parameter (10^raw_noise after constraint)."""
+        # The parent class stores the constraint as raw_noise_constraint
+        return torch.pow(10, self.raw_noise_constraint.transform(self.raw_noise))
+    
+    @noise.setter
+    def noise(self, value):
+        """Set the noise parameter (will be converted to log scale internally)."""
+        self._set_noise(value)
+    
+    def _set_noise(self, value):
+        """Internal method to set noise parameter (converts to log scale)."""
+        if not torch.is_tensor(value):
+            value = torch.as_tensor(value).to(self.raw_noise)
+        # Convert to log scale
+        log_value = torch.log10(value)
+        # The parent class stores the constraint as raw_noise_constraint
+        self.initialize(raw_noise=self.raw_noise_constraint.inverse_transform(log_value))
+    
+    def forward(
+        self,
+        *params: Any,
+        shape: Optional[torch.Size] = None,
+        fidel_indices: Optional[Tensor] = None,
+        noise_indices: Optional[List[int]] = None,
+        **kwargs: Any,
+    ) -> DiagLinearOperator:
+        """
+        Compute a diagonal noise covariance where each point's variance
+        is selected by its fidelity index. Uses log-scale parameterization
+        (noise values are 10^raw_noise after constraint).
+
+        Args:
+            *params: Parameters from the base noise model
+            shape: Unused—shape is inferred from fidel_indices
+            fidel_indices: Tensor of shape (N,) mapping each point to a fidelity level
+            noise_indices: Which fidelity levels correspond to each learned noise parameter
+            **kwargs: Additional keyword arguments
+
+        Returns:
+            DiagLinearOperator: A (N×N) diagonal covariance tensor where entry i,i
+                = noise[fidelity_indices[i]] (with log-scale transformation applied)
+        """
+        if fidel_indices is None or len(fidel_indices) == 0:
+            raise ValueError("fidel_indices must be provided and non-empty")
+
+        if noise_indices is None:
+            noise_indices = list(range(self.num_tasks))
+
+        # Get noise variances from parent class
+        # The parent's forward() will use the overridden noise property
+        # which automatically applies the log-scale transformation (10^raw_noise)
+        covar = super().forward(*params, shape=fidel_indices.shape, **kwargs)
+
+        # Handle different covariance dimensions
+        if covar.dim() > 2:
+            if covar.shape[1] != len(noise_indices):
+                raise ValueError(
+                    f"Number of noise parameters ({covar.shape[1]}) does not \
+                        match number of noise indices ({len(noise_indices)})"
+                )
+
+        if covar.dim() == 4:  # batch case
+            covar = covar.squeeze(0)
+        elif covar.dim() == 5:  # batch case
+            covar = covar.squeeze(1)
+
+        # Initialize diagonal matrix with zeros
+        temp = ConstantDiagLinearOperator(torch.tensor([0.0]), len(fidel_indices))
+        temp = temp.to(dtype=covar.dtype, device=covar.device)
+
+        # For each noise level, create a diagonal mask and accumulate
+        for i, noise_idx in enumerate(noise_indices):
+            # Create diagonal mask for points with this fidelity level
+            # Ensure the mask is on the same device as the covariance matrix
+            mask_values = (fidel_indices == noise_idx).float()
+            if covar.dim() >= 3:
+                # Get device from the first noise parameter
+                device = covar[i, ...].device if covar.dim() == 3 else covar[0, i, ...].device
+                mask_values = mask_values.to(device)
+            diag_mask = DiagLinearOperator(mask_values)
+
+            # Select the appropriate noise variance and multiply by mask
+            if covar.dim() == 4:  # batch case
+                temp += diag_mask * covar[:, i, ...]
+            elif covar.dim() == 3:  # no batch
+                temp += diag_mask * covar[i, ...]
+            elif covar.dim() == 2:  # single noise parameter
+                temp += diag_mask * covar
+            else:
+                raise ValueError(f"Unexpected covariance dimension: {covar.dim()}")
+
+        return temp
+
+
 class MultiNoise(_HomoskedasticNoiseBase):
     """
     Multifidelity noise model that applies different noise levels based on fidelity indices.
+    
+    NOTE: This uses linear-scale parameterization. For better performance, consider using
+    LogScaleMultiNoise instead, which uses log-scale parameterization.
 
     Args:
         noise_prior: Prior distribution for noise parameters
@@ -206,6 +340,8 @@ class MultiNoise(_HomoskedasticNoiseBase):
             noise_indices = list(range(self.num_tasks))
 
         # Get noise variances from parent class
+        # For LogScaleMultiNoise, the parent's forward() will use the overridden noise property
+        # which automatically applies the log-scale transformation (10^raw_noise)
         covar = super().forward(*params, shape=fidel_indices.shape, **kwargs)
 
         # Handle different covariance dimensions
