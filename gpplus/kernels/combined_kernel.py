@@ -5,7 +5,7 @@ from ..utils.encoders import MatrixEncoder, NeuralEncoder
 from .gaussian_kernel import GaussianKernel
 
 
-class CombinedKernel_OneCatK(gpytorch.kernels.Kernel):
+class CombinedKernel(gpytorch.kernels.Kernel):
     def __init__(
         self,
         cont_cols: list = None,
