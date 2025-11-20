@@ -5,7 +5,7 @@ from ..utils.encoders import MatrixEncoder, NeuralEncoder
 from .gaussian_kernel import GaussianKernel
 
 
-class CombinedKernel(gpytorch.kernels.Kernel):
+class CombinedKernel_OneCatK(gpytorch.kernels.Kernel):
     def __init__(
         self,
         cont_cols: list = None,
@@ -16,11 +16,13 @@ class CombinedKernel(gpytorch.kernels.Kernel):
         source_kernel: gpytorch.kernels.Kernel = None,
         cat_encoder=None,  # Accepts: "matrix", "nn", or a list of encoders [enc1, enc2, enc3]
         source_encoder=None,
-        z_dim: int = 2,
+        z_dim=2,
+        fix_lengthscale_cat=False,
+        fix_lengthscale_source=False,
         **kwargs,
     ):
         """
-        Multi-Variable Multi-Fidelity Combined Kernel V2
+        Multi-Variable Multi-Fidelity Combined Kernel with One Categorical Kernel
 
         Args:
             cont_cols: Indices of continuous features
@@ -52,6 +54,8 @@ class CombinedKernel(gpytorch.kernels.Kernel):
         self.cat_cols = cat_cols
         self.source_cols = source_cols
         self.z_dim = z_dim
+        self.fix_lengthscale_cat = fix_lengthscale_cat
+        self.fix_lengthscale_source = fix_lengthscale_source
 
         self._process_cont(cont_kernel)
         self._process_cat(cat_encoder, cat_kernel)
@@ -86,7 +90,10 @@ class CombinedKernel(gpytorch.kernels.Kernel):
             else:
                 encoders = self.cat_encoder
 
-            for i, (encoder, col_group) in enumerate(zip(encoders, self.cat_cols)):
+            # Encode each categorical group and collect encoded outputs
+            z1_cat_list = []
+            z2_cat_list = []
+            for encoder, col_group in zip(encoders, self.cat_cols):
                 cat_idx = torch.as_tensor(col_group, device=device)
                 x1_group = x1.index_select(-1, cat_idx)
                 x2_group = x2.index_select(-1, cat_idx)
@@ -98,12 +105,15 @@ class CombinedKernel(gpytorch.kernels.Kernel):
 
                 z1_c = encoder(x1_group)
                 z2_c = encoder(x2_group)
-                k_cat_group = self.cat_kernel(z1_c, z2_c, diag=diag, **kwargs)
+                z1_cat_list.append(z1_c)
+                z2_cat_list.append(z2_c)
 
-                if i == 0:
-                    result_cat = k_cat_group
-                else:
-                    result_cat = result_cat.mul(k_cat_group)
+            # Concatenate all encoded outputs
+            z1_cat_concat = torch.cat(z1_cat_list, dim=-1)
+            z2_cat_concat = torch.cat(z2_cat_list, dim=-1)
+            
+            # Apply single cat_kernel to concatenated outputs
+            result_cat = self.cat_kernel(z1_cat_concat, z2_cat_concat, diag=diag, **kwargs)
 
             if self.cont_kernel is not None:
                 result = result.mul(result_cat)
@@ -176,11 +186,15 @@ class CombinedKernel(gpytorch.kernels.Kernel):
                 else:
                     encoder = MatrixEncoder(len(cat_group), z_dim=self.z_dim)
                 temp_cat_encoder.append(encoder)
-            # Set cat_kernel
+            # Set cat_kernel - use sum of all encoder z_dims for concatenated inputs
             if cat_kernel is None:
-                shared_gauss_k = GaussianKernel(ard_num_dims=temp_cat_encoder[0].z_dim)
-                shared_gauss_k.raw_lengthscale.requires_grad_(False)
-                shared_gauss_k.raw_lengthscale.data = torch.ones(temp_cat_encoder[0].z_dim) * 0.0
+                total_z_dim = sum(encoder.z_dim for encoder in temp_cat_encoder)
+                shared_gauss_k = GaussianKernel(ard_num_dims=total_z_dim)
+                if self.fix_lengthscale_cat:
+                    shared_gauss_k.raw_lengthscale.requires_grad_(False)
+                    shared_gauss_k.raw_lengthscale.data = torch.ones(total_z_dim) * 0.0
+                else:
+                    shared_gauss_k.raw_lengthscale.requires_grad_(True)
                 self.cat_kernel = shared_gauss_k
             else:
                 self.cat_kernel = cat_kernel
@@ -224,8 +238,11 @@ class CombinedKernel(gpytorch.kernels.Kernel):
             # Set source_kernel
             if source_kernel is None:
                 gauss_k_source = GaussianKernel(ard_num_dims=encoder.z_dim)
-                gauss_k_source.raw_lengthscale.requires_grad_(False)
-                gauss_k_source.raw_lengthscale.data = torch.ones(encoder.z_dim) * 0.0
+                if self.fix_lengthscale_source:
+                    gauss_k_source.raw_lengthscale.requires_grad_(False)
+                    gauss_k_source.raw_lengthscale.data = torch.ones(encoder.z_dim) * 0.0
+                else:
+                    gauss_k_source.raw_lengthscale.requires_grad_(True)
                 self.source_kernel = gauss_k_source
             else:
                 self.source_kernel = source_kernel

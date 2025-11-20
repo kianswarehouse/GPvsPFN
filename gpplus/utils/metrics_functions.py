@@ -166,23 +166,25 @@ def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None
     df = pd.DataFrame(metrics_list)
 
     # Mean/std for all available metric columns
-    # Detailed stats for specific metrics
+    # Detailed stats for all metrics in the DataFrame
     detailed = {}
-    for m in ["RRMSE", "NIS", "Time", "Total_Time", "Training_Time", "Prediction_Time", 
-              "num_epochs", "best_epoch", "jitter", "raw_noise", "noise_std", "outputscale"]:
-        if m in df.columns:
-            vals = df[m].dropna().values
-            if len(vals) == 0:
-                continue
+    for m in df.columns:
+        vals = df[m].dropna().values
+        if len(vals) == 0:
+            continue
+        # Try to convert to float, skip if not numeric
+        try:
             vals = vals.astype(float)
-            detailed[m] = {
-                "mean": float(np.mean(vals)),
-                "std": float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0,
-                "median": float(np.median(vals)),
-                "min": float(np.min(vals)),
-                "max": float(np.max(vals)),
-                "count": int(len(vals)),
-            }
+        except (ValueError, TypeError):
+            continue
+        detailed[m] = {
+            "mean": float(np.mean(vals)),
+            "std": float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0,
+            "median": float(np.median(vals)),
+            "min": float(np.min(vals)),
+            "max": float(np.max(vals)),
+            "count": int(len(vals)),
+        }
     
     # Handle individual lengthscale metrics (lengthscale_0, lengthscale_1, etc.)
     lengthscale_columns = [col for col in df.columns if col.startswith("lengthscale_")]
@@ -507,42 +509,17 @@ def compute_per_source_metrics(y_true, y_hat, output_std, X_test, source_columns
             source_output_std = output_std[source_mask] if output_std is not None else None
 
             # Compute source metrics with source-specific normalization
-            # Compute source metrics with source-specific normalization
             source_rmse = np.sqrt(mean_squared_error(source_y_true, source_y_hat))
             source_std = source_y_true.std()
             source_rrmse = source_rmse / source_std if source_std > 0 else np.inf
 
-            # Handle time metrics for per-source
-            if training_time is not None and prediction_time is not None:
-                # New approach: separate training and prediction times
-                total_time = training_time + prediction_time
-                source_metrics = {
-                    "Total_Time": total_time,
-                    "Training_Time": training_time,
-                    "Prediction_Time": prediction_time,
-                    "RRMSE": source_rrmse,
-                    "RMSE": source_rmse,
-                    "MSE": mean_squared_error(source_y_true, source_y_hat),
-                    "num_samples": int(len(source_y_true)),  # Number of predictions for this source
-                }
-            elif start_time is not None:
-                # Legacy approach: single start_time
-                elapsed_time = time.time() - start_time
-                source_metrics = {
-                    "Time": elapsed_time,
-                    "RRMSE": source_rrmse,
-                    "RMSE": source_rmse,
-                    "MSE": mean_squared_error(source_y_true, source_y_hat),
-                    "num_samples": int(len(source_y_true)),  # Number of predictions for this source
-                }
-            else:
-                # No time information
-                source_metrics = {
-                    "RRMSE": source_rrmse,
-                    "RMSE": source_rmse,
-                    "MSE": mean_squared_error(source_y_true, source_y_hat),
-                    "num_samples": int(len(source_y_true)),  # Number of predictions for this source
-                }
+            # Per-source metrics (no time metrics - times are the same for all sources)
+            source_metrics = {
+                "RRMSE": source_rrmse,
+                "RMSE": source_rmse,
+                "MSE": mean_squared_error(source_y_true, source_y_hat),
+                "num_samples": int(len(source_y_true)),  # Number of predictions for this source
+            }
 
             # Add NIS if output_std is provided
             if source_output_std is not None:

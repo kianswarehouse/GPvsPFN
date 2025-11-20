@@ -87,28 +87,81 @@ def train_eval_gp(
     prediction_time = time.time() - t_pred_start
 
     if y_train_mean is not None and y_train_std is not None:
-        y_pred = (y_pred * y_train_std) + y_train_mean
-        output_std = output_std * y_train_std
+        # Check if y_train_mean/std are dictionaries (method 2: per-source standardization)
+        if isinstance(y_train_mean, dict) and isinstance(y_train_std, dict):
+            # Extract source indices from X_test for per-source denormalization
+            if source_cols is not None:
+                is_onehot = isinstance(source_cols, (list, tuple)) and len(source_cols) > 1
+                if is_onehot:
+                    onehot_cols = X_test[:, source_cols]
+                    source_indices_test = torch.argmax(onehot_cols, dim=1)
+                else:
+                    source_col = source_cols[0] if isinstance(source_cols, (list, tuple)) else source_cols
+                    source_indices_test = X_test[:, source_col].long()
+                
+                # Denormalize per source
+                y_pred_denorm = torch.zeros_like(y_pred)
+                output_std_denorm = torch.zeros_like(output_std)
+                unique_sources = torch.unique(source_indices_test)
+                
+                for source_idx in unique_sources:
+                    source_mask = source_indices_test == source_idx
+                    source_key = source_idx.item()
+                    
+                    # Use the mean/std for this source, or fallback to source 0 or first available
+                    if source_key in y_train_mean:
+                        mean = y_train_mean[source_key]
+                        std = y_train_std[source_key]
+                    elif 0 in y_train_mean:
+                        mean = y_train_mean[0]
+                        std = y_train_std[0]
+                    else:
+                        first_key = list(y_train_mean.keys())[0]
+                        mean = y_train_mean[first_key]
+                        std = y_train_std[first_key]
+                    
+                    y_pred_denorm[source_mask] = (y_pred[source_mask] * std) + mean
+                    output_std_denorm[source_mask] = output_std[source_mask] * std
+                
+                y_pred = y_pred_denorm
+                output_std = output_std_denorm
+            else:
+                # If source_cols not provided but we have dicts, use first available source
+                first_key = list(y_train_mean.keys())[0]
+                y_pred = (y_pred * y_train_std[first_key]) + y_train_mean[first_key]
+                output_std = output_std * y_train_std[first_key]
+        else:
+            # Single mean/std for all data (methods 0 and 1)
+            y_pred = (y_pred * y_train_std) + y_train_mean
+            output_std = output_std * y_train_std
 
     y_pred_np = y_pred.detach().cpu().numpy().reshape(-1)
     output_std_np = output_std.detach().cpu().numpy().reshape(-1)
 
     gp_metric = compute_metrics(y_test, y_pred_np, output_std_np, training_time=training_time, prediction_time=prediction_time)
 
-    # Extract noise std from the model and convert to original scale if needed
+    # Extract noise and noise_std (will be added in correct order later)
+    noise_std = None
+    noise_std_original_scale = None
     try:
         # Get noise (variance) from likelihood - this is already transformed (10^raw_noise)
-        noise_variance = model.likelihood.noise.detach().cpu().item()
+        noise_variance = model.likelihood.noise.detach().cpu()
         # Compute noise std = sqrt(noise)
         noise_std = np.sqrt(noise_variance)
         
         # Convert to original output scale if y was standardized
         if y_train_std is not None:
-            noise_std_original_scale = noise_std * y_train_std.item()
+            if isinstance(y_train_std, dict):
+                # For per-source std, use first available or source 0
+                if 0 in y_train_std:
+                    std_to_use = y_train_std[0]
+                else:
+                    std_to_use = list(y_train_std.values())[0]
+                noise_std_original_scale = noise_std * std_to_use
+            else:
+                noise_std_original_scale = noise_std * y_train_std
         else:
             noise_std_original_scale = noise_std
-        
-        gp_metric["noise_std"] = float(noise_std_original_scale)
     except Exception as e:
         # If extraction fails, don't break the function
         import logging
@@ -143,6 +196,7 @@ def train_eval_gp(
         if extracted_params:
             lengthscales_extracted = extracted_params.get("lengthscales")
             cat_lengthscales_extracted = extracted_params.get("cat_lengthscales")
+            source_lengthscales_extracted = extracted_params.get("source_lengthscales")
             # Convert to expected format
             best_model_metrics = {
                 "num_epochs": num_epochs_actual if num_epochs_actual is not None else extracted_params.get("num_epochs"),
@@ -153,16 +207,44 @@ def train_eval_gp(
                 "outputscale": extracted_params.get("outputscale"),
                 "lengthscales": lengthscales_extracted,
                 "cat_lengthscales": cat_lengthscales_extracted,
+                "source_lengthscales": source_lengthscales_extracted,
             }
     
     if best_model_metrics:
-        # Add best model metrics to gp_metric
+        # Add metrics in desired order: jitter, raw_noise (all), noise (all), noise_std (all), outputscale
+        gp_metric["jitter"] = best_model_metrics.get("jitter")
+        
+        # Helper to add array/scalar metrics
+        def add_metric(name, value):
+            if value is None:
+                return
+            # Convert to numpy if it's a tensor
+            if hasattr(value, 'numpy'):
+                value = value.numpy()
+            # Check if it's a single-element array
+            if hasattr(value, 'size') and value.size == 1:
+                gp_metric[name] = float(value.item() if hasattr(value, 'item') else value.flat[0])
+            elif hasattr(value, '__len__') and len(value) > 1:
+                for i, v in enumerate(value):
+                    gp_metric[f"{name}_{i}"] = float(v)
+            else:
+                gp_metric[name] = float(value)
+        
+        # Extract and add raw_noise
+        try:
+            raw_noise = model.likelihood.raw_noise.detach().cpu()
+            add_metric("raw_noise", raw_noise.numpy().flatten() if raw_noise.numel() > 1 else raw_noise.item())
+        except Exception:
+            add_metric("raw_noise", best_model_metrics.get("raw_noise"))
+        
+        add_metric("noise", noise_std)
+        add_metric("noise_std", noise_std_original_scale)
+        gp_metric["outputscale"] = best_model_metrics.get("outputscale")
+        
+        # Add other metrics
         gp_metric.update({
             "num_epochs": best_model_metrics.get("num_epochs"),
             "best_epoch": best_model_metrics.get("best_epoch"),
-            "jitter": best_model_metrics.get("jitter"),
-            "raw_noise": best_model_metrics.get("raw_noise"),
-            "outputscale": best_model_metrics.get("outputscale"),
         })
         # Add individual lengthscales as separate metrics
         lengthscales = best_model_metrics.get("lengthscales")
@@ -196,8 +278,40 @@ def train_eval_gp(
                 # Single value case (scalar)
                 print(f"[DEBUG train_eval] cat_lengthscales is a scalar: {cat_lengthscales}")
                 gp_metric["cat_lengthscale_0"] = cat_lengthscales
+        
+        # Add individual source_lengthscales as separate metrics
+        source_lengthscales = best_model_metrics.get("source_lengthscales")
+        if source_lengthscales is not None:
+            if isinstance(source_lengthscales, (list, tuple)):
+                print(f"[DEBUG train_eval] Found {len(source_lengthscales)} source_lengthscales: {source_lengthscales[:5]}..." if len(source_lengthscales) > 5 else f"[DEBUG train_eval] Found {len(source_lengthscales)} source_lengthscales: {source_lengthscales}")
+                if len(source_lengthscales) > 0:
+                    for i, ls_val in enumerate(source_lengthscales):
+                        gp_metric[f"source_lengthscale_{i}"] = ls_val
+            else:
+                # Single value case (scalar)
+                print(f"[DEBUG train_eval] source_lengthscales is a scalar: {source_lengthscales}")
+                gp_metric["source_lengthscale_0"] = source_lengthscales
     else:
         print(f"[DEBUG train_eval] No best_model_metrics found at all!")
+        # Still add noise metrics even if best_model_metrics is None
+        # Helper to add array/scalar metrics
+        def add_metric(name, value):
+            if value is None:
+                return
+            if hasattr(value, 'size'):
+                if value.size == 1:
+                    gp_metric[name] = float(value.item() if hasattr(value, 'item') else value)
+                else:
+                    for i, v in enumerate(value):
+                        gp_metric[f"{name}_{i}"] = float(v)
+            elif isinstance(value, (list, tuple)) and len(value) > 1:
+                for i, v in enumerate(value):
+                    gp_metric[f"{name}_{i}"] = float(v)
+            else:
+                gp_metric[name] = float(value)
+        
+        add_metric("noise", noise_std)
+        add_metric("noise_std", noise_std_original_scale)
 
     # Compute per-source metrics if source_cols is provided
     if (
@@ -222,6 +336,19 @@ def train_eval_gp(
         for source_name, source_metrics in gp_per_source_metric['per_source'].items():
             for metric_name, metric_value in source_metrics.items():
                 gp_metric[f"{source_name}_{metric_name}"] = metric_value
+
+    # Add y_train_mean and y_train_std to metrics for this run
+    if y_train_mean is not None and y_train_std is not None:
+        if isinstance(y_train_mean, dict) and isinstance(y_train_std, dict):
+            # Method 2: per-source means/stds
+            for source_key, mean_val in y_train_mean.items():
+                gp_metric[f"y_train_mean_source_{source_key}"] = float(mean_val.item() if hasattr(mean_val, 'item') else mean_val)
+            for source_key, std_val in y_train_std.items():
+                gp_metric[f"y_train_std_source_{source_key}"] = float(std_val.item() if hasattr(std_val, 'item') else std_val)
+        else:
+            # Methods 0 and 1: single mean/std
+            gp_metric["y_train_mean"] = float(y_train_mean.item() if hasattr(y_train_mean, 'item') else y_train_mean)
+            gp_metric["y_train_std"] = float(y_train_std.item() if hasattr(y_train_std, 'item') else y_train_std)
 
     return gp_metric, y_pred_np, output_std_np
 
@@ -289,8 +416,62 @@ def train_eval_PFN(
     # If train mean/std are provided (e.g., standardized training targets),
     # denormalize predictions and std before computing metrics to compare on original scale
     if (y_train_mean is not None) and (y_train_std is not None):
-        y_pred_test = (y_pred_test * float(y_train_std)) + float(y_train_mean)
-        output_std_test = output_std_test * float(y_train_std)
+        # Check if y_train_mean/std are dictionaries (method 2: per-source standardization)
+        if isinstance(y_train_mean, dict) and isinstance(y_train_std, dict):
+            # Extract source indices from X_test for per-source denormalization
+            if source_cols is not None:
+                # Convert X_test to tensor if it's numpy
+                if isinstance(X_test, np.ndarray):
+                    X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
+                else:
+                    X_test_tensor = X_test
+                
+                is_onehot = isinstance(source_cols, (list, tuple)) and len(source_cols) > 1
+                if is_onehot:
+                    onehot_cols = X_test_tensor[:, source_cols]
+                    source_indices_test = torch.argmax(onehot_cols, dim=1)
+                else:
+                    source_col = source_cols[0] if isinstance(source_cols, (list, tuple)) else source_cols
+                    source_indices_test = X_test_tensor[:, source_col].long()
+                
+                # Convert to numpy for indexing
+                source_indices_test_np = source_indices_test.detach().cpu().numpy()
+                
+                # Denormalize per source
+                y_pred_test_denorm = y_pred_test.copy()
+                output_std_test_denorm = output_std_test.copy()
+                unique_sources = np.unique(source_indices_test_np)
+                
+                for source_idx in unique_sources:
+                    source_mask = source_indices_test_np == source_idx
+                    source_key = int(source_idx)
+                    
+                    # Use the mean/std for this source, or fallback to source 0 or first available
+                    if source_key in y_train_mean:
+                        mean = float(y_train_mean[source_key])
+                        std = float(y_train_std[source_key])
+                    elif 0 in y_train_mean:
+                        mean = float(y_train_mean[0])
+                        std = float(y_train_std[0])
+                    else:
+                        first_key = list(y_train_mean.keys())[0]
+                        mean = float(y_train_mean[first_key])
+                        std = float(y_train_std[first_key])
+                    
+                    y_pred_test_denorm[source_mask] = (y_pred_test[source_mask] * std) + mean
+                    output_std_test_denorm[source_mask] = output_std_test[source_mask] * std
+                
+                y_pred_test = y_pred_test_denorm
+                output_std_test = output_std_test_denorm
+            else:
+                # If source_cols not provided but we have dicts, use first available source
+                first_key = list(y_train_mean.keys())[0]
+                y_pred_test = (y_pred_test * float(y_train_std[first_key])) + float(y_train_mean[first_key])
+                output_std_test = output_std_test * float(y_train_std[first_key])
+        else:
+            # Single mean/std for all data (methods 0 and 1)
+            y_pred_test = (y_pred_test * float(y_train_std)) + float(y_train_mean)
+            output_std_test = output_std_test * float(y_train_std)
 
     metrics = compute_metrics(y_test, y_pred_test, output_std_test, start_time=t_start)
 
