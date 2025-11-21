@@ -3,6 +3,7 @@ import time
 import numpy as np
 import torch
 from sklearn.metrics import mean_squared_error
+
 # from sklearn.metrics import mean_absolute_error, r2_score
 
 
@@ -112,7 +113,7 @@ def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None
 
     if print_summary and len(detailed) > 0:
         header = f"{label} summary" if label else "Summary"
-        label_print = (label or 'Summary')
+        label_print = label or "Summary"
 
         if title:
             print(f"\n{label_print} over {len(metrics_list)} seeds for {title} (RRMSE, NIS):")
@@ -145,9 +146,7 @@ def plot_metrics(*args, labels: list = None, title: str = None, save_path: str =
     import numpy as np
 
     # Normalize inputs: allow plot_metric_values(run1, run2, ...) or plot_metric_values([run1, run2, ...])
-    if len(args) == 1 and isinstance(args[0], list) and (
-        len(args[0]) == 0 or isinstance(args[0][0], (dict, list))
-    ):
+    if len(args) == 1 and isinstance(args[0], list) and (len(args[0]) == 0 or isinstance(args[0][0], (dict, list))):
         metrics_lists = args[0]
     else:
         metrics_lists = list(args)
@@ -176,9 +175,9 @@ def plot_metrics(*args, labels: list = None, title: str = None, save_path: str =
         data = extract(metrics_lists, metric)
         fig, ax = plt.subplots(figsize=(7, 4))
         parts = ax.violinplot(data, showmeans=False, showmedians=False, showextrema=True)
-        for pc in parts['bodies']:
-            pc.set_facecolor('#888888')
-            pc.set_edgecolor('black')
+        for pc in parts["bodies"]:
+            pc.set_facecolor("#888888")
+            pc.set_edgecolor("black")
             pc.set_alpha(0.7)
 
         # Overlay mean (blue) and median (red) lines
@@ -187,17 +186,18 @@ def plot_metrics(*args, labels: list = None, title: str = None, save_path: str =
                 continue
             mean_v = float(np.mean(arr))
             med_v = float(np.median(arr))
-            ax.hlines(mean_v, i - 0.25, i + 0.25, colors='blue', linewidth=2)
-            ax.hlines(med_v, i - 0.25, i + 0.25, colors='red', linewidth=2)
+            ax.hlines(mean_v, i - 0.25, i + 0.25, colors="blue", linewidth=2)
+            ax.hlines(med_v, i - 0.25, i + 0.25, colors="red", linewidth=2)
 
         # Legend: blue = mean, red = median
         try:
             from matplotlib.lines import Line2D
+
             legend_handles = [
-                Line2D([0], [0], color='blue', lw=2, label='Mean'),
-                Line2D([0], [0], color='red', lw=2, label='Median'),
+                Line2D([0], [0], color="blue", lw=2, label="Mean"),
+                Line2D([0], [0], color="red", lw=2, label="Median"),
             ]
-            ax.legend(handles=legend_handles, loc='upper right', frameon=False)
+            ax.legend(handles=legend_handles, loc="upper right", frameon=False)
         except Exception:
             pass
 
@@ -212,12 +212,13 @@ def plot_metrics(*args, labels: list = None, title: str = None, save_path: str =
                 ax.set_title(f"{metric} per-seed distribution - {title} (n={n_seeds})")
         else:
             ax.set_title(f"{metric} per-seed distribution (n={n_seeds})")
-        ax.grid(axis='y', linestyle=':', alpha=0.4)
+        ax.grid(axis="y", linestyle=":", alpha=0.4)
         plt.tight_layout()
 
         # Save if a directory is provided
         if save_path is not None:
             from pathlib import Path
+
             p = Path(save_path)
             try:
                 p.mkdir(parents=True, exist_ok=True)
@@ -231,7 +232,10 @@ def plot_metrics(*args, labels: list = None, title: str = None, save_path: str =
         else:
             plt.show()
 
-def compute_per_source_metrics(y_true, y_hat, output_std, X_test, source_columns, start_time=None, training_time=None, prediction_time=None):
+
+def compute_per_source_metrics(
+    y_true, y_hat, output_std, X_test, source_columns, start_time=None, training_time=None, prediction_time=None
+):
     """
     Compute metrics for each source separately.
 

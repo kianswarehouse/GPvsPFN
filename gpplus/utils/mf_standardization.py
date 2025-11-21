@@ -8,6 +8,7 @@ This module provides functions for standardizing multi-fidelity data using diffe
 """
 
 import torch
+
 from .standard_scaler import StandardScaler
 
 
@@ -40,12 +41,12 @@ def standardize_mf_data(
         source_indices_test (torch.Tensor, optional): Source indices for test data of shape [N_test]
 
     Returns:
-        tuple: 
+        tuple:
             - If X_test provided: (X_train, X_test, y_train_normal)
             - If X_test not provided: (X_train, y_train_normal)
     """
-    
-    if standardization_method == 0: 
+
+    if standardization_method == 0:
         if standardize_X:
             Xscaler = StandardScaler()
             Xscaler.fit(X_train[:, cont_cols])
@@ -57,10 +58,9 @@ def standardize_mf_data(
             y_train = yscaler.transform(y_train)
             y_train_mean = yscaler.mean
             y_train_std = yscaler.std
-        
+
         return X_train, X_test, y_train, y_train_mean, y_train_std
-    
-    
+
     elif standardization_method == 1:
         # Handle both one-hot encoded (list) and single column (int) cases
         is_onehot = isinstance(source_cols, (list, tuple)) and len(source_cols) > 1
@@ -83,10 +83,9 @@ def standardize_mf_data(
             y_train = yscaler.transform(y_train)
             y_train_mean = yscaler.mean
             y_train_std = yscaler.std
-        
+
         return X_train, X_test, y_train, y_train_mean, y_train_std
-    
-    
+
     elif standardization_method == 2:
         # Extract source indices from X_train (used for both X and y standardization)
         is_onehot = isinstance(source_cols, (list, tuple)) and len(source_cols) > 1
@@ -97,10 +96,9 @@ def standardize_mf_data(
             source_indices_test = torch.argmax(onehot_cols_test, dim=1)
         else:
             source_col = source_cols[0] if isinstance(source_cols, (list, tuple)) else source_cols
-            source_col_test = source_cols[0] if isinstance(source_cols, (list, tuple)) else source_cols
             source_indices_train = X_train[:, source_col].long()
             source_indices_test = X_test[:, source_col].long()
-            
+
         if standardize_X:
             unique_sources_train = torch.unique(source_indices_train)
             for source_idx in unique_sources_train:
@@ -114,7 +112,7 @@ def standardize_mf_data(
                     X_train_transformed = X_train_source.clone()
                     X_train_transformed[:, cont_cols] = X_scaler.transform(X_train_source[:, cont_cols])
                     X_train[source_mask] = X_train_transformed
-                    
+
                     X_test_source = X_test[source_mask_test]
                     if len(X_test_source) > 0:
                         X_test_transformed = X_test_source.clone()
@@ -135,7 +133,7 @@ def standardize_mf_data(
                 y_train_means[source_idx.item()] = y_mean
                 y_train_stds[source_idx.item()] = y_std
                 y_train_normal[source_mask] = (y_train_source - y_mean) / y_std
-            
+
             # For method 2, return dictionary of means/stds for each source
             y_train_mean = y_train_means
             y_train_std = y_train_stds
@@ -143,8 +141,5 @@ def standardize_mf_data(
             y_train_normal = y_train
             y_train_mean = None
             y_train_std = None
-        
+
         return X_train, X_test, y_train_normal, y_train_mean, y_train_std
-
-
-

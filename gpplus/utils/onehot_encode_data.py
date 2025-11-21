@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 
+
 def encode_qual_data(data: torch.Tensor, qual_dict: dict, source_col: int = None, grouped: bool = False):
     """
     Encode data using a single specification dict for all non-continuous variables.
@@ -18,6 +19,7 @@ def encode_qual_data(data: torch.Tensor, qual_dict: dict, source_col: int = None
     """
     if qual_dict is None or len(qual_dict) == 0:
         import warnings
+
         warnings.warn("qual_dict is empty or None. No categorical encoding to perform.", UserWarning)
         # Return all columns as continuous
         cont_cols = list(range(data.shape[1]))
@@ -34,7 +36,7 @@ def encode_qual_data(data: torch.Tensor, qual_dict: dict, source_col: int = None
         if len(qual_dict) == 0:
             raise ValueError("qual_dict is empty, cannot use -1 for source_col")
         source_col = max(qual_dict.keys())
-    
+
     if source_col is not None and source_col not in qual_dict:
         raise ValueError("source_col must be a key in qual_dict if provided.")
 
@@ -43,9 +45,7 @@ def encode_qual_data(data: torch.Tensor, qual_dict: dict, source_col: int = None
     categorical_cols = [c for c in qual_cols if c != source_col]
 
     parts = []
-    continuous_tensors = []
-    for c in continuous_cols:
-        continuous_tensors.append(data[:, c].unsqueeze(1))
+    continuous_tensors = [data[:, c].unsqueeze(1) for c in continuous_cols]
     if len(continuous_tensors) > 0:
         parts.append(torch.cat(continuous_tensors, dim=1))
 
@@ -53,16 +53,16 @@ def encode_qual_data(data: torch.Tensor, qual_dict: dict, source_col: int = None
         values = torch.round(col_tensor).to(torch.long)
         unique_vals = torch.unique(values)
         if len(unique_vals) != num_classes:
-            raise ValueError(f"Expected {num_classes} unique values but found {len(unique_vals)}: {unique_vals.tolist()}")
-        
+            raise ValueError(
+                f"Expected {num_classes} unique values but found {len(unique_vals)}: {unique_vals.tolist()}"
+            )
+
         # Create mapping from actual values to 0-based indices
         val_to_idx = {val.item(): idx for idx, val in enumerate(unique_vals)}
         indices = torch.tensor([val_to_idx[val.item()] for val in values], dtype=torch.long)
         return F.one_hot(indices, num_classes=num_classes).to(data.dtype)
 
-    categorical_tensors = []
-    for c in categorical_cols:
-        categorical_tensors.append(_ohe(data[:, c], int(qual_dict[c])))
+    categorical_tensors = [_ohe(data[:, c], int(qual_dict[c])) for c in categorical_cols]
     if len(categorical_tensors) > 0:
         parts.append(torch.cat(categorical_tensors, dim=1))
 

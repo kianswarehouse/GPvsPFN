@@ -21,8 +21,6 @@ from sklearn.base import check_is_fitted, is_classifier
 from sklearn.compose import ColumnTransformer, make_column_selector
 from sklearn.preprocessing import FunctionTransformer, OrdinalEncoder
 from sklearn.utils.multiclass import check_classification_targets
-from torch import nn
-
 from tabpfn.constants import (
     DEFAULT_NUMPY_PREPROCESSING_DTYPE,
     REGRESSION_NAN_BORDER_LIMIT_LOWER,
@@ -31,11 +29,11 @@ from tabpfn.constants import (
 from tabpfn.misc._sklearn_compat import check_array, validate_data
 from tabpfn.model.bar_distribution import FullSupportBarDistribution
 from tabpfn.model.loading import download_model, load_model
+from torch import nn
 
 if TYPE_CHECKING:
     from sklearn.base import TransformerMixin
     from sklearn.pipeline import Pipeline
-
     from tabpfn.classifier import TabPFNClassifier, XType, YType
     from tabpfn.model.config import InferenceConfig
     from tabpfn.model.transformer import PerFeatureTransformer

@@ -180,7 +180,12 @@ def wing_GPvsPFN(num_seeds=20,
             X_train,
             y_train_normal if standardize_y else y_train,
             kernel_module=kernel,
-            # mean_module=gpplus.means.MultiMean(encoded_cols=source_cols),
+            # mean_module=gpytorch.means.ZeroMean(),
+
+
+            # mean_module=gpplus.means.MultiMean(encoded_cols=source_cols, 
+            #     means = [gpytorch.means.ZeroMean()] * len(source_cols)),
+
             # likelihood=gpplus.likelihoods.MultiLikelihood(encoded_cols=source_cols, training_data=X_train),
         )
         if (i == 0) or (i == num_seeds - 1):
@@ -323,7 +328,7 @@ def wing_GPvsPFN(num_seeds=20,
 
 
 if __name__ == "__main__":
-    wing_GPvsPFN(num_seeds=5, train_size=[10, 10, 10, 10], num_runs=4, num_epochs=10000, save_path="./results/wing/test3")
+    wing_GPvsPFN(num_seeds=5, train_size=[10, 10, 10, 10], num_runs=4, num_epochs=10000, save_path="./results/wing/test")
     # wing_GPvsPFN(num_seeds=1, train_size=[1, 1, 1, 1], noise_train=[0.05, 0.1, 0.1, 0.2], noise_test=[0.05, 0.0, 0.0, 0.0], num_runs=1, num_epochs=10000, save_path="./results/wing/temp")
     # wing_GPvsPFN(num_seeds=4, num_runs=4, num_epochs=10000, save_path=None, standardize_X=True, standardize_y=True, encode_PFN_data=True)
     # wing_GPvsPFN(num_seeds=4, num_runs=4, num_epochs=10000, save_path=None, standardize_X=True, standardize_y=True, encode_PFN_data=False)

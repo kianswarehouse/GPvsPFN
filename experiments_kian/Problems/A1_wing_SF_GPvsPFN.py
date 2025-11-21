@@ -28,7 +28,8 @@ def wing_SF_GPvsPFN(num_seeds=20,
         num_epochs=10000, 
         lr=0.1, 
         convergence_patience=10,
-        optimizer_class=gpplus.training.optimizers.LBFGSScipy,        initializer_class=None,
+        optimizer_class=gpplus.training.optimizers.LBFGSScipy,        
+        initializer_class=None,
         gp_device='cpu',
         amp_device='cuda',
         save_path='./results/wing',
@@ -42,7 +43,7 @@ def wing_SF_GPvsPFN(num_seeds=20,
     if title is None:
         title = f"wing_SF_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"wing_SF_{train_size}D_{title}"
+        title = f"wing_SF{title}_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     
     
     amp_dtype = torch.float32
@@ -111,8 +112,6 @@ def wing_SF_GPvsPFN(num_seeds=20,
         # X_enc_train = X_enc_train_all[seed_train_indices]
         y_train = y_train_all[seed_train_indices]
 
-        # Single-fidelity: no source column
-
         # =============================================================================
         # GP Section 
         # =============================================================================
@@ -129,16 +128,16 @@ def wing_SF_GPvsPFN(num_seeds=20,
             X_train = Xscaler.transform(X_train)
             X_test = Xscaler.transform(X_test)
 
-        # Normalize the GP data
-        y_train_mean = y_train.mean()
-        y_train_std = y_train.std()
-        y_train_normal = (y_train - y_train_mean) / y_train_std
+        Yscaler = gpplus.utils.StandardScaler()
+        Yscaler.fit(y_train)
+        y_train_mean = Yscaler.mean 
+        y_train_std = Yscaler.std
+        y_train_normal = Yscaler.transform(y_train)
 
         # Create GP model
         model = gpplus.models.GPR(
             X_train,
             y_train_normal if standardize_y else y_train,
-            # kernel_module=kernel,
         )
         if (i == 0) or (i == num_seeds - 1):
             print(model)
@@ -194,6 +193,12 @@ def wing_SF_GPvsPFN(num_seeds=20,
         
         # Collect model info from first seed
         if i == 0:
+            # Calculate y_test mean and std (once, since test data is fixed)
+            y_test_stats = {
+                "y_test_mean": float(y_test_all.mean().item()),
+                "y_test_std": float(y_test_all.std().item())
+            }
+            
             gp_model_info = {
                 "model_str": str(model),
                 "cat_cols": cat_cols,
@@ -203,8 +208,6 @@ def wing_SF_GPvsPFN(num_seeds=20,
                 "input_dim": X_train.shape[1],
                 "train_samples": int(train_per_seed),
                 "test_samples": num_test,
-                "y_train_mean": float(y_train_mean.item()),
-                "y_train_std": float(y_train_std.item()),
                 "standardize_X": standardize_X,
                 "standardize_y": standardize_y,
                 "dtype": str(dtype),
@@ -214,7 +217,8 @@ def wing_SF_GPvsPFN(num_seeds=20,
                 "lr": lr,
                 "optimizer": optimizer_class.__name__,
                 "convergence_patience": convergence_patience,
-                "initializer": initializer_class.__name__ if initializer_class else None
+                "initializer": initializer_class.__name__ if initializer_class else None,
+                **y_test_stats
             }
             tabpfn_model_info = {
                 "model_path": regressor.model_path,
@@ -273,14 +277,10 @@ def wing_SF_GPvsPFN(num_seeds=20,
 
 
 if __name__ == "__main__":
-    wing_SF_GPvsPFN(num_seeds=5, train_size=80, num_test=5000, noise_train=0.05, noise_test=0.05, num_runs=4, num_epochs=10000, save_path="./results/wing/temp")
-    # wing_GPvsPFN(num_seeds=4, train_size=20, num_test=5000, noise_train=0.05, noise_test=0.05, num_runs=16, num_epochs=10000, save_path="./results/wingSF/temp")
-    # wing_GPvsPFN(num_seeds=4, num_runs=4, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=True, encode_PFN_data=True)
-    # wing_GPvsPFN(num_seeds=4, num_runs=4, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=True, encode_PFN_data=False)
-    # wing_GPvsPFN(num_seeds=1, num_runs=1, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=True)
-    # wing_GPvsPFN(num_seeds=1, num_runs=1, num_epochs=10000, save_path=None, standardize_X_gp=False, standardize_y_gp=False)
-    # wing_GPvsPFN(num_seeds=1, num_runs=1, num_epochs=10000, save_path=None, standardize_X_gp=False, standardize_y_gp=True)
-    # wing_GPvsPFN(num_seeds=1, num_runs=1, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=False)
+    wing_SF_GPvsPFN(num_seeds=1, train_size=10, num_test=5000, noise_train=0.0025, noise_test=0.025, num_runs=4, num_epochs=10000, save_path="./results/wing/temp")
+    wing_SF_GPvsPFN(num_seeds=1, train_size=10, num_test=5000, noise_train=0.05, noise_test=0.05, num_runs=4, num_epochs=10000, save_path="./results/wing/temp")
+    # wing_SF_GPvsPFN(num_seeds=5, train_size=80, num_test=5000, noise_train=0.05, noise_test=0.05, num_runs=4, num_epochs=10000, save_path="./results/wing/temp")
+
 
 
 

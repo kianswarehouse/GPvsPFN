@@ -111,7 +111,7 @@ class CombinedKernel(gpytorch.kernels.Kernel):
             # Concatenate all encoded outputs
             z1_cat_concat = torch.cat(z1_cat_list, dim=-1)
             z2_cat_concat = torch.cat(z2_cat_list, dim=-1)
-            
+
             # Apply single cat_kernel to concatenated outputs
             result_cat = self.cat_kernel(z1_cat_concat, z2_cat_concat, diag=diag, **kwargs)
 

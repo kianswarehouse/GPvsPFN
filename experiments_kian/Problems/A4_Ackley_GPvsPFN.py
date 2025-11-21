@@ -29,7 +29,7 @@ def ackley_GPvsPFN(num_seeds=20,
         num_epochs=10000, 
         lr=0.1, 
         convergence_patience=10,
-        optimizer_class=torch.optim.Adam,
+        optimizer_class=gpplus.training.optimizers.LBFGSScipy,
         initializer_class=None,
         gp_device='cpu',
         amp_device='cuda',
@@ -43,10 +43,11 @@ def ackley_GPvsPFN(num_seeds=20,
         seed=42,
         V2=False,
     ):
+    v2 = "V2" if V2 else ""
     if title is None:
-        title = f"Ackley_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"Ackley{v2}_{train_size}tDx{dimensions}iD_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"Ackley_{train_size}D_{title}"
+        title = f"Ackley{v2}_{train_size}D_{title}"
     
     
     amp_dtype = torch.float32
@@ -127,9 +128,11 @@ def ackley_GPvsPFN(num_seeds=20,
             X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])
 
         # Normalize the GP data
-        y_train_mean = y_train.mean()
-        y_train_std = y_train.std()
-        y_train_normal = (y_train - y_train_mean) / y_train_std
+        Yscaler = gpplus.utils.StandardScaler()
+        Yscaler.fit(y_train)
+        y_train_mean = Yscaler.mean 
+        y_train_std = Yscaler.std
+        y_train_normal = Yscaler.transform(y_train)
 
         # Create GP model (default kernel like SF wing)
         model = gpplus.models.GPR(

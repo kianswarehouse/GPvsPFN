@@ -1,3 +1,3 @@
-from .log_gaussian_likelihood import LogGaussianLikelihood
 from .learnable_priors import LearnablePriorsLikelihood
+from .log_gaussian_likelihood import LogGaussianLikelihood
 from .multi_likelihood import MultiLikelihood

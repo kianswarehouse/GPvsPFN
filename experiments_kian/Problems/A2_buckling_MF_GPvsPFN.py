@@ -22,7 +22,7 @@ from load_experimental_data import generate_mf_buckling_data_with_folds
 # import warnings
 # warnings.filterwarnings("ignore")
 def buckling_GPvsPFN(num_seeds=20,
-        num_test=[2500, 2500],
+        num_test=[5000, 1000],
         train_size=[10, 10], # total training size is train_size * number of X input dimensions
         num_runs=16, 
         num_epochs=10000, 
@@ -39,11 +39,12 @@ def buckling_GPvsPFN(num_seeds=20,
         noise_train=[0.0, 0.0],
         noise_test=[0.0, 0.0],
         noise_type='gaussian',
+        standardization_method=2, # 0: standardize all data according to all data, 1: standardize all data according to HF data only, 2: standardize each data source independently
     ):
     if title is None:
-        title = f"buckling_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test[0]}_noiseTrain{noise_train[0]}"
+        title = f"bucklingMF_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"buckling_{train_size}D_{title}"
+        title = f"bucklingMF{title}_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     
     
     amp_dtype = torch.float32
@@ -151,20 +152,16 @@ def buckling_GPvsPFN(num_seeds=20,
         y_train = y_train.detach().clone().to(dtype=dtype)
         y_test = y_test_all.detach().clone().to(dtype=dtype)
         # Get high-fidelity mask for standardization
-        hf_mask = X_train_orig[:, -1] == 0  # Source 0 is high-fidelity
-        
-        if standardize_X:
-            # Standardize X using only high-fidelity (source_0) data for fair comparison with SF
-            X_train_hf = X_train[hf_mask]
-            Xscaler = gpplus.utils.StandardScaler()
-            Xscaler.fit(X_train_hf[:, cont_cols])
-            X_train[:, cont_cols] = Xscaler.transform(X_train[:, cont_cols])
-            X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])
-
-        y_train_hf = y_train[hf_mask]
-        y_train_mean = y_train_hf.mean()
-        y_train_std = y_train_hf.std()
-        y_train_normal = (y_train - y_train_mean) / y_train_std
+        X_train, X_test, y_train_normal, y_train_mean, y_train_std = gpplus.utils.standardize_mf_data(
+            X_train,
+            X_test,
+            y_train,
+            cont_cols,
+            source_cols,
+            standardize_X=standardize_X,
+            standardize_y=standardize_y,
+            standardization_method=standardization_method,
+        )
 
         kernel = gpplus.kernels.LogScaleKernel(
             gpplus.kernels.CombinedKernel_OneCatK(
@@ -239,6 +236,23 @@ def buckling_GPvsPFN(num_seeds=20,
         
         # Collect model info from first seed
         if i == 0:
+            # Calculate y_test mean and std (once, since test data is fixed)
+            # Always report overall stats
+            y_test_stats = {
+                "y_test_mean": float(y_test_all.mean().item()),
+                "y_test_std": float(y_test_all.std().item())
+            }
+            # For original data, source is always in the last column (-1)
+            source_indices_test = X_test_all[:, -1].long()
+            unique_sources = torch.unique(source_indices_test)
+            if len(unique_sources) > 1:
+                # MF: Also calculate per-source stats
+                for source_idx in unique_sources:
+                    source_mask = source_indices_test == source_idx
+                    y_test_source = y_test_all[source_mask]
+                    y_test_stats[f"y_test_mean_source_{source_idx.item()}"] = float(y_test_source.mean().item())
+                    y_test_stats[f"y_test_std_source_{source_idx.item()}"] = float(y_test_source.std().item())
+            
             gp_model_info = {
                 "model_str": str(model),
                 "cat_cols": cat_cols,
@@ -248,8 +262,6 @@ def buckling_GPvsPFN(num_seeds=20,
                 "input_dim": X_train.shape[1],
                 "train_samples": train_per_seed.tolist(),
                 "test_samples": num_test,
-                "y_train_mean": float(y_train_mean.item()),
-                "y_train_std": float(y_train_std.item()),
                 "standardize_X": standardize_X,
                 "standardize_y": standardize_y,
                 "dtype": str(dtype),
@@ -259,7 +271,8 @@ def buckling_GPvsPFN(num_seeds=20,
                 "lr": lr,
                 "optimizer": optimizer_class.__name__,
                 "convergence_patience": convergence_patience,
-                "initializer": initializer_class.__name__ if initializer_class else None
+                "initializer": initializer_class.__name__ if initializer_class else None,
+                **y_test_stats
             }
             tabpfn_model_info = {
                 "model_path": regressor.model_path,

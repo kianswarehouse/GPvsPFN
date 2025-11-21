@@ -16,7 +16,7 @@ def evaluate_gp_model(model, test_x: torch.Tensor, include_likelihood_noise: boo
             If True, uses model.likelihood() to include training noise in predictive variance.
             If False, uses model() directly to get latent function predictions without noise.
             Default: True (recommended for proper uncertainty quantification).
-            
+
             Note: When evaluating with noisy test data, the model's predictive variance
             includes the TRAINING noise (learned from training data), but NOT any additional
             TEST noise. If you add noise to test targets, you should either:

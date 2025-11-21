@@ -3,7 +3,7 @@ import torch
 from ..config import logger
 
 
-def evaluate_gp_model(model, test_x: torch.Tensor):
+def evaluate_gp_model(model, test_x: torch.Tensor, ):
     """
     Evaluates the Gaussian Process model on test data.
 
@@ -29,7 +29,7 @@ def evaluate_gp_model(model, test_x: torch.Tensor):
         # Make predictions
         # Option 1: Without nugget (latent function f) - follows Equation 29b structure
         # observed_pred = model(test_x)
-        
+
         # Option 2: With nugget (noisy observations y) - follows Equation 31b structure
         # This adds δI to the predictive covariance: Σ* = K_test_test - ... + δI
         # if hasattr(model.likelihood, '_test_x'):

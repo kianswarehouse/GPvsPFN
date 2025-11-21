@@ -41,9 +41,9 @@ def borehole_SF_GPvsPFN(num_seeds=20,
         noise_type='gaussian',
     ):
     if title is None:
-        title = f"borehole_SF_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"boreholeSF_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"borehole_SF_{train_size}D_{title}"
+        title = f"boreholeSF{title}_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     
     
     amp_dtype = torch.float32
@@ -123,9 +123,11 @@ def borehole_SF_GPvsPFN(num_seeds=20,
             X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])
 
         # Normalize the GP data
-        y_train_mean = y_train.mean()
-        y_train_std = y_train.std()
-        y_train_normal = (y_train - y_train_mean) / y_train_std
+        Yscaler = gpplus.utils.StandardScaler()
+        Yscaler.fit(y_train)
+        y_train_mean = Yscaler.mean 
+        y_train_std = Yscaler.std
+        y_train_normal = Yscaler.transform(y_train)
 
         # Create GP model (default kernel like SF wing)
         model = gpplus.models.GPR(
@@ -184,6 +186,12 @@ def borehole_SF_GPvsPFN(num_seeds=20,
         
         # Collect model info from first seed
         if i == 0:
+            # Calculate y_test mean and std (once, since test data is fixed)
+            y_test_stats = {
+                "y_test_mean": float(y_test_all.mean().item()),
+                "y_test_std": float(y_test_all.std().item())
+            }
+            
             gp_model_info = {
                 "model_str": str(model),
                 "cat_cols": cat_cols,
@@ -193,8 +201,6 @@ def borehole_SF_GPvsPFN(num_seeds=20,
                 "input_dim": X_train.shape[1],
                 "train_samples": X_train.shape[0],
                 "test_samples": num_test,
-                "y_train_mean": float(y_train_mean.item()),
-                "y_train_std": float(y_train_std.item()),
                 "standardize_X": standardize_X,
                 "standardize_y": standardize_y,
                 "dtype": str(dtype),
@@ -204,7 +210,8 @@ def borehole_SF_GPvsPFN(num_seeds=20,
                 "lr": lr,
                 "optimizer": optimizer_class.__name__,
                 "convergence_patience": convergence_patience,
-                "initializer": initializer_class.__name__ if initializer_class else None
+                "initializer": initializer_class.__name__ if initializer_class else None,
+                **y_test_stats
             }
             tabpfn_model_info = {
                 "model_path": regressor.model_path,

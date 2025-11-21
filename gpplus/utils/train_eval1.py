@@ -1,11 +1,12 @@
 import time
+
 import torch
 
+from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
 from gpplus.training import GPTrainer
+from gpplus.training.callbacks import FinalParameterStorageCallback
 from gpplus.training.eval import evaluate_gp_model
 from gpplus.utils.metrics_functions import compute_metrics
-from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
-from gpplus.training.callbacks import FinalParameterStorageCallback
 
 
 def train_eval_gp(
@@ -18,8 +19,8 @@ def train_eval_gp(
     num_runs: int,
     lr: float,
     convergence_patience: int,
-    optimizer_class = torch.optim.Adam,
-    initializer_class = None,
+    optimizer_class=torch.optim.Adam,
+    initializer_class=None,
     device: str,
     dtype: torch.dtype = torch.float64,
     y_train_mean: torch.Tensor | None = None,
@@ -105,10 +106,9 @@ def train_eval_PFN(
     output_std = (y_var.detach().cpu().numpy().reshape(-1)) ** 0.5
 
     # Metrics only on the test segment
-    y_pred_test = y_pred[-len(y_test):]
-    output_std_test = output_std[-len(y_test):]
+    y_pred_test = y_pred[-len(y_test) :]
+    output_std_test = output_std[-len(y_test) :]
 
     metrics = compute_metrics(y_test, y_pred_test, output_std_test, start_time=t_start)
 
     return metrics, y_pred_test, output_std_test
-

@@ -86,7 +86,7 @@ class CombinedKernel_MultCatKs(gpytorch.kernels.Kernel):
                 encoders = [self.cat_encoder]
             else:
                 encoders = self.cat_encoder
-            
+
             # Handle both single kernel and list of kernels
             if not hasattr(self.cat_kernel, "__iter__"):
                 kernels = [self.cat_kernel]
@@ -184,7 +184,7 @@ class CombinedKernel_MultCatKs(gpytorch.kernels.Kernel):
                 else:
                     encoder = MatrixEncoder(len(cat_group), z_dim=2)
                 temp_cat_encoder.append(encoder)
-                
+
                 # Create kernel for this group
                 if cat_kernel is None:
                     # Create a separate kernel instance for each group
@@ -207,7 +207,7 @@ class CombinedKernel_MultCatKs(gpytorch.kernels.Kernel):
                         # For backward compatibility, reuse the same kernel instance
                         # but this may cause issues if z_dims differ
                         temp_cat_kernel.append(cat_kernel)
-            
+
             # Set cat_kernel
             if len(temp_cat_kernel) == 1:
                 self.cat_kernel = temp_cat_kernel[0]
@@ -215,7 +215,7 @@ class CombinedKernel_MultCatKs(gpytorch.kernels.Kernel):
                 self.cat_kernel = temp_cat_kernel
                 for i, kernel in enumerate(self.cat_kernel):
                     self.register_module(f"cat_kernel_{i}", kernel)
-            
+
             # Set cat_encoder
             if len(temp_cat_encoder) == 1:
                 self.cat_encoder = temp_cat_encoder[0]

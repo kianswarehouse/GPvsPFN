@@ -22,7 +22,7 @@ def get_latent_representations(model, qual_dict=None):
     """
     model.eval()
     # Handle both direct CombinedKernel and LogScaleKernel wrapping CombinedKernel
-    if hasattr(model.covar_module, 'base_kernel'):
+    if hasattr(model.covar_module, "base_kernel"):
         combined_kernel = model.covar_module.base_kernel
     else:
         combined_kernel = model.covar_module
@@ -65,7 +65,7 @@ def get_latent_representations(model, qual_dict=None):
             else:
                 print(f"Warning: Encoder {encoder_name} has no input_dim attribute, skipping")
                 continue
-        
+
         # Skip if no dimensions found
         if not encoder_dims:
             print(f"Warning: No dimensions found for encoder {encoder_name}, skipping")
