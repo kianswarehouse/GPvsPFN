@@ -164,7 +164,7 @@ def buckling_GPvsPFN(num_seeds=20,
         )
 
         kernel = gpplus.kernels.LogScaleKernel(
-            gpplus.kernels.CombinedKernel(
+            gpplus.kernels.MVMFKernel(
                 cat_cols=cat_cols,
                 source_cols=source_cols,
                 cont_cols=cont_cols,
@@ -332,7 +332,7 @@ def buckling_GPvsPFN(num_seeds=20,
 
 if __name__ == "__main__":
     # buckling_GPvsPFN(num_seeds=1, train_size=[5, 5], num_runs=4, num_epochs=10000, save_path='./results/buckling/temp')
-    buckling_GPvsPFN(num_seeds=1, train_size=[10, 10], num_runs=4, num_epochs=10000, save_path='./results/buckling/temp')
+    buckling_GPvsPFN(num_seeds=3, train_size=[10, 10], num_runs=4, num_epochs=10000, save_path='./results/buckling/temp')
     # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp', standardize_X_gp=False, standardize_y_gp=True)
     # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=False, standardize_y_gp=True)
     # buckling_GPvsPFN(num_seeds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=True)

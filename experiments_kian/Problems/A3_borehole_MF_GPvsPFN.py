@@ -149,7 +149,7 @@ def borehole_GPvsPFN(num_seeds=20,
             standardization_method=standardization_method,
         )
 
-        kernel = gpplus.kernels.CombinedKernel(cont_cols=cont_cols, 
+        kernel = gpplus.kernels.MVMFKernel(cont_cols=cont_cols, 
                 cat_cols=cat_cols, 
                 source_cols=source_cols)
 

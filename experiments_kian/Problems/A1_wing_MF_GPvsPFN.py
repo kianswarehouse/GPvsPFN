@@ -153,7 +153,7 @@ def wing_GPvsPFN(num_seeds=20,
         )
 
         # cat_cols was returned by the encoder; CombinedKernel expects only cat indices
-        kernel = gpplus.kernels.LogScaleKernel(gpplus.kernels.CombinedKernel(
+        kernel = gpplus.kernels.LogScaleKernel(gpplus.kernels.MVMFKernel(
         # kernel = gpplus.kernels.CombinedKernel(
                 cont_cols=cont_cols, 
                 cat_cols=cat_cols, 
