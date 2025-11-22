@@ -5,7 +5,7 @@ from ..utils.encoders import MatrixEncoder, NeuralEncoder
 from .gaussian_kernel import GaussianKernel
 
 
-class MVMFCombinedKernel(gpytorch.kernels.Kernel):
+class MVMFKernel(gpytorch.kernels.Kernel):
     def __init__(
         self,
         cont_cols: list = None,

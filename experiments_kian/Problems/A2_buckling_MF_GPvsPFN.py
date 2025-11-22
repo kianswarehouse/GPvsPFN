@@ -164,7 +164,7 @@ def buckling_GPvsPFN(num_seeds=20,
         )
 
         kernel = gpplus.kernels.LogScaleKernel(
-            gpplus.kernels.CombinedKernel_OneCatK(
+            gpplus.kernels.CombinedKernel(
                 cat_cols=cat_cols,
                 source_cols=source_cols,
                 cont_cols=cont_cols,
