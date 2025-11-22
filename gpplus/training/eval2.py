@@ -3,7 +3,10 @@ import torch
 from ..config import logger
 
 
-def evaluate_gp_model(model, test_x: torch.Tensor, ):
+def evaluate_gp_model(
+    model,
+    test_x: torch.Tensor,
+):
     """
     Evaluates the Gaussian Process model on test data.
 

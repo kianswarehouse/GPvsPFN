@@ -116,12 +116,8 @@ class DefaultParameterInitializer(ParameterInitializer):
             }
         elif param_type == "raw_noise":
             return {
-                # "method": "normal",
-                # "mean": -1.0,
-                # "std": 1.0,
-                # "description": "Noise parameter - log scale",
                 "method": "uniform",
-                "lower": -7.0,  # Changed from -7.0 to -5.0 to match new constraint lower bound
+                "lower": -7.0,
                 "upper": 3.0,
                 "description": "Noise parameter - uniform scale",
             }

@@ -7,15 +7,15 @@ from gpplus.training.optimizers import LBFGSScipy
 initializer_class = DefaultParameterInitializer
 # %% M2AX ------------------------------------------------------------------------------------------------
 # num_epochs_list = [10, 10000, 10, 10000, 10, 10000]
-num_epochs_list = [100, 100, 100, 100, 100]
-num_runs_list = [4, 8, 16, 32, 64]
+num_epochs_list = [100, 100]
+num_runs_list = [4, 8]
 lr = 0.1
-save_path_m2ax = "./results/m2ax/MatrixEncoder/Nov17/ThirdColumnContInput/WithLengthscales/"
+save_path_m2ax = "./results/m2ax/MatrixEncoder/Nov21/ThirdColumnContInput/WithLengthscalesZdim2/ScalerTest"
 for i in range(len(num_epochs_list)):
     num_epochs = num_epochs_list[i]
     num_runs = num_runs_list[i]
     # gp_metrics_2, tabpfn_metrics_2 = M2AX_GPvsPFN(num_seeds=20, train_size=180, test_size=0.103, num_folds=1, num_epochs=num_epochs, num_runs=num_runs, lr=lr, optimizer_class=LBFGSScipy, save_path=save_path_m2ax, initializer_class=initializer_class)
-    gp_metrics_2, tabpfn_metrics_2 = M2AX_GPvsPFN(num_seeds=20, test_size=0.103, num_epochs=num_epochs, num_runs=num_runs, lr=lr, optimizer_class=LBFGSScipy, save_path=save_path_m2ax, initializer_class=initializer_class)
+    gp_metrics_2, tabpfn_metrics_2 = M2AX_GPvsPFN(num_seeds=20, test_size=0.103, num_epochs=num_epochs, num_runs=num_runs, lr=lr, optimizer_class=LBFGSScipy, save_path=save_path_m2ax, initializer_class=initializer_class, standardize_y_gp=True)
     # # gp_metrics_4, tabpfn_metrics_4 = M2AX_GPvsPFN(num_seeds=20, test_size=0.4, num_epochs=num_epochs, num_runs=num_runs, lr=lr, optimizer_class=LBFGSScipy, save_path=save_path_m2ax, initializer_class=initializer_class)
     # gp_metrics_6, tabpfn_metrics_6 = M2AX_GPvsPFN(num_seeds=20, test_size=0.6, num_epochs=num_epochs, num_runs=num_runs, lr=lr, optimizer_class=LBFGSScipy, save_path=save_path_m2ax, initializer_class=initializer_class)
     # gp_metrics_8, tabpfn_metrics_8 = M2AX_GPvsPFN(num_seeds=20, test_size=0.8, num_epochs=num_epochs, num_runs=num_runs, lr=lr, optimizer_class=LBFGSScipy, save_path=save_path_m2ax, initializer_class=initializer_class)

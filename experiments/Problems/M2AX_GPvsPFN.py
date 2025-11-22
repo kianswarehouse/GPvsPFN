@@ -106,47 +106,28 @@ def M2AX_GPvsPFN(
         y_gp_test = y_test.detach().clone().to(dtype=dtype)
 
         # Normalize the GP data
-        y_gp_train_mean = y_gp_train.mean()
-        y_gp_train_std = y_gp_train.std()
-        y_gp_train_normal = (y_gp_train - y_gp_train_mean) / y_gp_train_std
+        # y_gp_train_mean = y_gp_train.mean()
+        # y_gp_train_std = y_gp_train.std()
+        # y_gp_train_normal = (y_gp_train - y_gp_train_mean) / y_gp_train_std
+        Y_scaler = gpplus.utils.StandardScaler()
+        Y_scaler.fit(y_gp_train)
+        # Squeeze to remove extra dimensions from keepdim=True in StandardScaler
+        y_gp_train_mean = Y_scaler.mean.squeeze()
+        y_gp_train_std = Y_scaler.std.squeeze()
+        y_gp_train_normal = Y_scaler.transform(y_gp_train)
+        y_gp_test_normal = Y_scaler.transform(y_gp_test)
 
-        # cat_cols was returned by the encoder; CombinedKernel expects only cat indices
-        # print(cat_cols)
-        # Create encoders for each categorical group
-        # Each encoder needs input_dim equal to the number of columns in that specific group
-        # cat_cols = [[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]]
-        # cat_encoders = [RelativeDistanceEncoder(input_dim=len(cat_col), z_dim=2, initialization='uniform', init_radius=0.5, seed=seed) for cat_col in cat_cols]
         cat_encoders = 'matrix'
         cont_cols = [22]
-        # kernel = gpplus.kernels.LogScaleKernel(
-        #     gpplus.kernels.CombinedKernel(
-        #         cat_cols=cat_cols,
-        #         cat_encoder=cat_encoders,
-        #     )
-        # )
-        # architecture_config = {
-        #     "hidden_dims": [4, 8], 
-        #     "activation": "tanh", 
-        #     "dropout": 0.0}
-        # cat_encoder1 = gpplus.utils.NeuralEncoder(input_dim=len(cat_cols[0]), architecture_config=architecture_config, z_dim=2)
-        # cat_encoder2 = gpplus.utils.NeuralEncoder(input_dim=len(cat_cols[1]), architecture_config=architecture_config, z_dim=2)
-        # cat_encoder3 = gpplus.utils.NeuralEncoder(input_dim=len(cat_cols[2]), architecture_config=architecture_config, z_dim=2)
-        # cat_encoders = [cat_encoder1, cat_encoder2, cat_encoder3]
+
         kernel = gpplus.kernels.LogScaleKernel(
-            gpplus.kernels.CombinedKernel_OneCatK(
+            gpplus.kernels.MVMFCombinedKernel(
                 cat_cols=cat_cols,
                 cont_cols=cont_cols,
                 cat_encoder=cat_encoders,
                 z_dim=2,
             )
         )
-
-        # kernel = gpplus.kernels.LogScaleKernel(
-        #     gpplus.kernels.CombinedKernel_MultCatKs(
-        #         cat_cols=cat_cols,
-        #         cat_encoder=cat_encoders,
-        #     )
-        # )
 
         # Create GP model
         model = gpplus.models.GPR(
@@ -203,8 +184,8 @@ def M2AX_GPvsPFN(
         tabpfn_metric, y_pred_tabpfn, output_std_tabpfn = train_eval_PFN(
             X_train_enc if encode_PFN_data else X_train,
             X_test_enc if encode_PFN_data else X_test,
-            y_train,
-            y_test,
+            y_gp_train_normal if standardize_y_gp else y_gp_train,
+            y_gp_test_normal if standardize_y_gp else y_gp_test,
             amp_device=amp_device,
             amp_dtype=amp_dtype,
             regressor=regressor,
@@ -298,5 +279,5 @@ def M2AX_GPvsPFN(
 
 if __name__ == "__main__":
     # M2AX_GPvsPFN()
-    M2AX_GPvsPFN(num_seeds=1, num_runs=4, num_epochs=10000, optimizer_class=LBFGSScipy, save_path='./results/M2AX/CallbackTest')
+    M2AX_GPvsPFN(num_seeds=1, num_runs=4, test_size=0.2, num_epochs=100, optimizer_class=LBFGSScipy, save_path='./results/M2AX/TestStandardizeY')
     # M2AX_GPvsPFN(num_seeds=2, num_runs=4, num_epochs=10000, save_path=None, encode_PFN_data=True)

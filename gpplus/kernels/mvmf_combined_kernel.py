@@ -5,7 +5,7 @@ from ..utils.encoders import MatrixEncoder, NeuralEncoder
 from .gaussian_kernel import GaussianKernel
 
 
-class CombinedKernel(gpytorch.kernels.Kernel):
+class MVMFCombinedKernel(gpytorch.kernels.Kernel):
     def __init__(
         self,
         cont_cols: list = None,
@@ -22,7 +22,7 @@ class CombinedKernel(gpytorch.kernels.Kernel):
         **kwargs,
     ):
         """
-        Multi-Variable Multi-Fidelity Combined Kernel with One Categorical Kernel
+        Multi-Variable Multi-Fidelity Combined Kernel
 
         Args:
             cont_cols: Indices of continuous features
@@ -32,14 +32,15 @@ class CombinedKernel(gpytorch.kernels.Kernel):
                 - A single index (e.g., [5])
             source_cols: Indices of source/fidelity features
             cont_kernel: Kernel for continuous features (default: scaled RBF)
-            cat_kernel: Kernel for categorical features (default: RBF for NN, Linear for Matrix)
+            cat_kernel: Kernel for categorical features. Single kernel used for all groups.
             source_kernel: Kernel for source features (default: RBF for NN, Linear for Matrix)
-            cat_encoder: Encoder function for categorical features (default: NeuralEncoder)
+            cat_encoder: Encoder function for categorical features (default: MatrixEncoder)
                 Can be an encoder object, "matrix", "nn", or a list of encoders [enc1, enc2, enc3]
                 that will be matched with categorical groups
-            source_encoder: Encoder function for source features (default: NeuralEncoder)
-            cat_combination_method: Combination method for hybrid kernels (default: "additive")
-            source_combination_method: Combination method for hybrid kernels (default: "additive")
+            source_encoder: Encoder function for source features (default: MatrixEncoder)
+            z_dim: Dimension of the latent space for the encoders (default: 2)
+            fix_lengthscale_cat: Whether to fix the lengthscale of the categorical kernel (default: False)
+            fix_lengthscale_source: Whether to fix the lengthscale of the source kernel (default: False)
         """
         super().__init__(**kwargs)
 
