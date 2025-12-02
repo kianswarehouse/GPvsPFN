@@ -17,7 +17,7 @@ from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
 from load_experimental_data import borehole_mixed_variables, generate_mf_borehole_data
-
+import defaults
 
 
 # import warnings
@@ -41,6 +41,7 @@ def borehole_GPvsPFN(num_seeds=20,
         noise_test=[0.0, 0.0, 0.0, 0.0, 0.0],
         noise_type='gaussian',
         standardization_method=2, # 0: standardize all data according to all data, 1: standardize all data according to HF data only, 2: standardize each data source independently
+        seed=42,
     ):
     if title is None:
         title = f"boreholeMF_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
@@ -59,7 +60,7 @@ def borehole_GPvsPFN(num_seeds=20,
         plot_save_path = None
 
     # Generate data
-    set_seed(0)
+    set_seed(seed)
     
     # Calculate total samples needed
     train_per_seed = np.array(train_size) * 8  # 8 input dimensions for borehole
@@ -73,6 +74,7 @@ def borehole_GPvsPFN(num_seeds=20,
         train_noise=noise_train,
         test_noise=noise_test,
         noise_type=noise_type,
+        seed=seed,
     )
     
     X = torch.cat([X_test_all, X_train_all], dim=0)
@@ -149,17 +151,19 @@ def borehole_GPvsPFN(num_seeds=20,
             standardization_method=standardization_method,
         )
 
-        kernel = gpplus.kernels.MVMFKernel(cont_cols=cont_cols, 
-                cat_cols=cat_cols, 
-                source_cols=source_cols)
+        kernel = defaults.MF_kernel(
+            cont_cols=cont_cols, 
+            cat_cols=cat_cols, 
+            source_cols=source_cols,
+        )
 
         # Create GP model
         model = gpplus.models.GPR(
             X_train,
             y_train_normal if standardize_y else y_train,
             kernel_module=kernel,
-            mean_module=gpplus.means.MultiMean(encoded_cols=source_cols),
-            likelihood=gpplus.likelihoods.MultiLikelihood(encoded_cols=source_cols, training_data=X_train),
+            mean_module=defaults.MF_mean(encoded_cols=source_cols),
+            likelihood=defaults.MF_likelihood(encoded_cols=source_cols, training_data=X_train),
         )
         if (i == 0) or (i == num_seeds - 1):
             print(model)
@@ -254,7 +258,8 @@ def borehole_GPvsPFN(num_seeds=20,
                 "optimizer": optimizer_class.__name__,
                 "convergence_patience": convergence_patience,
                 "initializer": initializer_class.__name__ if initializer_class else None,
-                **y_test_stats
+                **y_test_stats,
+                "seed": seed,
             }
             tabpfn_model_info = {
                 "model_path": regressor.model_path,

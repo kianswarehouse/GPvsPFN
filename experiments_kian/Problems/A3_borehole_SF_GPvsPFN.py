@@ -17,6 +17,7 @@ from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
 from load_experimental_data import borehole_mixed_variables, generate_mf_borehole_data
+import defaults
 
 
 # import warnings
@@ -39,6 +40,7 @@ def borehole_SF_GPvsPFN(num_seeds=20,
         noise_train=0.0,
         noise_test=0.0,
         noise_type='gaussian',
+        seed=42,
     ):
     if title is None:
         title = f"boreholeSF_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
@@ -57,7 +59,7 @@ def borehole_SF_GPvsPFN(num_seeds=20,
         plot_save_path = None
 
     # Generate data
-    set_seed(0)
+    set_seed(seed)
     
     # Calculate total samples needed
     train_per_seed = train_size * 8  # 8 input dimensions for borehole
@@ -71,6 +73,7 @@ def borehole_SF_GPvsPFN(num_seeds=20,
         train_noise=noise_train,
         test_noise=noise_test,
         noise_type=noise_type,
+        seed=seed,
     )
     if X_train_all.shape[1] == 9:
         X_train_all = X_train_all[:, :8]
@@ -133,6 +136,9 @@ def borehole_SF_GPvsPFN(num_seeds=20,
         model = gpplus.models.GPR(
             X_train,
             y_train_normal if standardize_y else y_train,
+            kernel_module=defaults.SF_kernel,
+            mean_module=defaults.SF_mean,
+            likelihood=defaults.SF_likelihood,
         )
         if (i == 0) or (i == num_seeds - 1):
             print(model)
@@ -211,7 +217,8 @@ def borehole_SF_GPvsPFN(num_seeds=20,
                 "optimizer": optimizer_class.__name__,
                 "convergence_patience": convergence_patience,
                 "initializer": initializer_class.__name__ if initializer_class else None,
-                **y_test_stats
+                **y_test_stats,
+                "seed": seed,
             }
             tabpfn_model_info = {
                 "model_path": regressor.model_path,

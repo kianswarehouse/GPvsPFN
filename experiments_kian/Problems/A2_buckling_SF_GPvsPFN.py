@@ -17,7 +17,7 @@ from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
 from load_experimental_data import buckling_mixed_variables, generate_mf_buckling_data_with_folds
-
+import defaults
 
 # import warnings
 # warnings.filterwarnings("ignore")
@@ -162,18 +162,14 @@ def buckling_SF_GPvsPFN(num_seeds=20,
         y_train_std = Yscaler.std
         y_train_normal = Yscaler.transform(y_train)
         
-        kernel = gpplus.kernels.LogScaleKernel(
-            gpplus.kernels.CombinedKernel(
-                cat_cols=cat_cols,
-                source_cols=source_cols,
-                cont_cols=cont_cols,
-            )
-        )
+        kernel = defaults.MF_kernel(cont_cols=cont_cols, cat_cols=cat_cols, source_cols=source_cols)
 
         model = gpplus.models.GPR(
             X_train,
             y_train_normal if standardize_y else y_train,
-            kernel_module=kernel,
+            kernel_module=defaults.SF_kernel,
+            mean_module=defaults.SF_mean,
+            likelihood=defaults.SF_likelihood,
         )
         if (i == 0) or (i == num_seeds - 1):
             print(model)
@@ -252,7 +248,8 @@ def buckling_SF_GPvsPFN(num_seeds=20,
                 "optimizer": optimizer_class.__name__,
                 "convergence_patience": convergence_patience,
                 "initializer": initializer_class.__name__ if initializer_class else None,
-                **y_test_stats
+                **y_test_stats,
+                "seed": seed,
             }
             tabpfn_model_info = {
                 "model_path": regressor.model_path,

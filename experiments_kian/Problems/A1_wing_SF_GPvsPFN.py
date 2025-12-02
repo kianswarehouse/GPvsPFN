@@ -17,7 +17,7 @@ from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
 from load_experimental_data import wing_mixed_variables, generate_mf_wing_data
-
+import defaults
 
 # import warnings
 # warnings.filterwarnings("ignore")
@@ -39,6 +39,7 @@ def wing_SF_GPvsPFN(num_seeds=20,
         noise_train=0.0,
         noise_test=0.0,
         noise_type='gaussian',
+        seed=42,
     ):
     if title is None:
         title = f"wing_SF_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
@@ -57,7 +58,7 @@ def wing_SF_GPvsPFN(num_seeds=20,
         plot_save_path = None
 
     # Generate data
-    set_seed(0)
+    set_seed(seed)
     
     # Calculate total samples needed
     train_per_seed = train_size * 10
@@ -71,7 +72,8 @@ def wing_SF_GPvsPFN(num_seeds=20,
         test_samples_per_source=[num_test, 0, 0, 0], 
         train_noise=noise_train, 
         test_noise=noise_test, 
-        noise_type=noise_type
+        noise_type=noise_type,
+        seed=seed,
     )
     # Drop the 11th (source) column since SF uses only s0
     if X_train_all.shape[1] == 11:
@@ -128,6 +130,7 @@ def wing_SF_GPvsPFN(num_seeds=20,
             X_train = Xscaler.transform(X_train)
             X_test = Xscaler.transform(X_test)
 
+
         Yscaler = gpplus.utils.StandardScaler()
         Yscaler.fit(y_train)
         y_train_mean = Yscaler.mean 
@@ -138,6 +141,9 @@ def wing_SF_GPvsPFN(num_seeds=20,
         model = gpplus.models.GPR(
             X_train,
             y_train_normal if standardize_y else y_train,
+            kernel_module=defaults.SF_kernel,
+            mean_module=defaults.SF_mean,
+            likelihood=defaults.SF_likelihood,
         )
         if (i == 0) or (i == num_seeds - 1):
             print(model)
@@ -198,7 +204,7 @@ def wing_SF_GPvsPFN(num_seeds=20,
                 "y_test_mean": float(y_test_all.mean().item()),
                 "y_test_std": float(y_test_all.std().item())
             }
-            
+
             gp_model_info = {
                 "model_str": str(model),
                 "cat_cols": cat_cols,
@@ -218,7 +224,8 @@ def wing_SF_GPvsPFN(num_seeds=20,
                 "optimizer": optimizer_class.__name__,
                 "convergence_patience": convergence_patience,
                 "initializer": initializer_class.__name__ if initializer_class else None,
-                **y_test_stats
+                **y_test_stats,
+                "seed": seed,
             }
             tabpfn_model_info = {
                 "model_path": regressor.model_path,

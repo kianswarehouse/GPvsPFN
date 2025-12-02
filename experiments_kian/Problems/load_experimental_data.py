@@ -567,93 +567,129 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
     for src_idx, (src, n_train) in enumerate(zip(sources, train_samples_per_source)):
         if n_train == 0:
             continue
+        
+        # Calculate target samples per fold
+        target_per_fold = n_train // num_folds
+        remainder = n_train % num_folds
+        
+        # Calculate EXACT target counts per categorical value per fold using MATH
+        num_E = len(E_values)  # 2
+        num_K = len(K_values)  # 4
+        num_I = len(I_values)  # 3
+        
+        # Generate each fold separately with EXACT categorical distributions
+        for fold in range(num_folds):
+            fold_target = target_per_fold + (1 if fold < remainder else 0)
             
-        # Generate continuous variables using Sobol
-        sobol_seed = (seed + src_idx * 2000) if seed is not None else None
-        sobol = torch.quasirandom.SobolEngine(1, scramble=True, seed=sobol_seed)
-        L_vals = sobol.draw(n_train).squeeze() * 0.4 + 0.6  # L in [0.6, 1.0]
-        
-        # Create train block
-        x_train_block = torch.zeros((n_train, 4), dtype=torch.float64)
-        x_train_block[:, 0] = L_vals
-        
-        def _balanced_indices(num_categories, values_tensor):
-            n_per = n_train // num_categories
-            rem = n_train % num_categories
-            order = list(range(num_categories))
-            # Rotate which categories get the remainder so sources don't always favor the same class
-            offset = src_idx % num_categories
-            order = order[offset:] + order[:offset]
-            idx_parts = []
-            for j, cat in enumerate(order):
-                count = n_per + (1 if j < rem else 0)
-                idx_parts.append(torch.full((count,), cat))
-            idx = torch.cat(idx_parts)
-            idx = idx[torch.randperm(n_train)]
-            return values_tensor[idx], idx
-
-        # E values (2 options)
-        E_vals_shuffled, E_indices_train = _balanced_indices(len(E_values), E_phys)
-        x_train_block[:, 1] = E_vals_shuffled
-
-        # K values (4 options)
-        K_vals_shuffled, K_indices_train = _balanced_indices(len(K_values), K_phys)
-        x_train_block[:, 2] = K_vals_shuffled
-
-        # I values (3 options)
-        I_vals_shuffled, I_indices_train = _balanced_indices(len(I_values), I_phys)
-        x_train_block[:, 3] = I_vals_shuffled
-
-        # Compute targets
-        y_train_clean = buckling_mixed_variables(x_train_block, source=src)
-        
-        # Get test std for noise scaling (from same source)
-        test_std_value = test_std_per_source.get(src_idx, 0.0)
-        
-        # Add noise to train data
-        y_train_block = y_train_clean.clone()
-        if n_train > 0 and train_noise[src_idx] > 0 and test_std_value > 0.0:
-            if noise_type == 'gaussian':
-                noise = torch.randn_like(y_train_block) * (train_noise[src_idx] * test_std_value)
-            elif noise_type == 'uniform':
-                noise = (torch.rand_like(y_train_block) - 0.5) * 2 * (train_noise[src_idx] * test_std_value)
-            else:
-                raise ValueError(f"Unknown noise_type: {noise_type}")
-            y_train_block = y_train_block + noise
-        
-        # Store categorical indices if requested
-        if return_categorical:
-            x_train_block[:, 1] = E_indices_train.to(torch.float64)
-            x_train_block[:, 2] = K_indices_train.to(torch.float64)
-            x_train_block[:, 3] = I_indices_train.to(torch.float64)
-        
-        # Split into folds with even distributions PER (E,K,I) COMBINATION
-        # This guarantees balanced marginals in every fold
-        for e_val in E_values:
-            for k_val in K_values:
-                for i_val in I_values:
-                    mask = (
-                        (x_train_block[:, 1] == e_val)
-                        & (x_train_block[:, 2] == k_val)
-                        & (x_train_block[:, 3] == i_val)
-                    )
-                    combo_indices = torch.where(mask)[0]
-                    if combo_indices.numel() == 0:
-                        continue
-                    # Shuffle within combination to avoid any ordering artifacts
-                    combo_indices = combo_indices[torch.randperm(combo_indices.numel())]
-                    base = combo_indices.numel() // num_folds
-                    rem = combo_indices.numel() % num_folds
-                    start = 0
-                    for fold in range(num_folds):
-                        take = base + (1 if fold < rem else 0)
-                        if take == 0:
-                            continue
-                        sel = combo_indices[start:start + take]
-                        source_column = torch.full((x_train_block.shape[0], 1), src_idx, dtype=torch.float64)
-                        X_train_folds[fold].append(torch.cat([x_train_block[sel], source_column[sel]], dim=1))
-                        y_train_folds[fold].append(y_train_block[sel])
-                        start += take
+            # Calculate EXACT counts for each categorical value in this fold
+            # E: fold_target / 2
+            E_base = fold_target // num_E
+            E_rem = fold_target % num_E
+            E_counts = [E_base + (1 if i < E_rem else 0) for i in range(num_E)]
+            
+            # K: fold_target / 4
+            K_base = fold_target // num_K
+            K_rem = fold_target % num_K
+            K_counts = [K_base + (1 if i < K_rem else 0) for i in range(num_K)]
+            
+            # I: fold_target / 3 - ROTATE which I value gets extra across folds
+            I_base = fold_target // num_I
+            I_rem = fold_target % num_I
+            # Rotate which I value gets the remainder based on fold number
+            # This ensures different folds have different I distributions
+            # For example, if I_rem=2: fold 0 gets (7,7,6), fold 1 gets (7,6,7), fold 2 gets (6,7,7)
+            rotation_offset = (fold + src_idx * num_folds) % num_I
+            I_counts = [I_base + (1 if (i + rotation_offset) % num_I < I_rem else 0) for i in range(num_I)]
+            
+            # Generate samples for this fold with EXACT categorical distributions
+            # Build list of categorical assignments that satisfy exact counts
+            cat_assignments = []
+            
+            # Create assignments for E values (exact counts)
+            for e_idx in range(num_E):
+                for _ in range(E_counts[e_idx]):
+                    cat_assignments.append({'e': e_idx})
+            
+            # Create assignments for K values (exact counts) - distribute round-robin
+            k_list = []
+            for k_idx in range(num_K):
+                for _ in range(K_counts[k_idx]):
+                    k_list.append(k_idx)
+            # Shuffle K assignments
+            if seed is not None:
+                torch.manual_seed(seed + src_idx * 2000 + fold * 100 + 1)
+            k_perm = torch.randperm(len(k_list))
+            k_list = [k_list[i] for i in k_perm.tolist()]
+            
+            # Create assignments for I values (exact counts) - distribute round-robin
+            i_list = []
+            for i_idx in range(num_I):
+                for _ in range(I_counts[i_idx]):
+                    i_list.append(i_idx)
+            # Shuffle I assignments
+            if seed is not None:
+                torch.manual_seed(seed + src_idx * 2000 + fold * 100 + 2)
+            i_perm = torch.randperm(len(i_list))
+            i_list = [i_list[i] for i in i_perm.tolist()]
+            
+            # Combine assignments
+            for i in range(fold_target):
+                cat_assignments[i]['k'] = k_list[i]
+                cat_assignments[i]['i'] = i_list[i]
+            
+            # Shuffle final order to randomize (E, K, I) combinations
+            if seed is not None:
+                torch.manual_seed(seed + src_idx * 2000 + fold * 100 + 3)
+            perm = torch.randperm(len(cat_assignments))
+            cat_assignments = [cat_assignments[i] for i in perm.tolist()]
+            
+            # Generate Sobol samples for continuous L variable
+            sobol_seed = (seed + src_idx * 2000 + fold * 100) if seed is not None else None
+            sobol = torch.quasirandom.SobolEngine(1, scramble=True, seed=sobol_seed)
+            L_vals = sobol.draw(fold_target).squeeze() * 0.4 + 0.6
+            
+            # Create samples - ALWAYS use physical values for buckling computation
+            samples_X = []
+            for i, assignment in enumerate(cat_assignments):
+                x_sample = torch.zeros((1, 4), dtype=torch.float64)
+                x_sample[0, 0] = L_vals[i] if L_vals.dim() > 0 else L_vals
+                # Always use physical values for computation
+                x_sample[0, 1] = E_phys[assignment['e']]
+                x_sample[0, 2] = K_phys[assignment['k']]
+                x_sample[0, 3] = I_phys[assignment['i']]
+                
+                samples_X.append(x_sample)
+            
+            # Convert to tensors
+            if len(samples_X) > 0:
+                x_fold = torch.cat(samples_X, dim=0)
+                # Compute targets using physical values
+                y_fold = buckling_mixed_variables(x_fold, source=src)
+                
+                # Convert to categorical indices if requested (AFTER computing y)
+                if return_categorical:
+                    for i, assignment in enumerate(cat_assignments):
+                        x_fold[i, 1] = float(assignment['e'])
+                        x_fold[i, 2] = float(assignment['k'])
+                        x_fold[i, 3] = float(assignment['i'])
+                
+                # Add noise if needed
+                test_std_value = test_std_per_source.get(src_idx, 0.0)
+                if train_noise[src_idx] > 0 and test_std_value > 0.0:
+                    if noise_type == 'gaussian':
+                        noise = torch.randn_like(y_fold) * (train_noise[src_idx] * test_std_value)
+                    elif noise_type == 'uniform':
+                        noise = (torch.rand_like(y_fold) - 0.5) * 2 * (train_noise[src_idx] * test_std_value)
+                    else:
+                        raise ValueError(f"Unknown noise_type: {noise_type}")
+                    y_fold = y_fold + noise
+                
+                # Add source column
+                source_column = torch.full((x_fold.shape[0], 1), src_idx, dtype=torch.float64)
+                x_fold_with_source = torch.cat([x_fold, source_column], dim=1)
+                
+                X_train_folds[fold].append(x_fold_with_source)
+                y_train_folds[fold].append(y_fold)
     
     # Concatenate folds from all sources
     for fold in range(num_folds):

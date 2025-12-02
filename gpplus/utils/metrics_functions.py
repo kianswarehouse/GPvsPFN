@@ -79,6 +79,8 @@ def compute_metrics(y_true, y_hat, output_std=None, start_time=None, training_ti
         interval_score = width + (2 / 0.05) * below + (2 / 0.05) * above
         NIS = interval_score.mean() / y_true.std()
         metrics["NIS"] = NIS
+        metrics["NIS_over"] = width.mean() / y_true.std()
+        metrics["NIS_under"] = ((2 / 0.05) * below + (2 / 0.05) * above).mean() / y_true.std()
         return metrics
 
     return metrics
@@ -533,6 +535,8 @@ def compute_per_source_metrics(
                 interval_score = width + (2 / 0.05) * below + (2 / 0.05) * above
                 source_nis = interval_score.mean() / source_y_true.std()  # Use per-source target std for NIS
                 source_metrics["NIS"] = source_nis
+                source_metrics["NIS_over"] = width.mean() / source_y_true.std()
+                source_metrics["NIS_under"] = ((2 / 0.05) * below + (2 / 0.05) * above).mean() / source_y_true.std()
 
             per_source_metrics[source_name] = source_metrics
 

@@ -17,7 +17,7 @@ from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
 from load_experimental_data import generate_ackley_data
-
+import defaults
 
 # import warnings
 # warnings.filterwarnings("ignore")
@@ -138,6 +138,9 @@ def ackley_GPvsPFN(num_seeds=20,
         model = gpplus.models.GPR(
             X_train,
             y_train_normal if standardize_y else y_train,
+            kernel_module=defaults.SF_kernel,
+            mean_module=defaults.SF_mean,
+            likelihood=defaults.SF_likelihood,
         )
         if (i == 0) or (i == num_seeds - 1):
             print(model)
@@ -191,6 +194,11 @@ def ackley_GPvsPFN(num_seeds=20,
         
         # Collect model info from first seed
         if i == 0:
+            y_test_stats = {
+                "y_test_mean": float(y_test_all.mean().item()),
+                "y_test_std": float(y_test_all.std().item())
+            }
+
             gp_model_info = {
                 "model_str": str(model),
                 "cat_cols": cat_cols,
@@ -211,7 +219,9 @@ def ackley_GPvsPFN(num_seeds=20,
                 "lr": lr,
                 "optimizer": optimizer_class.__name__,
                 "convergence_patience": convergence_patience,
-                "initializer": initializer_class.__name__ if initializer_class else None
+                "initializer": initializer_class.__name__ if initializer_class else None,
+                **y_test_stats,
+                "seed": seed,
             }
             tabpfn_model_info = {
                 "model_path": regressor.model_path,
@@ -270,7 +280,7 @@ def ackley_GPvsPFN(num_seeds=20,
 
 
 if __name__ == "__main__":
-    Ackley_GPvsPFN(num_seeds=1, train_size=10, num_runs=4, num_epochs=10000, save_path='./results/Ackley/temp')
-    Ackley_GPvsPFN(num_seeds=1, train_size=10, num_runs=4, num_epochs=10000, save_path='./results/Ackley/tempv2', V2=True)
+    ackley_GPvsPFN(num_seeds=1, train_size=10, num_runs=4, num_epochs=10000, save_path='./results/Ackley/temp')
+    ackley_GPvsPFN(num_seeds=1, train_size=10, num_runs=4, num_epochs=10000, save_path='./results/Ackley/tempv2', V2=True)
 
 

@@ -1,6 +1,7 @@
 import torch
 
 from ..config import logger
+from ..likelihoods import MultiLikelihood
 
 
 def evaluate_gp_model(
@@ -35,8 +36,10 @@ def evaluate_gp_model(
 
         # Option 2: With nugget (noisy observations y) - follows Equation 31b structure
         # This adds δI to the predictive covariance: Σ* = K_test_test - ... + δI
-        # if hasattr(model.likelihood, '_test_x'):
-        #     model.likelihood._test_x = test_x
+        # For MultiLikelihood, we need to set test fidelity indices from test data
+        # so each test point gets the correct nugget based on its source
+        if isinstance(model.likelihood, MultiLikelihood):
+            model.likelihood.set_fidelity_indices(test_x, is_test=True)
         observed_pred = model.likelihood(model(test_x))
 
         # Get the mean, lower and upper confidence bounds

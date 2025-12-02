@@ -99,7 +99,7 @@ def encode_qual_data(data: torch.Tensor, qual_dict: dict, source_col: int = None
     return encoded_data, continuous_cols, cat_cols_blocks, source_cols_blocks
 
 
-def learn_encodings(data: torch.Tensor, int_tol: float = 1e-6):
+def learn_encodings(data: torch.Tensor, int_tol: float = 1e-6, cont_cols=None):
     """
     Infer a qualitative encoding specification (qual_dict) from the provided data.
 
@@ -110,6 +110,10 @@ def learn_encodings(data: torch.Tensor, int_tol: float = 1e-6):
     Args:
         data: (N, D) torch tensor
         int_tol: tolerance for determining integer-like columns
+        cont_cols: optional int, list of ints, or None. If provided, specifies columns
+                  that should be treated as continuous (even if they appear integer-like).
+                  For example, age might be stored as integers but should be treated as
+                  continuous. Columns in cont_cols will be excluded from qual_dict.
 
     Returns:
         qual_dict: dict[int, int] mapping column index to inferred num_classes
@@ -120,7 +124,21 @@ def learn_encodings(data: torch.Tensor, int_tol: float = 1e-6):
     _, num_cols = data.shape
     qual_dict = {}
 
+    # Normalize cont_cols to a set for easy checking
+    if cont_cols is None:
+        cont_cols_set = set()
+    elif isinstance(cont_cols, int):
+        cont_cols_set = {cont_cols}
+    elif isinstance(cont_cols, (list, tuple)):
+        cont_cols_set = set(cont_cols)
+    else:
+        raise TypeError(f"cont_cols must be int, list of ints, or None, got {type(cont_cols)}")
+
     for col_idx in range(num_cols):
+        # Skip columns explicitly marked as continuous
+        if col_idx in cont_cols_set:
+            continue
+            
         col = data[:, col_idx]
         is_integer_like = torch.all(torch.abs(col - torch.round(col)) < int_tol)
         if not is_integer_like:
