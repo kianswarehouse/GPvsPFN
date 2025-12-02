@@ -79,8 +79,8 @@ def compute_metrics(y_true, y_hat, output_std=None, start_time=None, training_ti
         interval_score = width + (2 / 0.05) * below + (2 / 0.05) * above
         NIS = interval_score.mean() / y_true.std()
         metrics["NIS"] = NIS
-        metrics["NIS_over"] = width.mean() / y_true.std()
-        metrics["NIS_under"] = ((2 / 0.05) * below + (2 / 0.05) * above).mean() / y_true.std()
+        metrics["NIS_width"] = width.mean() / y_true.std()
+        metrics["NIS_outside"] = ((2 / 0.05) * below + (2 / 0.05) * above).mean() / y_true.std()
         return metrics
 
     return metrics
