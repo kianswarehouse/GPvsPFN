@@ -523,8 +523,8 @@ def compute_per_source_metrics(
                 interval_score = width + (2 / 0.05) * below + (2 / 0.05) * above
                 source_nis = interval_score.mean() / source_y_true.std()  # Use per-source target std for NIS
                 source_metrics["NIS"] = source_nis
-                source_metrics["NIS_over"] = width.mean() / source_y_true.std()
-                source_metrics["NIS_under"] = ((2 / 0.05) * below + (2 / 0.05) * above).mean() / source_y_true.std()
+                source_metrics["NIS_width"] = width.mean() / source_y_true.std()
+                source_metrics["NIS_outside"] = ((2 / 0.05) * below + (2 / 0.05) * above).mean() / source_y_true.std()
 
             per_source_metrics[source_name] = source_metrics
 
