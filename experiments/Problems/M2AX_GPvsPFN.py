@@ -121,7 +121,7 @@ def M2AX_GPvsPFN(
         cont_cols = [22]
 
         kernel = gpplus.kernels.LogScaleKernel(
-            gpplus.kernels.MVMFCombinedKernel(
+            gpplus.kernels.MVMFKernel(
                 cat_cols=cat_cols,
                 cont_cols=cont_cols,
                 cat_encoder=cat_encoders,

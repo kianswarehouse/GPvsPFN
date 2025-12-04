@@ -474,6 +474,11 @@ class FinalParameterStorageCallback(Callback):
         # ALWAYS check base_kernel directly for ARD lengthscales and override any previous results
         # This is the authoritative source for ARD kernels wrapped in LogScaleKernel
         # The recursive search might find lengthscales from wrapper kernels, but we want the base_kernel ones
+        # Clear any lengthscales found by recursive search before direct extraction to avoid duplication
+        if "lengthscales" in params:
+            params["lengthscales"] = None
+        params["_lengthscales_locked"] = False
+        
         if hasattr(model, "covar_module"):
             covar = model.covar_module
 
@@ -761,14 +766,13 @@ class FinalParameterStorageCallback(Callback):
 
             # Recursively search through specific attributes that are likely to contain kernels/parameters
             # Search base_kernel first to prioritize ARD kernel lengthscales
+            # NOTE: We skip cont_kernel, cat_kernel, and source_kernel here because we extract those directly
+            # in _extract_transformed_parameters to avoid finding lengthscales from both the wrapper and the kernel itself
             search_attrs = [
                 "base_kernel",  # Search base_kernel first for ARD kernels
                 "covar_module",
                 "likelihood",
                 "mean_module",
-                "cat_kernel",
-                "cont_kernel",
-                "source_kernel",
                 "kernels",
                 "noise_covar",
                 "cat_encoder",
