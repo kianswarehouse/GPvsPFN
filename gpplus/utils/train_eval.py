@@ -6,9 +6,9 @@ import torch
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
 from gpplus.training import GPTrainer
 from gpplus.training.callbacks import FinalParameterStorageCallback
-from gpplus.training.eval import evaluate_gp_model
+# from gpplus.training.eval import evaluate_gp_model
 
-# from gpplus.training.eval2 import evaluate_gp_model as evaluate_gp_model2
+from gpplus.training.eval2 import evaluate_gp_model
 from gpplus.training.optimizers import LBFGSScipy
 from gpplus.utils.metrics_functions import compute_metrics, compute_per_source_metrics
 
@@ -22,7 +22,7 @@ def train_eval_gp(
     num_runs: int,
     lr: float,
     convergence_patience: int,
-    optimizer_class=torch.optim.Adam,
+    optimizer_class=None,
     initializer_class=None,
     device: str = "cpu",
     # dtype: torch.dtype = torch.float64,
@@ -53,18 +53,18 @@ def train_eval_gp(
         output_std: numpy array of predictive std (denormalized if mean/std provided)
     """
     # Set optimizer kwargs based on optimizer type
-    if optimizer_class == LBFGSScipy or (
-        hasattr(optimizer_class, "__name__") and optimizer_class.__name__ == "LBFGSScipy"
-    ):
-        optimizer_kwargs = {
-            "max_iter": 2000,
-            "max_eval": 5000,
-            "tolerance_grad": 1e-5,
-            "tolerance_change": 1e-9,
-            "history_size": 10,
-        }
-    else:
-        optimizer_kwargs = {"lr": lr}
+    # if optimizer_class == LBFGSScipy or (
+    #     hasattr(optimizer_class, "__name__") and optimizer_class.__name__ == "LBFGSScipy"
+    # ):
+    #     optimizer_kwargs = {
+    #         "max_iter": 2000,
+    #         "max_eval": 5000,
+    #         "tolerance_grad": 1e-5,
+    #         "tolerance_change": 1e-9,
+    #         "history_size": 10,
+    #     }
+    # else:
+    #     optimizer_kwargs = {"lr": lr}
 
     callbacks = [FinalParameterStorageCallback(save_file="gp_parameters.json", verbose=False)]
 
@@ -73,7 +73,7 @@ def train_eval_gp(
         num_epochs=num_epochs,
         seed=seed,
         num_runs=num_runs,
-        optimizer_kwargs=optimizer_kwargs,
+        # optimizer_kwargs=optimizer_kwargs,
         convergence_patience=convergence_patience,
         callbacks=callbacks,
         optimizer_class=optimizer_class,

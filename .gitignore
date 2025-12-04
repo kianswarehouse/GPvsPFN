@@ -165,5 +165,4 @@ cython_debug/
 .ruff_cache/
 /examples/Tests
 /experiments_kian/Problems/results
-/experiments_kian/Problems/results
 /results
