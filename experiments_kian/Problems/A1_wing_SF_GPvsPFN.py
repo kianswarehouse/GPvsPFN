@@ -1,22 +1,13 @@
 import torch
-import os
-import sys
-import pandas as pd
-import numpy as np
 import json
 from pathlib import Path
-from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import train_test_split
-import torch.nn.functional as F
 from gpplus.utils.onehot_encode_data import encode_qual_data, learn_encodings
 import gpplus
-import gpytorch
 import time
-from gpplus.training.eval import evaluate_gp_model
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
-from load_experimental_data import wing_mixed_variables, generate_mf_wing_data
+from load_experimental_data import generate_mf_wing_data
 import defaults
 
 # import warnings

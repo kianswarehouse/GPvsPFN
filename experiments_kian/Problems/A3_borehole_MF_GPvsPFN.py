@@ -1,22 +1,13 @@
 import torch
-import os
-import sys
-import pandas as pd
-import numpy as np
 import json
 from pathlib import Path
-from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import train_test_split
-import torch.nn.functional as F
 from gpplus.utils.onehot_encode_data import encode_qual_data, learn_encodings
 import gpplus
-import gpytorch
 import time
-from gpplus.training.eval import evaluate_gp_model
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
-from load_experimental_data import borehole_mixed_variables, generate_mf_borehole_data
+from load_experimental_data import generate_mf_borehole_data
 import defaults
 
 
@@ -64,7 +55,7 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     set_seed(seed)
     
     # Calculate total samples needed
-    train_per_fold = np.array(train_size) * 8  # 8 input dimensions for borehole
+    train_per_fold = torch.tensor(train_size) * 8  # 8 input dimensions for borehole
     total_train = num_folds * train_per_fold
     total_samples = sum(num_test) + sum(total_train) 
     

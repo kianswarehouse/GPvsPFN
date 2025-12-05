@@ -2,21 +2,17 @@ from A1_wing_MF_GPvsPFN import wing_GPvsPFN
 from A2_buckling_MF_GPvsPFN import buckling_GPvsPFN
 from A3_borehole_MF_GPvsPFN import borehole_GPvsPFN
 
-date = "12_04"
-
-# from gpplus.training.optimizers import LBFGSScipy
-# optimizer = LBFGSScipy
-# optimizer = torch.optim.Adam
 num_folds = 20
 num_runs = 16
 title = None
-save_path_wing = f"./results/wing/{date}/default"
-save_path_borehole = f"./results/borehole/{date}/default"
-save_path_buckling = f"./results/buckling/{date}/default"
-save_path_buckling_noise = f"./results/buckling/{date}/noise"
+
+folder = "resultsHPC3"
+date = "12_04"
+save_path_wing = f"./{folder}/wing/{date}"
+save_path_borehole = f"./{folder}/borehole/{date}"
+save_path_buckling = f"./{folder}/buckling/{date}"
 
 # # %% Wing ------------------------------------------------------------------------------------------------
-
 wing_GPvsPFN(title=title, num_folds=num_folds, num_runs=num_runs, train_size=[10, 5, 3, 2], save_path=save_path_wing)
 wing_GPvsPFN(title=title, num_folds=num_folds, num_runs=num_runs, train_size=[10, 5, 3, 2], noise_train=[0.005, 0.01, 0.025, 0.05], noise_test=[0.005, 0.01, 0.025, 0.05], save_path=save_path_wing)
 wing_GPvsPFN(title=title, num_folds=num_folds, num_runs=num_runs, train_size=[10, 5, 3, 2], noise_train=[0.05, 0.1, 0.15, 0.25], noise_test=[0.05, 0.1, 0.15, 0.25], save_path=save_path_wing)

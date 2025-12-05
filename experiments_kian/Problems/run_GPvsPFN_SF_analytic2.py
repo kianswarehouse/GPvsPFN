@@ -13,188 +13,188 @@ from gpplus.training.optimizers import LBFGSScipy
 optimizer = LBFGSScipy
 # optimizer = torch.optim.Adam
 
-num_seeds = 20
+num_folds = 20
 num_runs = 64
 
 
 
 # %% Wing ------------------------------------------------------------------------------------------------
 # save_path_wing = f"./results/wing/{date}/default"
-# gp_metrics_10, tabpfn_metrics_10 = wing_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, save_path=save_path_wing, optimizer_class=optimizer)
-# gp_metrics_20, tabpfn_metrics_20 = wing_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, save_path=save_path_wing, optimizer_class=optimizer)
-# gp_metrics_40, tabpfn_metrics_40 = wing_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, save_path=save_path_wing, optimizer_class=optimizer)
-# gp_metrics_80, tabpfn_metrics_80 = wing_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, save_path=save_path_wing, optimizer_class=optimizer)
+# gp_metrics_10, tabpfn_metrics_10 = wing_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, save_path=save_path_wing, optimizer_class=optimizer)
+# gp_metrics_20, tabpfn_metrics_20 = wing_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, save_path=save_path_wing, optimizer_class=optimizer)
+# gp_metrics_40, tabpfn_metrics_40 = wing_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, save_path=save_path_wing, optimizer_class=optimizer)
+# gp_metrics_80, tabpfn_metrics_80 = wing_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, save_path=save_path_wing, optimizer_class=optimizer)
 
 # save_path_wing_noise = f"./results/wing/{date}/noise"
-# gp_metrics_10_noise, tabpfn_metrics_10_noise = wing_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, save_path=save_path_wing_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
-# gp_metrics_20_noise, tabpfn_metrics_20_noise = wing_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, save_path=save_path_wing_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
-# gp_metrics_40_noise, tabpfn_metrics_40_noise = wing_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, save_path=save_path_wing_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
-# gp_metrics_80_noise, tabpfn_metrics_80_noise = wing_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, save_path=save_path_wing_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
+# gp_metrics_10_noise, tabpfn_metrics_10_noise = wing_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, save_path=save_path_wing_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
+# gp_metrics_20_noise, tabpfn_metrics_20_noise = wing_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, save_path=save_path_wing_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
+# gp_metrics_40_noise, tabpfn_metrics_40_noise = wing_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, save_path=save_path_wing_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
+# gp_metrics_80_noise, tabpfn_metrics_80_noise = wing_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, save_path=save_path_wing_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
 
-# gp_metrics_10_noise, tabpfn_metrics_10_noise = wing_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, save_path=save_path_wing_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
-# gp_metrics_20_noise, tabpfn_metrics_20_noise = wing_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, save_path=save_path_wing_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
-# gp_metrics_40_noise, tabpfn_metrics_40_noise = wing_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, save_path=save_path_wing_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
-# gp_metrics_80_noise, tabpfn_metrics_80_noise = wing_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, save_path=save_path_wing_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
+# gp_metrics_10_noise, tabpfn_metrics_10_noise = wing_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, save_path=save_path_wing_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
+# gp_metrics_20_noise, tabpfn_metrics_20_noise = wing_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, save_path=save_path_wing_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
+# gp_metrics_40_noise, tabpfn_metrics_40_noise = wing_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, save_path=save_path_wing_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
+# gp_metrics_80_noise, tabpfn_metrics_80_noise = wing_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, save_path=save_path_wing_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
 
 
 # # %% Buckling ------------------------------------------------------------------------------------------------
 
 # save_path_buckling = f"./results/buckling/{date}/default"
-# gp_metrics_10, tabpfn_metrics_10 = buckling_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, save_path=save_path_buckling, optimizer_class=optimizer)
-# gp_metrics_20, tabpfn_metrics_20 = buckling_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, save_path=save_path_buckling, optimizer_class=optimizer)
-# gp_metrics_40, tabpfn_metrics_40 = buckling_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, save_path=save_path_buckling, optimizer_class=optimizer)
-# gp_metrics_80, tabpfn_metrics_80 = buckling_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, save_path=save_path_buckling, optimizer_class=optimizer)
+# gp_metrics_10, tabpfn_metrics_10 = buckling_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, save_path=save_path_buckling, optimizer_class=optimizer)
+# gp_metrics_20, tabpfn_metrics_20 = buckling_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, save_path=save_path_buckling, optimizer_class=optimizer)
+# gp_metrics_40, tabpfn_metrics_40 = buckling_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, save_path=save_path_buckling, optimizer_class=optimizer)
+# gp_metrics_80, tabpfn_metrics_80 = buckling_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, save_path=save_path_buckling, optimizer_class=optimizer)
 
 # save_path_buckling_noise = f"./results/buckling/{date}/noise"
-# gp_metrics_10_noise, tabpfn_metrics_10_noise = buckling_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, save_path=save_path_buckling_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
-# gp_metrics_20_noise, tabpfn_metrics_20_noise = buckling_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, save_path=save_path_buckling_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
-# gp_metrics_40_noise, tabpfn_metrics_40_noise = buckling_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, save_path=save_path_buckling_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
-# gp_metrics_80_noise, tabpfn_metrics_80_noise = buckling_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, save_path=save_path_buckling_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
+# gp_metrics_10_noise, tabpfn_metrics_10_noise = buckling_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, save_path=save_path_buckling_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
+# gp_metrics_20_noise, tabpfn_metrics_20_noise = buckling_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, save_path=save_path_buckling_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
+# gp_metrics_40_noise, tabpfn_metrics_40_noise = buckling_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, save_path=save_path_buckling_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
+# gp_metrics_80_noise, tabpfn_metrics_80_noise = buckling_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, save_path=save_path_buckling_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
 
-# gp_metrics_10_noise, tabpfn_metrics_10_noise = buckling_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, save_path=save_path_buckling_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
-# gp_metrics_20_noise, tabpfn_metrics_20_noise = buckling_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, save_path=save_path_buckling_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
-# gp_metrics_40_noise, tabpfn_metrics_40_noise = buckling_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, save_path=save_path_buckling_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
-# gp_metrics_80_noise, tabpfn_metrics_80_noise = buckling_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, save_path=save_path_buckling_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
+# gp_metrics_10_noise, tabpfn_metrics_10_noise = buckling_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, save_path=save_path_buckling_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
+# gp_metrics_20_noise, tabpfn_metrics_20_noise = buckling_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, save_path=save_path_buckling_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
+# gp_metrics_40_noise, tabpfn_metrics_40_noise = buckling_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, save_path=save_path_buckling_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
+# gp_metrics_80_noise, tabpfn_metrics_80_noise = buckling_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, save_path=save_path_buckling_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
 
 # %% Borehole ------------------------------------------------------------------------------------------------
 
 # save_path_borehole = f"./results/borehole/{date}/default"
-# gp_metrics_10, tabpfn_metrics_10 = borehole_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, save_path=save_path_borehole, optimizer_class=optimizer)
-# gp_metrics_20, tabpfn_metrics_20 = borehole_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, save_path=save_path_borehole, optimizer_class=optimizer)
-# gp_metrics_40, tabpfn_metrics_40 = borehole_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, save_path=save_path_borehole, optimizer_class=optimizer)
-# gp_metrics_80, tabpfn_metrics_80 = borehole_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, save_path=save_path_borehole, optimizer_class=optimizer)
+# gp_metrics_10, tabpfn_metrics_10 = borehole_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, save_path=save_path_borehole, optimizer_class=optimizer)
+# gp_metrics_20, tabpfn_metrics_20 = borehole_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, save_path=save_path_borehole, optimizer_class=optimizer)
+# gp_metrics_40, tabpfn_metrics_40 = borehole_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, save_path=save_path_borehole, optimizer_class=optimizer)
+# gp_metrics_80, tabpfn_metrics_80 = borehole_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, save_path=save_path_borehole, optimizer_class=optimizer)
 
 # save_path_borehole_noise = f"./results/borehole/{date}/noise"
-# gp_metrics_10_noise, tabpfn_metrics_10_noise = borehole_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, save_path=save_path_borehole_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
-# gp_metrics_20_noise, tabpfn_metrics_20_noise = borehole_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, save_path=save_path_borehole_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
-# gp_metrics_40_noise, tabpfn_metrics_40_noise = borehole_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, save_path=save_path_borehole_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
-# gp_metrics_80_noise, tabpfn_metrics_80_noise = borehole_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, save_path=save_path_borehole_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
+# gp_metrics_10_noise, tabpfn_metrics_10_noise = borehole_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, save_path=save_path_borehole_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
+# gp_metrics_20_noise, tabpfn_metrics_20_noise = borehole_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, save_path=save_path_borehole_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
+# gp_metrics_40_noise, tabpfn_metrics_40_noise = borehole_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, save_path=save_path_borehole_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
+# gp_metrics_80_noise, tabpfn_metrics_80_noise = borehole_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, save_path=save_path_borehole_noise, noise_train=0.05, noise_test=0.05, optimizer_class=optimizer)
 
-# gp_metrics_10_noise, tabpfn_metrics_10_noise = borehole_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, save_path=save_path_borehole_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
-# gp_metrics_20_noise, tabpfn_metrics_20_noise = borehole_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, save_path=save_path_borehole_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
-# gp_metrics_40_noise, tabpfn_metrics_40_noise = borehole_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, save_path=save_path_borehole_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
-# gp_metrics_80_noise, tabpfn_metrics_80_noise = borehole_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, save_path=save_path_borehole_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
+# gp_metrics_10_noise, tabpfn_metrics_10_noise = borehole_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, save_path=save_path_borehole_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
+# gp_metrics_20_noise, tabpfn_metrics_20_noise = borehole_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, save_path=save_path_borehole_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
+# gp_metrics_40_noise, tabpfn_metrics_40_noise = borehole_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, save_path=save_path_borehole_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
+# gp_metrics_80_noise, tabpfn_metrics_80_noise = borehole_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, save_path=save_path_borehole_noise, noise_train=0.005, noise_test=0.005, optimizer_class=optimizer)
 
 # %% Ackley ------------------------------------------------------------------------------------------------
 
 # save_path_ackley = f"./results/ackley/{date}/default/5D"
-# gp_metrics_10, tabpfn_metrics_10 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer)
-# gp_metrics_20, tabpfn_metrics_20 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer)
-# gp_metrics_40, tabpfn_metrics_40 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer)
-# gp_metrics_80, tabpfn_metrics_80 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer)
+# gp_metrics_10, tabpfn_metrics_10 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer)
+# gp_metrics_20, tabpfn_metrics_20 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer)
+# gp_metrics_40, tabpfn_metrics_40 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer)
+# gp_metrics_80, tabpfn_metrics_80 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer)
 
 # save_path_ackley = f"./results/ackley/{date}/default/10D"
-# gp_metrics_10, tabpfn_metrics_10 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer)
-# gp_metrics_20, tabpfn_metrics_20 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer)
-# gp_metrics_40, tabpfn_metrics_40 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer)
-# gp_metrics_80, tabpfn_metrics_80 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer)
+# gp_metrics_10, tabpfn_metrics_10 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer)
+# gp_metrics_20, tabpfn_metrics_20 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer)
+# gp_metrics_40, tabpfn_metrics_40 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer)
+# gp_metrics_80, tabpfn_metrics_80 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer)
 
 
 # save_path_ackley_V2 = f"./results/ackleyV2/{date}/default/5D"
-# gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
-# gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
-# gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
-# gp_metrics_80_V2, tabpfn_metrics_80_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_80_V2, tabpfn_metrics_80_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
 
 # save_path_ackley_V2 = f"./results/ackleyV2/{date}/default/10D"
-# gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
-# gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
-# gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
-# gp_metrics_80_V2, tabpfn_metrics_80_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_80_V2, tabpfn_metrics_80_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
 
 # save_path_ackley_V2 = f"./results/ackleyV2/{date}/default/20D"
-# gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
-# gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
-# gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
 
 
 # save_path_ackley = f"./results/ackley/{date}/default/20D"
-# # # gp_metrics_10, tabpfn_metrics_10 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer)
-# # # gp_metrics_20, tabpfn_metrics_20 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer)
-# # # gp_metrics_40, tabpfn_metrics_40 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer)
-# gp_metrics_80, tabpfn_metrics_80 = ackley_GPvsPFN(num_seeds=20, num_runs=4, train_size=80, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer)
+# # # gp_metrics_10, tabpfn_metrics_10 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer)
+# # # gp_metrics_20, tabpfn_metrics_20 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer)
+# # # gp_metrics_40, tabpfn_metrics_40 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer)
+# gp_metrics_80, tabpfn_metrics_80 = ackley_GPvsPFN(num_folds=20, num_runs=4, train_size=80, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer)
 
 # save_path_ackley_V2 = f"./results/ackleyV2/{date}/default/5D"
-# gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
-# gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
-# gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
-# gp_metrics_80_V2, tabpfn_metrics_80_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_80_V2, tabpfn_metrics_80_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
 
 # save_path_ackley_V2 = f"./results/ackleyV2/{date}/default/10D"
-# gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
-# gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
-# gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
-# gp_metrics_80_V2, tabpfn_metrics_80_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+# gp_metrics_80_V2, tabpfn_metrics_80_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
 
 
 # date = "11_10"
 # num_runs = 16
 # save_path_ackley = f"./results/ackley/{date}/default/5D"
-# gp_metrics_10, tabpfn_metrics_10 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_20, tabpfn_metrics_20 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_40, tabpfn_metrics_40 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_80, tabpfn_metrics_80 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_10, tabpfn_metrics_10 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
-# gp_metrics_20, tabpfn_metrics_20 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
-# gp_metrics_40, tabpfn_metrics_40 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
-# gp_metrics_80, tabpfn_metrics_80 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+# gp_metrics_10, tabpfn_metrics_10 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_20, tabpfn_metrics_20 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_40, tabpfn_metrics_40 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_80, tabpfn_metrics_80 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_10, tabpfn_metrics_10 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+# gp_metrics_20, tabpfn_metrics_20 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+# gp_metrics_40, tabpfn_metrics_40 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+# gp_metrics_80, tabpfn_metrics_80 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, dimensions=5, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
 
 # save_path_ackley = f"./results/ackley/{date}/default/10D"
-# gp_metrics_10, tabpfn_metrics_10 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_20, tabpfn_metrics_20 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_40, tabpfn_metrics_40 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_80, tabpfn_metrics_80 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_10, tabpfn_metrics_10 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
-# gp_metrics_20, tabpfn_metrics_20 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
-# gp_metrics_40, tabpfn_metrics_40 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
-# gp_metrics_80, tabpfn_metrics_80 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+# gp_metrics_10, tabpfn_metrics_10 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_20, tabpfn_metrics_20 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_40, tabpfn_metrics_40 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_80, tabpfn_metrics_80 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_10, tabpfn_metrics_10 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+# gp_metrics_20, tabpfn_metrics_20 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+# gp_metrics_40, tabpfn_metrics_40 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+# gp_metrics_80, tabpfn_metrics_80 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, dimensions=10, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
 
 # save_path_ackley = f"./results/ackley/{date}/default/20D"
-# gp_metrics_10, tabpfn_metrics_10 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_20, tabpfn_metrics_20 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_40, tabpfn_metrics_40 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_10, tabpfn_metrics_10 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
-# gp_metrics_20, tabpfn_metrics_20 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
-# gp_metrics_40, tabpfn_metrics_40 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+# gp_metrics_10, tabpfn_metrics_10 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_20, tabpfn_metrics_20 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_40, tabpfn_metrics_40 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_10, tabpfn_metrics_10 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+# gp_metrics_20, tabpfn_metrics_20 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+# gp_metrics_40, tabpfn_metrics_40 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
 
 # save_path_ackley_V2 = f"./results/ackleyV2/{date}/default/5D"
-# gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_80_V2, tabpfn_metrics_80_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
-# gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
-# gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
-# gp_metrics_80_V2, tabpfn_metrics_80_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+# gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_80_V2, tabpfn_metrics_80_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+# gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+# gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+# gp_metrics_80_V2, tabpfn_metrics_80_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, dimensions=5, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
 
 save_path_ackley_V2 = f"./results/ackleyV2/{date}/default/10D"
-# gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_80_V2, tabpfn_metrics_80_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-# gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
-# gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
-# gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
-gp_metrics_80_V2, tabpfn_metrics_80_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=80, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+# gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_80_V2, tabpfn_metrics_80_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+# gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+# gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+# gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+gp_metrics_80_V2, tabpfn_metrics_80_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=80, dimensions=10, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
 
 save_path_ackley_V2 = f"./results/ackleyV2/{date}/default/20D"
-gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
-gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=10, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
-gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
-gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_seeds=num_seeds, num_runs=num_runs, train_size=40, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.05, noise_test=0.05)
+gp_metrics_10_V2, tabpfn_metrics_10_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=10, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+gp_metrics_20_V2, tabpfn_metrics_20_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
+gp_metrics_40_V2, tabpfn_metrics_40_V2 = ackley_GPvsPFN(num_folds=num_folds, num_runs=num_runs, train_size=40, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer, noise_train=0.005, noise_test=0.005)
 
 
 save_path_ackley = f"./results/ackley/{date}/default/20D"
 save_path_ackley_V2 = f"./results/ackleyV2/{date}/default/20D"
 
-ackley_GPvsPFN(num_seeds=20, num_runs=4, train_size=80, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer)
-ackley_GPvsPFN(num_seeds=20, num_runs=4, train_size=80, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+ackley_GPvsPFN(num_folds=20, num_runs=4, train_size=80, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer)
+ackley_GPvsPFN(num_folds=20, num_runs=4, train_size=80, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
 
 
-ackley_GPvsPFN(num_seeds=20, num_runs=8, train_size=80, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer)
-ackley_GPvsPFN(num_seeds=20, num_runs=8, train_size=80, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+ackley_GPvsPFN(num_folds=20, num_runs=8, train_size=80, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer)
+ackley_GPvsPFN(num_folds=20, num_runs=8, train_size=80, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
 
-ackley_GPvsPFN(num_seeds=20, num_runs=16, train_size=80, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer)
-ackley_GPvsPFN(num_seeds=20, num_runs=16, train_size=80, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)
+ackley_GPvsPFN(num_folds=20, num_runs=16, train_size=80, dimensions=20, save_path=save_path_ackley, optimizer_class=optimizer)
+ackley_GPvsPFN(num_folds=20, num_runs=16, train_size=80, dimensions=20, save_path=save_path_ackley_V2, V2=True, optimizer_class=optimizer)

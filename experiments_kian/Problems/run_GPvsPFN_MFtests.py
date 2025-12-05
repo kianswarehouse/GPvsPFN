@@ -29,9 +29,9 @@ save_path_borehole = f"./results/borehole/{date}/default"
 save_path_buckling = f"./results/buckling/{date}/default"
 save_path_buckling_noise = f"./results/buckling/{date}/noise"
 
-wing_SF_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=10, save_path=save_path_wing, optimizer_class=optimizer)
-wing_SF_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=10, noise_train=0.005, noise_test=0.005, save_path=save_path_wing, optimizer_class=optimizer)
-wing_SF_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=10, noise_train=0.05, noise_test=0.05, save_path=save_path_wing, optimizer_class=optimizer)
+# wing_SF_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=10, save_path=save_path_wing, optimizer_class=optimizer)
+# wing_SF_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=10, noise_train=0.005, noise_test=0.005, save_path=save_path_wing, optimizer_class=optimizer)
+# wing_SF_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=10, noise_train=0.05, noise_test=0.05, save_path=save_path_wing, optimizer_class=optimizer)
 
 wing_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[10, 5, 3, 2], save_path=save_path_wing, optimizer_class=optimizer, standardization_method=s_method)
 wing_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[10, 5, 3, 2], noise_train=[0.005, 0.01, 0.025, 0.05], noise_test=[0.005, 0.01, 0.025, 0.05], save_path=save_path_wing, optimizer_class=optimizer, standardization_method=s_method)
@@ -45,9 +45,21 @@ wing_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[10
 wing_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[10, 15, 20, 35], noise_train=[0.005, 0.01, 0.025, 0.05], noise_test=[0.005, 0.01, 0.025, 0.05], save_path=save_path_wing, optimizer_class=optimizer, standardization_method=s_method)
 wing_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[10, 15, 20, 35], noise_train=[0.05, 0.1, 0.15, 0.25], noise_test=[0.05, 0.1, 0.15, 0.25], save_path=save_path_wing, optimizer_class=optimizer, standardization_method=s_method)
 
-buckling_SF_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=20, save_path=save_path_buckling, optimizer_class=optimizer)
-buckling_SF_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=20, noise_train=0.005, noise_test=0.005, save_path=save_path_buckling, optimizer_class=optimizer)
-buckling_SF_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=20, noise_train=0.05, noise_test=0.05, save_path=save_path_buckling, optimizer_class=optimizer)
+wing_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 10, 6, 4], save_path=save_path_wing, optimizer_class=optimizer, standardization_method=s_method)
+wing_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 10, 6, 4], noise_train=[0.005, 0.01, 0.025, 0.05], noise_test=[0.005, 0.01, 0.025, 0.05], save_path=save_path_wing, optimizer_class=optimizer, standardization_method=s_method)
+wing_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 10, 6, 4], noise_train=[0.05, 0.1, 0.15, 0.25], noise_test=[0.05, 0.1, 0.15, 0.25], save_path=save_path_wing, optimizer_class=optimizer, standardization_method=s_method)
+
+wing_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 20, 20, 20], save_path=save_path_wing, optimizer_class=optimizer, standardization_method=s_method)
+wing_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 20, 20, 20], noise_train=[0.005, 0.01, 0.025, 0.05], noise_test=[0.005, 0.01, 0.025, 0.05], save_path=save_path_wing, optimizer_class=optimizer, standardization_method=s_method)
+wing_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 20, 20, 20], noise_train=[0.05, 0.1, 0.15, 0.25], noise_test=[0.05, 0.1, 0.15, 0.25], save_path=save_path_wing, optimizer_class=optimizer, standardization_method=s_method)
+
+wing_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 25, 30, 35], save_path=save_path_wing, optimizer_class=optimizer, standardization_method=s_method)
+wing_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 25, 30, 35], noise_train=[0.005, 0.01, 0.025, 0.05], noise_test=[0.005, 0.01, 0.025, 0.05], save_path=save_path_wing, optimizer_class=optimizer, standardization_method=s_method)
+wing_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 25, 30, 35], noise_train=[0.05, 0.1, 0.15, 0.25], noise_test=[0.05, 0.1, 0.15, 0.25], save_path=save_path_wing, optimizer_class=optimizer, standardization_method=s_method)
+
+# buckling_SF_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=20, save_path=save_path_buckling, optimizer_class=optimizer)
+# buckling_SF_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=20, noise_train=0.005, noise_test=0.005, save_path=save_path_buckling, optimizer_class=optimizer)
+# buckling_SF_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=20, noise_train=0.05, noise_test=0.05, save_path=save_path_buckling, optimizer_class=optimizer)
 
 buckling_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 10], save_path=save_path_buckling, optimizer_class=optimizer, standardization_method=s_method)
 buckling_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 10], noise_train=[0.005, 0.01], noise_test=[0.005, 0.01], save_path=save_path_buckling, optimizer_class=optimizer, standardization_method=s_method)
@@ -61,9 +73,21 @@ buckling_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size
 buckling_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 40], noise_train=[0.005, 0.01], noise_test=[0.005, 0.01], save_path=save_path_buckling, optimizer_class=optimizer, standardization_method=s_method)
 buckling_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 40], noise_train=[0.05, 0.1], noise_test=[0.05, 0.1], save_path=save_path_buckling, optimizer_class=optimizer, standardization_method=s_method)
 
-borehole_SF_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=10, save_path=save_path_borehole, optimizer_class=optimizer)
-borehole_SF_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=10, noise_train=0.005, noise_test=0.005, save_path=save_path_borehole, optimizer_class=optimizer)
-borehole_SF_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=10, noise_train=0.05, noise_test=0.05, save_path=save_path_borehole, optimizer_class=optimizer)
+buckling_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[40, 20], save_path=save_path_buckling, optimizer_class=optimizer, standardization_method=s_method)
+buckling_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[40, 20], noise_train=[0.005, 0.01], noise_test=[0.005, 0.01], save_path=save_path_buckling, optimizer_class=optimizer, standardization_method=s_method)
+buckling_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 10], noise_train=[0.05, 0.1], noise_test=[0.05, 0.1], save_path=save_path_buckling, optimizer_class=optimizer, standardization_method=s_method)
+
+buckling_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[40, 40], save_path=save_path_buckling, optimizer_class=optimizer, standardization_method=s_method)
+buckling_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[40, 40], noise_train=[0.005, 0.01], noise_test=[0.005, 0.01], save_path=save_path_buckling, optimizer_class=optimizer, standardization_method=s_method)
+buckling_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[40, 40], noise_train=[0.05, 0.1], noise_test=[0.05, 0.1], save_path=save_path_buckling, optimizer_class=optimizer, standardization_method=s_method)
+
+buckling_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[40, 80], save_path=save_path_buckling, optimizer_class=optimizer, standardization_method=s_method)
+buckling_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[40, 80], noise_train=[0.005, 0.01], noise_test=[0.005, 0.01], save_path=save_path_buckling, optimizer_class=optimizer, standardization_method=s_method)
+buckling_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[40, 80], noise_train=[0.05, 0.1], noise_test=[0.05, 0.1], save_path=save_path_buckling, optimizer_class=optimizer, standardization_method=s_method)
+
+# borehole_SF_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=10, save_path=save_path_borehole, optimizer_class=optimizer)
+# borehole_SF_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=10, noise_train=0.005, noise_test=0.005, save_path=save_path_borehole, optimizer_class=optimizer)
+# borehole_SF_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=10, noise_train=0.05, noise_test=0.05, save_path=save_path_borehole, optimizer_class=optimizer)
 
 borehole_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[10, 4, 3, 2, 1], save_path=save_path_borehole, optimizer_class=optimizer, standardization_method=s_method)
 borehole_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[10, 4, 3, 2, 1], noise_train=[0.005, 0.01, 0.025, 0.05, 0.1], noise_test=[0.005, 0.01, 0.025, 0.05, 0.1], save_path=save_path_borehole, optimizer_class=optimizer, standardization_method=s_method)
@@ -76,6 +100,18 @@ borehole_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size
 borehole_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[10, 15, 20, 25, 30], save_path=save_path_borehole, optimizer_class=optimizer, standardization_method=s_method)
 borehole_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[10, 15, 20, 25, 30], noise_train=[0.005, 0.01, 0.025, 0.05, 0.1], noise_test=[0.005, 0.01, 0.025, 0.05, 0.1], save_path=save_path_borehole, optimizer_class=optimizer, standardization_method=s_method)
 borehole_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[10, 15, 20, 25, 30], noise_train=[0.05, 0.1, 0.15, 0.25, 0.35], noise_test=[0.05, 0.1, 0.15, 0.25, 0.35], save_path=save_path_borehole, optimizer_class=optimizer, standardization_method=s_method)
+
+borehole_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[10, 8, 6, 4, 2], save_path=save_path_borehole, optimizer_class=optimizer, standardization_method=s_method)
+borehole_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[10, 8, 6, 4, 2], noise_train=[0.005, 0.01, 0.025, 0.05, 0.1], noise_test=[0.005, 0.01, 0.025, 0.05, 0.1], save_path=save_path_borehole, optimizer_class=optimizer, standardization_method=s_method)
+borehole_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[10, 4, 3, 2, 1], noise_train=[0.05, 0.1, 0.15, 0.25, 0.35], noise_test=[0.05, 0.1, 0.15, 0.25, 0.35], save_path=save_path_borehole, optimizer_class=optimizer, standardization_method=s_method)
+
+borehole_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 20, 20, 20, 20], save_path=save_path_borehole, optimizer_class=optimizer, standardization_method=s_method)
+borehole_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 20, 20, 20, 20], noise_train=[0.005, 0.01, 0.025, 0.05, 0.1], noise_test=[0.005, 0.01, 0.025, 0.05, 0.1], save_path=save_path_borehole, optimizer_class=optimizer, standardization_method=s_method)
+borehole_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 20, 20, 20, 20], noise_train=[0.05, 0.1, 0.15, 0.25, 0.35], noise_test=[0.05, 0.1, 0.15, 0.25, 0.35], save_path=save_path_borehole, optimizer_class=optimizer, standardization_method=s_method)
+
+borehole_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 30, 40, 50, 60], save_path=save_path_borehole, optimizer_class=optimizer, standardization_method=s_method)
+borehole_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 30, 40, 50, 60], noise_train=[0.005, 0.01, 0.025, 0.05, 0.1], noise_test=[0.005, 0.01, 0.025, 0.05, 0.1], save_path=save_path_borehole, optimizer_class=optimizer, standardization_method=s_method)
+borehole_GPvsPFN(title=title, num_seeds=num_seeds, num_runs=num_runs, train_size=[20, 30, 40, 50, 60], noise_train=[0.05, 0.1, 0.15, 0.25, 0.35], noise_test=[0.05, 0.1, 0.15, 0.25, 0.35], save_path=save_path_borehole, optimizer_class=optimizer, standardization_method=s_method)
 
 title = "m2"
 s_method = 2
