@@ -41,7 +41,7 @@ class GPTrainer:
         num_epochs: int = 50,
         convergence_patience=20,  # Stop if no improvement for 20 epochs
         seed: int = None,
-        num_runs: int = 64,
+        num_runs: int = 16,
         mll_class: gpytorch.mlls.MarginalLogLikelihood = None,
         cholesky_jitter: float = 1e-6,
         callbacks: Optional[List[Callback]] = None,
