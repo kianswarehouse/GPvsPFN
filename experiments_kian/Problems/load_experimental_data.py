@@ -235,9 +235,9 @@ def generate_mf_wing_data(train_samples_per_source: list[int], test_samples_per_
     """
     if seed is not None:
         torch.manual_seed(seed)
-    else:
-        seed = 42
-        torch.manual_seed(seed)
+    # else:
+    #     seed = 42
+    #     torch.manual_seed(seed)
 
     # Defaults and validation for per-source noise (4 sources)
     if train_noise is None:
@@ -436,6 +436,9 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
       - Each fold has perfectly balanced categorical distributions
     """
     if seed is not None:
+        torch.manual_seed(seed)
+    else:
+        seed = torch.randint(0, 1000000)
         torch.manual_seed(seed)
     
     # Default noise values
@@ -722,9 +725,9 @@ def generate_mf_buckling_data(train_samples_per_source: list[int], test_samples_
     """
     if seed is not None:
         torch.manual_seed(seed)
-    else:
-        seed = 42
-        torch.manual_seed(seed)
+    # else:
+    #     seed = 42
+    #     torch.manual_seed(seed)
 
     # Defaults and validation for per-source noise (2 sources)
     if train_noise is None:
@@ -955,9 +958,9 @@ def generate_mf_buckling_data_v2(train_samples_per_source: list[int], test_sampl
     """
     if seed is not None:
         torch.manual_seed(seed)
-    else:
-        seed = 42
-        torch.manual_seed(seed)
+    # else:
+    #     seed = 42
+    #     torch.manual_seed(seed)
 
     # Defaults and validation for per-source noise (2 sources)
     if train_noise is None:
@@ -1169,9 +1172,9 @@ def generate_mf_borehole_data(
     """
     if seed is not None:
         torch.manual_seed(seed)
-    else:
-        seed = 42
-        torch.manual_seed(seed)
+    # else:
+    #     seed = 42
+    #     torch.manual_seed(seed)
 
     # Defaults and validation for per-source noise (5 sources)
     num_sources = 5

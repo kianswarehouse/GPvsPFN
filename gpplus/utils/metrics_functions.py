@@ -250,27 +250,15 @@ def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None
             # Format output based on metric type
             if m.startswith("lengthscale_"):
                 # For individual lengthscales
-                print(
-                    f"  {m}: median={s['median']:.6f} | min={s['min']:.6f} | max={s['max']:.6f} | "
-                    f"mean={s['mean']:.6f} ± {s['std']:.6f} (n={s['count']})"
-                )
+                print(f"  {m}: median={s['median']:.6f} | min={s['min']:.6f} | max={s['max']:.6f} | mean={s['mean']:.6f} ± {s['std']:.6f} (n={s['count']})")
             elif m in ["num_epochs", "best_epoch"]:
                 # For integer metrics, show as integers
-                print(
-                    f"  {m}: median={s['median']:.0f} | min={s['min']:.0f} | max={s['max']:.0f} | "
-                    f"mean={s['mean']:.1f} ± {s['std']:.1f} (n={s['count']})"
-                )
-            elif m in ["jitter", "noise"]:
+                print(f"  {m}: median={s['median']:.0f} | min={s['min']:.0f} | max={s['max']:.0f} | mean={s['mean']:.1f} ± {s['std']:.1f} (n={s['count']})")
+            elif m in ["jitter", "noise", "noise_std"]:
                 # Use scientific notation for jitter and noise
-                print(
-                    f"  {m}: median={s['median']:.6e} | min={s['min']:.6e} | max={s['max']:.6e} | "
-                    f"mean={s['mean']:.6e} ± {s['std']:.6e} (n={s['count']})"
-                )
+                print(f"  {m}: median={s['median']:.6e} | min={s['min']:.6e} | max={s['max']:.6e} | mean={s['mean']:.6e} ± {s['std']:.6e} (n={s['count']})")
             else:
-                print(
-                    f"  {m}: median={s['median']:.6f} | min={s['min']:.6f} | max={s['max']:.6f} | "
-                    f"mean={s['mean']:.6f} ± {s['std']:.6f} (n={s['count']})"
-                )
+                print(f"  {m}: median={s['median']:.6f} | min={s['min']:.6f} | max={s['max']:.6f} | mean={s['mean']:.6f} ± {s['std']:.6f} (n={s['count']})")
 
         # Print per-source statistics
         if per_source_stats:
@@ -535,8 +523,8 @@ def compute_per_source_metrics(
                 interval_score = width + (2 / 0.05) * below + (2 / 0.05) * above
                 source_nis = interval_score.mean() / source_y_true.std()  # Use per-source target std for NIS
                 source_metrics["NIS"] = source_nis
-                source_metrics["NIS_over"] = width.mean() / source_y_true.std()
-                source_metrics["NIS_under"] = ((2 / 0.05) * below + (2 / 0.05) * above).mean() / source_y_true.std()
+                source_metrics["NIS_width"] = width.mean() / source_y_true.std()
+                source_metrics["NIS_outside"] = ((2 / 0.05) * below + (2 / 0.05) * above).mean() / source_y_true.std()
 
             per_source_metrics[source_name] = source_metrics
 

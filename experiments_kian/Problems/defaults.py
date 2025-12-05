@@ -38,4 +38,17 @@ def MF_kernel(
             **kwargs
         )
     )
+MF_STANDARDIZATION_METHOD = 2
 
+NUM_FOLDS = 20
+TRAINER_LR = 0.1
+TRAINER_NUM_EPOCHS = 100
+TRAINER_NUM_RUNS = 16
+TRAINER_CONVERGENCE_PATIENCE = 10
+TRAINER_OPTIMIZER_CLASS = gpplus.training.optimizers.LBFGSScipy
+TRAINER_INITIALIZER_CLASS = gpplus.training.parameter_initializer.DefaultParameterInitializer
+TRAINER_GP_DEVICE = 'cpu'
+TRAINER_AMP_DEVICE = 'cuda'
+
+SEED = 42
+SEED_TRAINER = None
