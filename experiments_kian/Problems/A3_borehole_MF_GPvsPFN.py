@@ -34,6 +34,8 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         standardization_method=defaults.MF_STANDARDIZATION_METHOD, # 0: standardize all data according to all data, 1: standardize all data according to HF data only, 2: standardize each data source independently
         seed=defaults.SEED,
         seed_trainer=defaults.SEED_TRAINER,
+        gp_dtype = defaults.DTYPE_GP,
+        pfn_dtype = defaults.DTYPE_PFN
     ):
     if title is None:
         title = f"boreholeMF_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
@@ -41,8 +43,6 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         title = f"boreholeMF{title}_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     
     
-    amp_dtype = torch.float32
-    dtype = torch.float64
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
     regressor = VanillaDirectTabPFNRegressor(device=amp_device)
@@ -124,10 +124,10 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         # =============================================================================
         print(f"\n--- {title} GP Training ---")
         
-        X_train = X_train.detach().clone().to(dtype=dtype)
-        X_test = X_enc_test_all.detach().clone().to(dtype=dtype)
-        y_train = y_train.detach().clone().to(dtype=dtype)
-        y_test = y_test_all.detach().clone().to(dtype=dtype)
+        X_train = X_train.detach().clone().to(dtype=gp_dtype)
+        X_test = X_enc_test_all.detach().clone().to(dtype=gp_dtype)
+        y_train = y_train.detach().clone().to(dtype=gp_dtype)
+        y_test = y_test_all.detach().clone().to(dtype=gp_dtype)
 
         X_train, X_test, y_train_normal, y_train_mean, y_train_std = gpplus.utils.standardize_mf_data(
             X_train,
@@ -196,7 +196,7 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             y_train_normal if standardize_y else y_train,
             y_test,
             amp_device=amp_device,
-            amp_dtype=amp_dtype,
+            amp_dtype=pfn_dtype,
             regressor=regressor,
             source_cols=source_cols,
             y_train_mean=y_train_mean if standardize_y else None,
@@ -240,7 +240,7 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 "standardize_X": standardize_X,
                 "standardize_y": standardize_y,
                 "standardization_method": standardization_method,
-                "dtype": str(dtype),
+                "dtype": str(gp_dtype),
                 "device": str(gp_device),
                 "num_epochs": num_epochs,
                 "num_runs": num_runs,

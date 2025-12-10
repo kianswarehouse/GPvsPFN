@@ -32,6 +32,8 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         noise_type='gaussian',
         seed=defaults.SEED,
         seed_trainer=defaults.SEED_TRAINER,
+        gp_dtype = defaults.DTYPE_GP,
+        pfn_dtype = defaults.DTYPE_PFN,
     ):
     
     if title is None:
@@ -42,8 +44,6 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     # Generate data
     set_seed(seed)
     
-    amp_dtype = torch.float32
-    dtype = torch.float64
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
     regressor = VanillaDirectTabPFNRegressor(device=amp_device)
@@ -110,10 +110,10 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         print(f"\n--- {title} GP Training ---")
         
         # Reuse PFN split, convert to torch
-        X_train = X_train.detach().clone().to(dtype=dtype)
-        X_test = X_test_all.detach().clone().to(dtype=dtype)
-        y_train = y_train.detach().clone().to(dtype=dtype)
-        y_test = y_test_all.detach().clone().to(dtype=dtype)
+        X_train = X_train.detach().clone().to(dtype=gp_dtype)
+        X_test = X_test_all.detach().clone().to(dtype=gp_dtype)
+        y_train = y_train.detach().clone().to(dtype=gp_dtype)
+        y_test = y_test_all.detach().clone().to(dtype=gp_dtype)
         if standardize_X:
             Xscaler = gpplus.utils.StandardScaler()
             Xscaler.fit(X_train)
@@ -173,7 +173,7 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             y_train_normal if standardize_y else y_train,
             y_test,
             amp_device=amp_device,
-            amp_dtype=amp_dtype,
+            amp_dtype=pfn_dtype,
             regressor=regressor,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
@@ -206,7 +206,7 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 "test_samples": num_test,
                 "standardize_X": standardize_X,
                 "standardize_y": standardize_y,
-                "dtype": str(dtype),
+                "dtype": str(gp_dtype),
                 "device": str(gp_device),
                 "num_epochs": num_epochs,
                 "num_runs": num_runs,

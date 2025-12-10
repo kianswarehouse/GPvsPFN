@@ -1,18 +1,9 @@
 import torch
-import os
-import sys
-import pandas as pd
-import numpy as np
 import json
 from pathlib import Path
-from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import train_test_split
-import torch.nn.functional as F
 from gpplus.utils.onehot_encode_data import encode_qual_data, learn_encodings
 import gpplus
-import gpytorch
 import time
-from gpplus.training.eval import evaluate_gp_model
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
@@ -43,16 +34,16 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         seed=defaults.SEED,
         seed_trainer=defaults.SEED_TRAINER,
         V2=False,
+        gp_dtype = defaults.DTYPE_GP,
+        pfn_dtype = defaults.DTYPE_PFN,
     ):
+
     v2 = "V2" if V2 else ""
     if title is None:
         title = f"Ackley{v2}_{dimensions}D_{train_size}tD_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
         title = f"Ackley{v2}_{train_size}D_{title}"
     
-    
-    amp_dtype = torch.float32
-    dtype = torch.float64
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
     regressor = VanillaDirectTabPFNRegressor(device=amp_device)
@@ -116,10 +107,10 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         print(f"\n--- {title} GP Training ---")
         
         # Reuse PFN split, convert to torch (unified)
-        X_train = X_train.detach().clone().to(dtype=dtype)
-        X_test = X_test.detach().clone().to(dtype=dtype)
-        y_train = y_train.detach().clone().to(dtype=dtype)
-        y_test = y_test.detach().clone().to(dtype=dtype)
+        X_train = X_train.detach().clone().to(dtype=gp_dtype)
+        X_test = X_test.detach().clone().to(dtype=gp_dtype)
+        y_train = y_train.detach().clone().to(dtype=gp_dtype)
+        y_test = y_test.detach().clone().to(dtype=gp_dtype)
         if standardize_X:
             Xscaler = gpplus.utils.StandardScaler()
             Xscaler.fit(X_train[:, cont_cols])
@@ -178,7 +169,7 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             y_train_normal if standardize_y else y_train,
             y_test,
             amp_device=amp_device,
-            amp_dtype=amp_dtype,
+            amp_dtype=pfn_dtype,
             regressor=regressor,
             source_cols=source_cols,
             y_train_mean=y_train_mean if standardize_y else None,
@@ -211,7 +202,7 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 "y_train_std": float(y_train_std.item()),
                 "standardize_X": standardize_X,
                 "standardize_y": standardize_y,
-                "dtype": str(dtype),
+                "dtype": str(gp_dtype),
                 "device": str(gp_device),
                 "num_epochs": num_epochs,
                 "num_runs": num_runs,
