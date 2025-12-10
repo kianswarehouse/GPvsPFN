@@ -1,7 +1,7 @@
 import torch
 
 from ..config import logger
-
+from ..likelihoods import MultiLikelihood
 
 def evaluate_gp_model(model, test_x: torch.Tensor, include_likelihood_noise: bool = True):
     """
@@ -36,8 +36,14 @@ def evaluate_gp_model(model, test_x: torch.Tensor, include_likelihood_noise: boo
 
     with torch.no_grad():
         # observed_pred = model.likelihood(model(test_x))
-
-        observed_pred = model(test_x)
+        if isinstance(model.likelihood, MultiLikelihood):
+            model.likelihood.set_fidelity_indices(test_x, is_test=True)
+            observed_pred = model.likelihood(model(test_x))
+        elif include_likelihood_noise:
+            observed_pred = model.likelihood(model(test_x))
+        else:
+            observed_pred = model(test_x)
+            
         # Get the mean, lower and upper confidence bounds
         mean = observed_pred.mean
         lower, upper = observed_pred.confidence_region()

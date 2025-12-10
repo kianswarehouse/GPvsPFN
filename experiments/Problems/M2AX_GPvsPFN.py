@@ -279,5 +279,5 @@ def M2AX_GPvsPFN(
 
 if __name__ == "__main__":
     # M2AX_GPvsPFN()
-    M2AX_GPvsPFN(num_seeds=1, num_runs=4, test_size=0.2, num_epochs=100, optimizer_class=LBFGSScipy, save_path='./results/M2AX/TestStandardizeY')
+    M2AX_GPvsPFN(num_seeds=1, num_runs=4, test_size=0.2, num_epochs=100, optimizer_class=LBFGSScipy, save_path='./results/M2AX/TestStandardizeY', gp_device='cpu', amp_device='cpu')
     # M2AX_GPvsPFN(num_seeds=2, num_runs=4, num_epochs=10000, save_path=None, encode_PFN_data=True)
