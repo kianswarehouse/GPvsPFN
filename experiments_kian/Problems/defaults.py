@@ -49,6 +49,8 @@ TRAINER_OPTIMIZER_CLASS = gpplus.training.optimizers.LBFGSScipy
 TRAINER_INITIALIZER_CLASS = gpplus.training.parameter_initializer.DefaultParameterInitializer
 TRAINER_GP_DEVICE = 'cpu'
 TRAINER_AMP_DEVICE = 'cuda'
+DTYPE_GP = torch.float64
+DTYPE_PFN = torch.float32
 
 SEED = 42
 SEED_TRAINER = None

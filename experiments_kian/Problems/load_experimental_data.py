@@ -1385,3 +1385,553 @@ def generate_ackley_data(n_train: int, n_test: int, dimensions: int = 2, train_n
         y_test = y_test + noise
     
     return X_train, y_train, X_test, y_test
+
+
+def rosenbrock_function(X: torch.Tensor, dimensions: int = None) -> torch.Tensor:
+    """
+    Compute the Rosenbrock function for given input variables.
+    
+    The Rosenbrock function is defined as:
+    f(x) = sum_{i=1}^{d-1} [100*(x_{i+1} - x_i^2)^2 + (1 - x_i)^2]
+    
+    where x ∈ [-5, 10]^d and d is the number of dimensions
+    
+    Args:
+        X (torch.Tensor): Input array of shape [n_samples, d] where d is the number of dimensions
+        dimensions (int): Number of dimensions (optional, inferred from X if not provided)
+        
+    Returns:
+        torch.Tensor: Rosenbrock function values for each input sample
+    """
+    if dimensions is None:
+        dimensions = X.shape[1]
+    
+    # Rosenbrock function: sum over i=1 to d-1 of [100*(x_{i+1} - x_i^2)^2 + (1 - x_i)^2]
+    # Vectorized computation: X[:, :-1] are x_i, X[:, 1:] are x_{i+1}
+    x_i = X[:, :-1]  # All x_i for i=0 to d-2
+    x_i_plus_1 = X[:, 1:]  # All x_{i+1} for i=0 to d-2
+    
+    term1 = 100 * (x_i_plus_1 - x_i**2)**2
+    term2 = (1 - x_i)**2
+    result = torch.sum(term1 + term2, dim=1)
+    
+    return result
+
+
+def generate_rosenbrock_data(n_train: int, n_test: int, dimensions: int = 2, train_noise: float = 0.0, 
+                            test_noise: float = 0.0, noise_type: str = 'gaussian', seed: int = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Generate train and test data for the Rosenbrock function using Sobol sequences.
+    
+    Args:
+        n_train (int): Number of training samples to generate
+        n_test (int): Number of test samples to generate
+        dimensions (int): Number of dimensions for the Rosenbrock function
+        train_noise (float): Noise level for training data as a fraction of std
+        test_noise (float): Noise level for test data as a fraction of std
+        noise_type (str): Type of noise ('gaussian' or 'uniform')
+        seed (int): Random seed for reproducibility
+        
+    Returns:
+        X_train, y_train, X_test, y_test: Train and test data
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+    
+    l_bound = -2
+    u_bound = 2
+    
+    # Generate ALL samples at once to avoid repeats
+    total_samples = n_train + n_test
+    sobol = torch.quasirandom.SobolEngine(dimension=dimensions, scramble=True)
+    X_all = sobol.draw(total_samples).to(dtype=torch.float64)
+    
+    # Scale to Rosenbrock bounds
+    X_all = X_all * (u_bound - l_bound) + l_bound
+    
+    # Compute Rosenbrock function values
+    y_all = rosenbrock_function(X_all, dimensions)
+    
+    # Split into train and test
+    X_train = X_all[:n_train]
+    y_train = y_all[:n_train]
+    X_test = X_all[n_train:]
+    y_test = y_all[n_train:]
+    
+    # Add noise separately to train and test
+    # Both train and test noise are based on TEST std
+    y_test_std = y_test.std()
+    
+    if train_noise > 0:
+        noise_scale = train_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_train) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_train = y_train + noise
+    
+    if test_noise > 0:
+        noise_scale = test_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_test) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_test = y_test + noise
+    
+    return X_train, y_train, X_test, y_test
+
+
+def rastrigin_function(X: torch.Tensor, dimensions: int = None, shift: torch.Tensor | float | None = None) -> torch.Tensor:
+    """
+    Compute the Rastrigin function for given input variables.
+    
+    The Rastrigin function is defined as:
+    f(x) = 10*d + sum_{i=1}^d [x_i^2 - 10*cos(2*pi*x_i)]
+    
+    For shifted Rastrigin: f(x - shift)
+    
+    where x ∈ [-5.12, 5.12]^d and d is the number of dimensions
+    
+    Args:
+        X (torch.Tensor): Input array of shape [n_samples, d] where d is the number of dimensions
+        dimensions (int): Number of dimensions (optional, inferred from X if not provided)
+        shift (torch.Tensor, float, or None): Shift vector for shifted Rastrigin. 
+            If None, computes standard Rastrigin.
+            If float, applies same shift to all dimensions.
+            If torch.Tensor of shape (d,), applies per-dimension shift.
+            If torch.Tensor of shape (1, d), broadcasts to all samples.
+        
+    Returns:
+        torch.Tensor: Rastrigin function values for each input sample
+    """
+    if dimensions is None:
+        dimensions = X.shape[1]
+    
+    # Apply shift if provided
+    if shift is not None:
+        if isinstance(shift, (int, float)):
+            # Scalar shift: apply to all dimensions
+            X_shifted = X - shift
+        elif isinstance(shift, torch.Tensor):
+            if shift.dim() == 0:
+                # Scalar tensor
+                X_shifted = X - shift
+            elif shift.dim() == 1:
+                # Vector of shape (d,)
+                if shift.shape[0] != dimensions:
+                    raise ValueError(f"Shift vector length {shift.shape[0]} must match dimensions {dimensions}")
+                X_shifted = X - shift.unsqueeze(0)  # Broadcast to all samples
+            elif shift.dim() == 2 and shift.shape[0] == 1:
+                # Shape (1, d) - broadcast to all samples
+                if shift.shape[1] != dimensions:
+                    raise ValueError(f"Shift vector length {shift.shape[1]} must match dimensions {dimensions}")
+                X_shifted = X - shift
+            else:
+                raise ValueError(f"Shift tensor must be scalar, 1D vector, or 2D with shape (1, d), got shape {shift.shape}")
+        else:
+            raise ValueError(f"Shift must be float, int, torch.Tensor, or None, got {type(shift)}")
+    else:
+        X_shifted = X
+    
+    # Rastrigin function: 10*d + sum(x_i^2 - 10*cos(2*pi*x_i))
+    term1 = torch.sum(X_shifted**2, dim=1)  # sum(x_i^2)
+    term2 = -10 * torch.sum(torch.cos(2 * torch.pi * X_shifted), dim=1)  # -10*sum(cos(2*pi*x_i))
+    result = 10 * dimensions + term1 + term2
+    
+    return result
+
+
+def generate_rastrigin_data(n_train: int, n_test: int, dimensions: int = 2, train_noise: float = 0.0, 
+                           test_noise: float = 0.0, noise_type: str = 'gaussian', seed: int = None, 
+                           shift: torch.Tensor | float | None = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Generate train and test data for the Rastrigin function using Sobol sequences.
+    
+    Args:
+        n_train (int): Number of training samples to generate
+        n_test (int): Number of test samples to generate
+        dimensions (int): Number of dimensions for the Rastrigin function
+        train_noise (float): Noise level for training data as a fraction of std
+        test_noise (float): Noise level for test data as a fraction of std
+        noise_type (str): Type of noise ('gaussian' or 'uniform')
+        seed (int): Random seed for reproducibility
+        shift (torch.Tensor, float, or None): Shift vector for shifted Rastrigin.
+            If None, generates standard Rastrigin data.
+            If float, applies same shift to all dimensions.
+            If torch.Tensor of shape (d,), applies per-dimension shift.
+        
+    Returns:
+        X_train, y_train, X_test, y_test: Train and test data
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+    
+    l_bound = -5.12
+    u_bound = 5.12
+    
+    # Generate ALL samples at once to avoid repeats
+    total_samples = n_train + n_test
+    sobol = torch.quasirandom.SobolEngine(dimension=dimensions, scramble=True)
+    X_all = sobol.draw(total_samples).to(dtype=torch.float64)
+    
+    # Scale to Rastrigin bounds
+    X_all = X_all * (u_bound - l_bound) + l_bound
+    
+    # Compute Rastrigin function values (with optional shift)
+    y_all = rastrigin_function(X_all, dimensions, shift=shift)
+    
+    # Split into train and test
+    X_train = X_all[:n_train]
+    y_train = y_all[:n_train]
+    X_test = X_all[n_train:]
+    y_test = y_all[n_train:]
+    
+    # Add noise separately to train and test
+    # Both train and test noise are based on TEST std
+    y_test_std = y_test.std()
+    
+    if train_noise > 0:
+        noise_scale = train_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_train) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_train = y_train + noise
+    
+    if test_noise > 0:
+        noise_scale = test_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_test) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_test = y_test + noise
+    
+    return X_train, y_train, X_test, y_test
+
+
+def keane_bump_function(X: torch.Tensor, dimensions: int = None) -> torch.Tensor:
+    """
+    Compute the Keane Bump function for given input variables.
+    
+    The Keane Bump function is defined as:
+    f(x) = - | ( Σ_{i=1}^{d} cos⁴(x_i) - 2 Π_{i=1}^{d} cos²(x_i) ) / √( Σ_{i=1}^{d} i * x_i² ) |
+    
+    where x ∈ [0, 10]^d and d is the number of dimensions
+    
+    Note: Constraints are ignored for prediction/regression tasks.
+    The constraints are:
+    - c₁(x) = 0.75 - Π_{i=1}^{d} x_i ≤ 0
+    - c₂(x) = Σ_{i=1}^{d} x_i - 7.5d ≤ 0
+    
+    Args:
+        X (torch.Tensor): Input array of shape [n_samples, d] where d is the number of dimensions
+        dimensions (int): Number of dimensions (optional, inferred from X if not provided)
+        
+    Returns:
+        torch.Tensor: Keane Bump function values for each input sample
+    """
+    if dimensions is None:
+        dimensions = X.shape[1]
+    
+    # Compute numerator: Σ_{i=1}^{d} cos⁴(x_i) - 2 Π_{i=1}^{d} cos²(x_i)
+    cos_x = torch.cos(X)
+    cos_squared = cos_x ** 2
+    cos_fourth = cos_squared ** 2
+    
+    # Sum of cos⁴ terms
+    sum_cos_fourth = torch.sum(cos_fourth, dim=1)
+    
+    # Product of cos² terms
+    prod_cos_squared = torch.prod(cos_squared, dim=1)
+    
+    # Numerator
+    numerator = sum_cos_fourth - 2 * prod_cos_squared
+    
+    # Compute denominator: √( Σ_{i=1}^{d} i * x_i² )
+    # Create indices for each dimension: [1, 2, 3, ..., d]
+    indices = torch.arange(1, dimensions + 1, dtype=X.dtype, device=X.device).unsqueeze(0)
+    x_squared = X ** 2
+    weighted_sum = torch.sum(indices * x_squared, dim=1)
+    denominator = torch.sqrt(weighted_sum)
+    
+    # Avoid division by zero (add small epsilon)
+    epsilon = 1e-10
+    denominator = torch.clamp(denominator, min=epsilon)
+    
+    # Compute f(x) = - | numerator / denominator |
+    result = -torch.abs(numerator / denominator)
+    
+    return result
+
+
+def generate_keane_bump_data(n_train: int, n_test: int, dimensions: int = 30, train_noise: float = 0.0, 
+                              test_noise: float = 0.0, noise_type: str = 'gaussian', seed: int = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Generate train and test data for the Keane Bump function using Sobol sequences.
+    
+    Args:
+        n_train (int): Number of training samples to generate
+        n_test (int): Number of test samples to generate
+        dimensions (int): Number of dimensions for the Keane Bump function (default: 30)
+        train_noise (float): Noise level for training data as a fraction of std
+        test_noise (float): Noise level for test data as a fraction of std
+        noise_type (str): Type of noise ('gaussian' or 'uniform')
+        seed (int): Random seed for reproducibility
+        
+    Returns:
+        X_train, y_train, X_test, y_test: Train and test data
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+    
+    l_bound = 0.0
+    u_bound = 10.0
+    
+    # Generate ALL samples at once to avoid repeats
+    total_samples = n_train + n_test
+    sobol = torch.quasirandom.SobolEngine(dimension=dimensions, scramble=True)
+    X_all = sobol.draw(total_samples).to(dtype=torch.float64)
+    
+    # Scale to Keane Bump bounds [0, 10]
+    X_all = X_all * (u_bound - l_bound) + l_bound
+    
+    # Compute Keane Bump function values
+    y_all = keane_bump_function(X_all, dimensions)
+    
+    # Split into train and test
+    X_train = X_all[:n_train]
+    y_train = y_all[:n_train]
+    X_test = X_all[n_train:]
+    y_test = y_all[n_train:]
+    
+    # Add noise separately to train and test
+    # Both train and test noise are based on TEST std
+    y_test_std = y_test.std()
+    
+    if train_noise > 0:
+        noise_scale = train_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_train) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_train = y_train + noise
+    
+    if test_noise > 0:
+        noise_scale = test_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_test) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_test = y_test + noise
+    
+    return X_train, y_train, X_test, y_test
+
+
+def rover_trajectory_function(X: torch.Tensor, num_design_points: int = 30, 
+                               start_location: torch.Tensor = None, 
+                               end_location: torch.Tensor = None,
+                               obstacles: list = None) -> torch.Tensor:
+    """
+    Compute the rover trajectory reward function for given design points.
+    
+    The trajectory is defined by fitting a B-spline through 30 design points in a 2D plane.
+    Reward function: f(x) = c(x) + 5, where c(x) is a penalty function that penalizes
+    collisions with obstacles by -20.
+    
+    Args:
+        X (torch.Tensor): Input array of shape [n_samples, 60] where 60 = 30 design points × 2D
+        num_design_points (int): Number of design points (default: 30)
+        start_location (torch.Tensor): Start location [x, y] (default: [0.0, 0.0])
+        end_location (torch.Tensor): End location [x, y] (default: [10.0, 10.0])
+        obstacles (list): List of obstacles, each as [center_x, center_y, radius]
+        
+    Returns:
+        torch.Tensor: Reward function values for each input sample
+    """
+    if X.shape[1] != num_design_points * 2:
+        raise ValueError(f"X must have {num_design_points * 2} dimensions (got {X.shape[1]})")
+    
+    n_samples = X.shape[0]
+    
+    # Default start and end locations
+    if start_location is None:
+        start_location = torch.tensor([0.0, 0.0], dtype=X.dtype, device=X.device)
+    if end_location is None:
+        end_location = torch.tensor([10.0, 10.0], dtype=X.dtype, device=X.device)
+    
+    # Default obstacles: 15 circular obstacles
+    if obstacles is None:
+        # Create 15 obstacles with random but fixed positions
+        torch.manual_seed(42)  # Fixed seed for reproducible obstacles
+        obstacles = []
+        for i in range(15):
+            center_x = 2.0 + (i % 5) * 2.0
+            center_y = 2.0 + (i // 5) * 2.0
+            radius = 0.5 + (i % 3) * 0.3
+            obstacles.append([center_x, center_y, radius])
+        obstacles = torch.tensor(obstacles, dtype=X.dtype, device=X.device)
+    else:
+        obstacles = torch.tensor(obstacles, dtype=X.dtype, device=X.device)
+    
+    # Reshape X to [n_samples, num_design_points, 2]
+    design_points = X.reshape(n_samples, num_design_points, 2)
+    
+    # Create full trajectory including start and end points
+    # Add start and end to design points
+    start_expanded = start_location.unsqueeze(0).unsqueeze(0).expand(n_samples, 1, 2)
+    end_expanded = end_location.unsqueeze(0).unsqueeze(0).expand(n_samples, 1, 2)
+    full_points = torch.cat([start_expanded, design_points, end_expanded], dim=1)  # [n_samples, num_design_points+2, 2]
+    
+    # Simple B-spline approximation: use piecewise linear interpolation with smoothing
+    # For simplicity, we'll sample points along the trajectory
+    num_trajectory_samples = 100
+    t = torch.linspace(0, 1, num_trajectory_samples, dtype=X.dtype, device=X.device)
+    
+    # Interpolate along the path using linear interpolation between control points
+    trajectory_points = torch.zeros(n_samples, num_trajectory_samples, 2, dtype=X.dtype, device=X.device)
+    
+    num_control = full_points.shape[1]
+    for i in range(n_samples):
+        # Use linear interpolation between control points
+        for j, t_val in enumerate(t):
+            # Map t_val [0, 1] to segment index
+            segment_idx = t_val * (num_control - 1)
+            idx_low = torch.floor(segment_idx).long().clamp(0, num_control - 2)
+            idx_high = (idx_low + 1).clamp(0, num_control - 1)
+            alpha = (segment_idx - idx_low.float()).clamp(0, 1)
+            
+            point_low = full_points[i, idx_low]
+            point_high = full_points[i, idx_high]
+            trajectory_points[i, j] = (1 - alpha) * point_low + alpha * point_high
+    
+    # Compute collision penalty (vectorized)
+    penalty = torch.zeros(n_samples, dtype=X.dtype, device=X.device)
+    total_collisions = torch.zeros(n_samples, dtype=X.dtype, device=X.device)
+    
+    for obs_idx in range(obstacles.shape[0]):
+        obs_center = obstacles[obs_idx, :2]  # [2]
+        obs_radius = obstacles[obs_idx, 2]  # scalar
+        
+        # Compute distance from each trajectory point to obstacle center
+        # trajectory_points: [n_samples, num_trajectory_samples, 2]
+        # obs_center: [2]
+        obs_center_expanded = obs_center.unsqueeze(0).unsqueeze(0)  # [1, 1, 2]
+        distances = torch.norm(trajectory_points - obs_center_expanded, dim=2)  # [n_samples, num_trajectory_samples]
+        
+        # Check for collisions (distance < radius)
+        collisions = distances < obs_radius  # [n_samples, num_trajectory_samples]
+        has_collision = collisions.any(dim=1)  # [n_samples]
+        
+        # For samples with collision: compute maximum penetration depth
+        penetration_depths = torch.clamp(obs_radius - distances, min=0.0)  # [n_samples, num_trajectory_samples]
+        max_penetration = torch.max(penetration_depths, dim=1)[0]  # [n_samples]
+        penalty += max_penetration * 10.0  # Scale penetration penalty
+        
+        # For samples without collision: negative of minimum distance (larger distance = better)
+        min_dist = torch.min(distances, dim=1)[0]  # [n_samples]
+        penalty -= min_dist * (~has_collision).float()  # Only apply to non-colliding samples
+        
+        # Count collisions
+        total_collisions += has_collision.float()
+    
+    # Reward function: f(x) = c(x) + 5, where c(x) includes collision penalty
+    collision_penalty = -20.0 * total_collisions
+    reward = penalty + collision_penalty + 5.0
+    
+    return reward
+
+
+def generate_rover_trajectory_data(n_train: int, n_test: int, dimensions: int = 60, 
+                                    train_noise: float = 0.0, test_noise: float = 0.0, 
+                                    noise_type: str = 'gaussian', seed: int = None,
+                                    start_location: torch.Tensor = None,
+                                    end_location: torch.Tensor = None,
+                                    obstacles: list = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Generate train and test data for the 60D Rover Trajectory Planning problem using Sobol sequences.
+    
+    The problem involves optimizing a rover's trajectory defined by 30 design points in a 2D plane
+    (60 dimensions total: 30 points × 2 coordinates).
+    
+    Args:
+        n_train (int): Number of training samples to generate
+        n_test (int): Number of test samples to generate
+        dimensions (int): Number of dimensions (default: 60 for 30 design points × 2D)
+        train_noise (float): Noise level for training data as a fraction of std
+        test_noise (float): Noise level for test data as a fraction of std
+        noise_type (str): Type of noise ('gaussian' or 'uniform')
+        seed (int): Random seed for reproducibility
+        start_location (torch.Tensor): Start location [x, y] (default: [0.0, 0.0])
+        end_location (torch.Tensor): End location [x, y] (default: [10.0, 10.0])
+        obstacles (list): List of obstacles, each as [center_x, center_y, radius]
+        
+    Returns:
+        X_train, y_train, X_test, y_test: Train and test data
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+    
+    # Bounds for design points in 2D plane (reasonable range for trajectory planning)
+    l_bound = 0.0
+    u_bound = 10.0
+    
+    # Generate ALL samples at once to avoid repeats
+    total_samples = n_train + n_test
+    sobol = torch.quasirandom.SobolEngine(dimension=dimensions, scramble=True)
+    X_all = sobol.draw(total_samples).to(dtype=torch.float64)
+    
+    # Scale to bounds [0, 10]
+    X_all = X_all * (u_bound - l_bound) + l_bound
+    
+    # Compute rover trajectory reward function values
+    y_all = rover_trajectory_function(
+        X_all, 
+        num_design_points=dimensions // 2,
+        start_location=start_location,
+        end_location=end_location,
+        obstacles=obstacles
+    )
+    
+    # Split into train and test
+    X_train = X_all[:n_train]
+    y_train = y_all[:n_train]
+    X_test = X_all[n_train:]
+    y_test = y_all[n_train:]
+    
+    # Add noise separately to train and test
+    # Both train and test noise are based on TEST std
+    y_test_std = y_test.std()
+    
+    if train_noise > 0:
+        noise_scale = train_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_train) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_train = y_train + noise
+    
+    if test_noise > 0:
+        noise_scale = test_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_test) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_test = y_test + noise
+    
+    return X_train, y_train, X_test, y_test

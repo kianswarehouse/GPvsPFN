@@ -59,7 +59,7 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     total_train = num_folds * train_per_fold
     total_samples = sum(num_test) + sum(total_train) 
     
-    print(f"Generating {total_samples} unique Sobol samples...")
+    print(f"Generating {total_samples} unique Sobol samples\n\tTest samples: {sum(num_test)} / Train samples: {sum(total_train)}")
     X_train_all, y_train_all, X_test_all, y_test_all = generate_mf_borehole_data(
         train_samples_per_source=total_train,
         test_samples_per_source=num_test,
@@ -116,8 +116,8 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         # X_test = X_enc_test_all
 
         # Verify source distribution for this fold
-        source_counts = [torch.sum(X_train_orig[:, -1] == i).item() for i in range(2)]
-        print(f"Source distribution for fold {i}: {source_counts}")
+        source_counts = [torch.sum(X_train_orig[:, -1] == i).item() for i in range(len(source_cols))]
+        print(f"Source distribution for fold {i+1}/{num_folds}: {source_counts}")
 
         # =============================================================================
         # GP Section 
@@ -155,6 +155,9 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             likelihood=defaults.MF_likelihood(encoded_cols=source_cols, training_data=X_train),
         )
         if (i == 0) or (i == num_folds - 1):
+            print(f"X_train: {X_train.shape}")
+            print(f"X_test: {X_test.shape}")
+            print(f"y_test mean: {y_test.mean().item()} / y_test std: {y_test.std().item()}")
             print(model)
 
         # Create trainer

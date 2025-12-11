@@ -7,14 +7,15 @@ import time
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
-from load_experimental_data import generate_mf_borehole_data
+from load_experimental_data import generate_rastrigin_data
 import defaults
 
 # import warnings
 # warnings.filterwarnings("ignore")
-def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
+def rastrigin_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         num_test=5000,
         train_size=10, # total training size is train_size * number of X input dimensions
+        dimensions=5,
         num_runs=defaults.TRAINER_NUM_RUNS, 
         num_epochs=defaults.TRAINER_NUM_EPOCHS, 
         lr=defaults.TRAINER_LR, 
@@ -23,7 +24,7 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         initializer_class=defaults.TRAINER_INITIALIZER_CLASS,
         gp_device=defaults.TRAINER_GP_DEVICE,
         amp_device=defaults.TRAINER_AMP_DEVICE,
-        save_path='./results/borehole',
+        save_path='./results/rastrigin',
         title=None,
         standardize_X=True,
         standardize_y=True,
@@ -32,14 +33,16 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         noise_type='gaussian',
         seed=defaults.SEED,
         seed_trainer=defaults.SEED_TRAINER,
+        shift=None,
         gp_dtype = defaults.DTYPE_GP,
         pfn_dtype = defaults.DTYPE_PFN,
     ):
+
+    shift_str = f"_shifted{shift}" if shift is not None else ""
     if title is None:
-        title = f"boreholeSF_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"Rastrigin{shift_str}_{dimensions}xdim_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"boreholeSF{title}_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
-    
+        title = f"Rastrigin{shift_str}_{dimensions}xdim_{train_size}D_{title}"
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
@@ -53,23 +56,25 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     set_seed(seed)
     
     # Calculate total samples needed
-    train_per_fold = train_size * 8  # 8 input dimensions for borehole
+    train_per_fold = train_size * dimensions  # train_size * dimensions for Rastrigin
     total_train = num_folds * train_per_fold
     total_samples = num_test + total_train
     
-    print(f"Generating {total_samples} unique Sobol samples\n\tTest samples: {num_test} / Train samples: {total_train}")
-    X_train_all, y_train_all, X_test_all, y_test_all = generate_mf_borehole_data(
-        train_samples_per_source=[total_train, 0, 0, 0, 0],
-        test_samples_per_source=[num_test, 0, 0, 0, 0],
+    print(f"Generating {total_samples} unique Sobol samples for {dimensions}D Rastrigin function\n\tTest samples: {num_test} / Train samples: {total_train}")
+    if shift is not None:
+        print(f"  Using shifted Rastrigin with shift: {shift}")
+    
+    # Generate train and test data in one call
+    X_train_all, y_train_all, X_test_all, y_test_all = generate_rastrigin_data(
+        n_train=total_train,
+        n_test=num_test,
+        dimensions=dimensions,
         train_noise=noise_train,
         test_noise=noise_test,
         noise_type=noise_type,
         seed=seed,
+        shift=shift
     )
-    if X_train_all.shape[1] == 9:
-        X_train_all = X_train_all[:, :8]
-    if X_test_all.shape[1] == 9:
-        X_test_all = X_test_all[:, :8]
     X = torch.cat([X_test_all, X_train_all], dim=0)
 
     print("="*10)
@@ -79,8 +84,8 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     # Prepare encoded data once from already loaded X, y (no extra CSV/label encoding)
     qual_dict = learn_encodings(X)
     print(qual_dict)
-    X_enc_train_all, cont_cols, cat_cols, source_cols = encode_qual_data(X_train_all, qual_dict=qual_dict, source_col=None)
-    X_enc_test, _, _, _ = encode_qual_data(X_test_all, qual_dict=qual_dict, source_col=None)
+    _, cont_cols, cat_cols, source_cols = encode_qual_data(X_train_all, qual_dict=qual_dict, source_col=None)
+    # _, _, _, _ = encode_qual_data(X_test_all, qual_dict=qual_dict, source_col=None)
     # print(cat_cols)
     TabPFN_metrics = []
     GPPlus_metrics = []
@@ -184,12 +189,11 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         
         # Collect model info from first fold
         if i == 0:
-            # Calculate y_test mean and std (once, since test data is fixed)
             y_test_stats = {
                 "y_test_mean": float(y_test_all.mean().item()),
                 "y_test_std": float(y_test_all.std().item())
             }
-            
+
             gp_model_info = {
                 "model_str": str(model),
                 "cat_cols": cat_cols,
@@ -199,6 +203,8 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 "input_dim": X_train.shape[1],
                 "train_samples": X_train.shape[0],
                 "test_samples": num_test,
+                "y_train_mean": float(y_train_mean.item()),
+                "y_train_std": float(y_train_std.item()),
                 "standardize_X": standardize_X,
                 "standardize_y": standardize_y,
                 "dtype": str(gp_dtype),
@@ -209,10 +215,11 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 "optimizer": optimizer_class.__name__,
                 "convergence_patience": convergence_patience,
                 "initializer": initializer_class.__name__ if initializer_class else None,
+                "shift": str(shift) if shift is not None else None,
                 **y_test_stats,
                 "num_folds": num_folds,
                 "seed": seed,
-                "seed": seed_trainer,
+                "seed_trainer": seed_trainer,
             }
             tabpfn_model_info = {
                 "model_path": regressor.model_path,
@@ -264,13 +271,21 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             pass
     print(f"\nTotal experiment time for {num_folds} folds: {time.time() - total_start_time:.2f}s")
     print("="*60)
-    print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\tX_standardize: {standardize_X}\n\ty_standardize: {standardize_y}")
-    print(f"Experiment details: \n\t{len(X_test)} test samples, {len(X_train)} train samples\n\tfolds: {num_folds}")
+    print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\tX_standardize: {standardize_X}\n\ty_standardize: {standardize_y}\n\tshift: {shift}")
+    print(f"Experiment details: \n\t{len(X_test_all)} test samples, {len(X_train)} train samples\n\tfolds: {num_folds}")
 
     return GPPlus_metrics, TabPFN_metrics
 
 
 if __name__ == "__main__":
-    borehole_SF_GPvsPFN(num_folds=1, train_size=10, num_runs=4, num_epochs=10000, save_path='./results/boreholeSF/temp')
-
+    # Standard Rastrigin
+    rastrigin_GPvsPFN(num_folds=1, train_size=10, dimensions=20, num_runs=4, save_path='./results/rastrigin/temp')
+    rastrigin_GPvsPFN(num_folds=1, train_size=10, dimensions=40, num_runs=4, save_path='./results/rastrigin/temp')
+    rastrigin_GPvsPFN(num_folds=1, train_size=20, dimensions=20, num_runs=4, save_path='./results/rastrigin/temp')
+    rastrigin_GPvsPFN(num_folds=1, train_size=20, dimensions=40, num_runs=4, save_path='./results/rastrigin/temp')
+    
+    # Shifted Rastrigin examples (commented out)
+    rastrigin_GPvsPFN(num_folds=1, train_size=10, dimensions=20, num_runs=4, save_path='./results/rastrigin/temp', shift=2.0)
+    # shift_vector = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0])  # for 5D
+    # rastrigin_GPvsPFN(num_folds=1, train_size=10, dimensions=5, num_runs=4, save_path='./results/rastrigin/temp', shift=shift_vector)
 

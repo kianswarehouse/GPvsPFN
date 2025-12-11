@@ -26,7 +26,7 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         amp_device=defaults.TRAINER_AMP_DEVICE,
         save_path='./results/Ackley',
         title=None,
-        standardize_X=False,
+        standardize_X=True,
         standardize_y=True,
         noise_train=0.0,
         noise_test=0.0,
@@ -40,9 +40,9 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
     v2 = "V2" if V2 else ""
     if title is None:
-        title = f"Ackley{v2}_{dimensions}D_{train_size}tD_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"Ackley{v2}_{dimensions}xdim_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"Ackley{v2}_{train_size}D_{title}"
+        title = f"Ackley{v2}_{dimensions}xdim_{train_size}D_{title}"
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
@@ -60,10 +60,10 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     total_train = num_folds * train_per_fold
     total_samples = num_test + total_train
     
-    print(f"Generating {total_samples} unique Sobol samples for {dimensions}D Ackley function...")
+    print(f"Generating {total_samples} unique Sobol samples for {dimensions}D Ackley function\n\tTest samples: {num_test} / Train samples: {total_train}")
     
     # Generate train and test data in one call
-    X_train_all, y_train_all, X_test, y_test = generate_ackley_data(
+    X_train_all, y_train_all, X_test_all, y_test_all = generate_ackley_data(
         n_train=total_train,
         n_test=num_test,
         dimensions=dimensions,
@@ -73,7 +73,7 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         seed=seed,
         V2=V2
     )
-    X = torch.cat([X_test, X_train_all], dim=0)
+    X = torch.cat([X_test_all, X_train_all], dim=0)
 
     print("="*10)
     print(f"{title}: TabPFN vs GP Comparison")
@@ -83,7 +83,7 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     qual_dict = learn_encodings(X)
     print(qual_dict)
     _, cont_cols, cat_cols, source_cols = encode_qual_data(X_train_all, qual_dict=qual_dict, source_col=None)
-    _, _, _, _ = encode_qual_data(X_test, qual_dict=qual_dict, source_col=None)
+    # _, _, _, _ = encode_qual_data(X_test_all, qual_dict=qual_dict, source_col=None)
     # print(cat_cols)
     TabPFN_metrics = []
     GPPlus_metrics = []
@@ -108,9 +108,9 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         
         # Reuse PFN split, convert to torch (unified)
         X_train = X_train.detach().clone().to(dtype=gp_dtype)
-        X_test = X_test.detach().clone().to(dtype=gp_dtype)
+        X_test = X_test_all.detach().clone().to(dtype=gp_dtype)
         y_train = y_train.detach().clone().to(dtype=gp_dtype)
-        y_test = y_test.detach().clone().to(dtype=gp_dtype)
+        y_test = y_test_all.detach().clone().to(dtype=gp_dtype)
         if standardize_X:
             Xscaler = gpplus.utils.StandardScaler()
             Xscaler.fit(X_train[:, cont_cols])
@@ -133,6 +133,9 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             likelihood=defaults.SF_likelihood,
         )
         if (i == 0) or (i == num_folds - 1):
+            print(f"X_train: {X_train.shape}")
+            print(f"X_test: {X_test.shape}")
+            print(f"y_test mean: {y_test.mean().item()} / y_test std: {y_test.std().item()}")
             print(model)
 
         # Create trainer
@@ -185,8 +188,8 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         # Collect model info from first fold
         if i == 0:
             y_test_stats = {
-                "y_test_mean": float(y_test.mean().item()),
-                "y_test_std": float(y_test.std().item())
+                "y_test_mean": float(y_test_all.mean().item()),
+                "y_test_std": float(y_test_all.std().item())
             }
 
             gp_model_info = {
@@ -266,13 +269,13 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     print(f"\nTotal experiment time for {num_folds} folds: {time.time() - total_start_time:.2f}s")
     print("="*60)
     print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\tX_standardize: {standardize_X}\n\ty_standardize: {standardize_y}")
-    print(f"Experiment details: \n\t{len(X_test)} test samples, {len(X_train)} train samples\n\tfolds: {num_folds}")
+    print(f"Experiment details: \n\t{len(X_test_all)} test samples, {len(X_train)} train samples\n\tfolds: {num_folds}")
 
     return GPPlus_metrics, TabPFN_metrics
 
 
 if __name__ == "__main__":
-    ackley_GPvsPFN(num_folds=1, train_size=80, dimensions=20, num_runs=4, num_epochs=10000, save_path='./results/Ackley/temp')
+    ackley_GPvsPFN(num_folds=4, train_size=10, dimensions=20, num_runs=4, num_epochs=10000, save_path='./results/Ackley/temp')
     # ackley_GPvsPFN(num_folds=1, train_size=10, dimensions=20, num_runs=4, num_epochs=10000, save_path='./results/Ackley/temp', standardize_X=False, standardize_y=False)
     # ackley_GPvsPFN(num_folds=1, train_size=10, num_runs=4, num_epochs=10000, save_path='./results/Ackley/tempv2', V2=True)
 

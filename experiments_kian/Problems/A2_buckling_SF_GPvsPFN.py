@@ -57,7 +57,7 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     total_samples = num_test + total_train
     
     # Generate all unique Sobol samples at once for single-fidelity (use only s0)
-    print(f"Generating {total_samples} unique Sobol samples...")
+    print(f"Generating {total_samples} unique Sobol samples\n\tTest samples: {num_test} / Train samples: {total_train}")
     X_train_folds, y_train_folds, X_test_all, y_test_all = generate_mf_buckling_data_with_folds(
         train_samples_per_source=[total_train, 0],
         test_samples_per_source=[num_test, 0],
@@ -160,6 +160,9 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             likelihood=defaults.SF_likelihood,
         )
         if (i == 0) or (i == num_folds - 1):
+            print(f"X_train: {X_train.shape}")
+            print(f"X_test: {X_test.shape}")
+            print(f"y_test mean: {y_test.mean().item()} / y_test std: {y_test.std().item()}")
             print(model)
 
         # Create trainer
