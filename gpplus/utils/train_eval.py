@@ -192,14 +192,10 @@ def train_eval_gp(
                         y_min = list(y_train_min.values())[0] if isinstance(y_train_min, dict) else y_train_min
                         y_min = y_min.item() if isinstance(y_min, torch.Tensor) else float(y_min)
                         y_pred = exp_log_y + y_min - log_scale_epsilon
-                        print(f"log_scale with min={y_min:.6f}, exp_log_y range=[{exp_log_y.min().item():.6f}, {exp_log_y.max().item():.6f}]")
                     else:
                         y_pred = exp_log_y - log_scale_epsilon
-                        print(f"log_scale NO min, exp_log_y range=[{exp_log_y.min().item():.6f}, {exp_log_y.max().item():.6f}]")
                     # Use delta method: std_original ≈ exp(log_mean) * log_std
                     output_std = exp_log_y * log_y_std
-                    print(f"y_pred after denorm (single, first 5): {y_pred[:5].squeeze().tolist()}")
-                    print(f"y_pred after denorm (single, last 5): {y_pred[-5:].squeeze().tolist()}")
                 else:
                     y_pred = (y_pred * std) + mean
                     output_std = output_std * std
@@ -701,10 +697,8 @@ def train_eval_PFN(
                         y_pred_test = exp_log_y - log_scale_epsilon
                         print(f"log_scale NO min, exp_log_y range=[{exp_log_y.min():.6f}, {exp_log_y.max():.6f}]")
                     # Use delta method: std_original ≈ exp(log_mean) * log_std
-                    output_std_test = exp_log_y * log_y_std
-                    print(f"y_pred_test after denorm (single, first 5): {y_pred_test[:5].squeeze().tolist()}")
-                    print(f"y_pred_test after denorm (single, last 5): {y_pred_test[-5:].squeeze().tolist()}")
-                else:
+                output_std_test = exp_log_y * log_y_std
+            else:
                     y_pred_test = (y_pred_test * std) + mean
                     output_std_test = output_std_test * std
         else:
@@ -725,8 +719,6 @@ def train_eval_PFN(
                     y_pred_test = exp_log_y - log_scale_epsilon
                 # Use delta method: std_original ≈ exp(log_mean) * log_std
                 output_std_test = exp_log_y * log_y_std
-                print(f"y_pred_test after denorm (single, first 5): {y_pred_test[:5].squeeze().tolist()}")
-                print(f"y_pred_test after denorm (single, last 5): {y_pred_test[-5:].squeeze().tolist()}")
             else:
                 y_pred_test = (y_pred_test * float(y_train_std)) + float(y_train_mean)
                 output_std_test = output_std_test * float(y_train_std)

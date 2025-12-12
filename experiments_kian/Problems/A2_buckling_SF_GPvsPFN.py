@@ -156,11 +156,6 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         y_train_std = Yscaler.std
         y_train_normal = Yscaler.transform(y_train)
         y_train_min = Yscaler.min if standardize_y_log_scale else None
-        if standardize_y_log_scale and (i == 0 or i == num_folds - 1):
-            print(f"DEBUG: y_train min value: {y_train.min().item():.6f}")
-            print(f"DEBUG: Yscaler.min: {Yscaler.min}")
-            print(f"DEBUG: y_train_min being passed: {y_train_min}")
-            print(f"DEBUG: Has negatives in y_train: {torch.any(y_train < 0).item()}")
         
         model = gpplus.models.GPR(
             X_train,
