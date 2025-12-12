@@ -145,7 +145,7 @@ def buckling_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         y_test = y_test_all.detach().clone().to(dtype=gp_dtype)
 
         # Get high-fidelity mask for standardization
-        X_train, X_test, y_train_normal, y_train_mean, y_train_std, y_train_min = gpplus.utils.standardize_mf_data(
+        X_train, X_test, y_train_normal, y_train_mean, y_train_std = gpplus.utils.standardize_mf_data(
             X_train,
             X_test,
             y_train,
@@ -192,8 +192,6 @@ def buckling_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             device=gp_device,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
-            standardize_y_log_scale=standardize_y_log_scale,
-            y_train_min=y_train_min,
             source_cols=source_cols,
         )
         GPPlus_metrics.append(gp_metric)
@@ -220,11 +218,9 @@ def buckling_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             amp_device=amp_device,
             amp_dtype=pfn_dtype,
             regressor=regressor,
+            source_cols=source_cols,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
-            standardize_y_log_scale=standardize_y_log_scale,
-            y_train_min=y_train_min,
-            source_cols=source_cols,
         )
         TabPFN_metrics.append(tabpfn_metric)
 

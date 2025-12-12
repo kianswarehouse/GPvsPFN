@@ -28,7 +28,7 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         title=None,
         standardize_X=True,
         standardize_y=True,
-        standardize_y_log_scale=False,
+        standardize_y_log_scale=True,
         noise_train=[0.0, 0.0, 0.0, 0.0, 0.0],
         noise_test=[0.0, 0.0, 0.0, 0.0, 0.0],
         noise_type='gaussian',
@@ -130,7 +130,7 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         y_train = y_train.detach().clone().to(dtype=gp_dtype)
         y_test = y_test_all.detach().clone().to(dtype=gp_dtype)
 
-        X_train, X_test, y_train_normal, y_train_mean, y_train_std, y_train_min = gpplus.utils.standardize_mf_data(
+        X_train, X_test, y_train_normal, y_train_mean, y_train_std = gpplus.utils.standardize_mf_data(
             X_train,
             X_test,
             y_train,
@@ -178,7 +178,6 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
             standardize_y_log_scale=standardize_y_log_scale,
-            y_train_min=y_train_min,
             source_cols=source_cols,
         )
         GPPlus_metrics.append(gp_metric)
@@ -208,7 +207,6 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
             standardize_y_log_scale=standardize_y_log_scale,
-            y_train_min=y_train_min,
             source_cols=source_cols,
         )
         TabPFN_metrics.append(tabpfn_metric)

@@ -27,7 +27,6 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         title=None,
         standardize_X=True,
         standardize_y=True,
-        standardize_y_log_scale=True,
         noise_train=0.0,
         noise_test=0.0,
         noise_type='gaussian',
@@ -116,14 +115,10 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])
 
         # Normalize the GP data
-        if standardize_y_log_scale:
-            Yscaler = gpplus.utils.LogScaler()
-        else:
-            Yscaler = gpplus.utils.StandardScaler()
+        Yscaler = gpplus.utils.StandardScaler()
         Yscaler.fit(y_train)
         y_train_mean = Yscaler.mean 
         y_train_std = Yscaler.std
-        y_train_min = Yscaler.data_min if standardize_y_log_scale else None
         y_train_normal = Yscaler.transform(y_train)
 
         # Create GP model (default kernel like SF wing)
@@ -155,8 +150,6 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             device=gp_device,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
-            standardize_y_log_scale=standardize_y_log_scale,
-            y_train_min=y_train_min,
             source_cols=source_cols,
         )
         GPPlus_metrics.append(gp_metric)
@@ -181,8 +174,6 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             source_cols=source_cols,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
-            standardize_y_log_scale=standardize_y_log_scale,
-            y_train_min=y_train_min
         )
         TabPFN_metrics.append(tabpfn_metric)
 
