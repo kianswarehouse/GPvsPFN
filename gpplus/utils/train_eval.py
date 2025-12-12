@@ -28,6 +28,9 @@ def train_eval_gp(
     # dtype: torch.dtype = torch.float64,
     y_train_mean: torch.Tensor | None = None,
     y_train_std: torch.Tensor | None = None,
+    standardize_y_log_scale: bool = False,
+    log_scale_epsilon: float = 1e-10,  # Must match epsilon used in LogScaler during training
+    y_train_min: torch.Tensor | None = None,  # data_min from LogScaler, needed for inverse transform
     source_cols: int | list[int] | None = None,
 ):
     """
@@ -91,6 +94,31 @@ def train_eval_gp(
     y_pred, _, _, output_std = evaluate_gp_model(model, X_test)
     prediction_time = time.time() - t_pred_start
 
+    # DEBUG: Print raw model predictions and standardization parameters
+    if standardize_y_log_scale:
+        print(f"\n[DEBUG] Raw GP model predictions (standardized log space):")
+        print(f"  y_pred shape: {y_pred.shape}, first 5: {y_pred[:5].flatten()}")
+        print(f"  y_pred stats: mean={y_pred.mean().item():.6f}, std={y_pred.std().item():.6f}, min={y_pred.min().item():.6f}, max={y_pred.max().item():.6f}")
+        print(f"  y_train_min type: {type(y_train_min)}, value: {y_train_min}")
+        if isinstance(y_train_mean, dict) and isinstance(y_train_std, dict):
+            print(f"  y_train_mean dict keys: {list(y_train_mean.keys())}, values: {[v.item() if isinstance(v, torch.Tensor) else v for v in y_train_mean.values()]}")
+            print(f"  y_train_std dict keys: {list(y_train_std.keys())}, values: {[v.item() if isinstance(v, torch.Tensor) else v for v in y_train_std.values()]}")
+            if isinstance(y_train_min, dict):
+                print(f"  y_train_min dict keys: {list(y_train_min.keys())}, values: {[v.item() if isinstance(v, torch.Tensor) else v for v in y_train_min.values()]}")
+        else:
+            print(f"  y_train_mean: {y_train_mean.item() if isinstance(y_train_mean, torch.Tensor) else y_train_mean}")
+            print(f"  y_train_std: {y_train_std.item() if isinstance(y_train_std, torch.Tensor) else y_train_std}")
+            print(f"  y_train_min: {y_train_min.item() if isinstance(y_train_min, torch.Tensor) else y_train_min}")
+
+    # Ensure y_pred and output_std are at least 2D for proper broadcasting with mean/std
+    # LogScaler expects [N, features] shape, and mean/std have shape [1, 1] from keepdim=True
+    original_y_pred_shape = y_pred.shape
+    original_output_std_shape = output_std.shape
+    if y_pred.dim() == 1:
+        y_pred = y_pred.unsqueeze(-1)
+    if output_std.dim() == 1:
+        output_std = output_std.unsqueeze(-1)
+
     if y_train_mean is not None and y_train_std is not None:
         # Check if y_train_mean/std are dictionaries (method 2: per-source standardization)
         if isinstance(y_train_mean, dict) and isinstance(y_train_std, dict):
@@ -115,30 +143,221 @@ def train_eval_gp(
 
                     # Use the mean/std for this source, or fallback to source 0 or first available
                     if source_key in y_train_mean:
-                        mean = y_train_mean[source_key]
-                        std = y_train_std[source_key]
+                        mean_val = y_train_mean[source_key]
+                        std_val = y_train_std[source_key]
                     elif 0 in y_train_mean:
-                        mean = y_train_mean[0]
-                        std = y_train_std[0]
+                        mean_val = y_train_mean[0]
+                        std_val = y_train_std[0]
                     else:
                         first_key = list(y_train_mean.keys())[0]
-                        mean = y_train_mean[first_key]
-                        std = y_train_std[first_key]
+                        mean_val = y_train_mean[first_key]
+                        std_val = y_train_std[first_key]
 
-                    y_pred_denorm[source_mask] = (y_pred[source_mask] * std) + mean
-                    output_std_denorm[source_mask] = output_std[source_mask] * std
+                    # Extract and ensure tensors are on same device as y_pred
+                    # Keep shape compatible with y_pred for broadcasting
+                    if isinstance(mean_val, torch.Tensor):
+                        mean = mean_val.squeeze().to(y_pred.device)
+                        # Ensure mean has compatible shape with y_pred (handle [N] vs [N,1])
+                        if y_pred.dim() > mean.dim():
+                            mean = mean.unsqueeze(-1) if mean.dim() == 0 else mean
+                    else:
+                        mean = torch.tensor(mean_val, device=y_pred.device, dtype=y_pred.dtype)
+                    
+                    if isinstance(std_val, torch.Tensor):
+                        std = std_val.squeeze().to(y_pred.device)
+                        # Ensure std has compatible shape with y_pred (handle [N] vs [N,1])
+                        if y_pred.dim() > std.dim():
+                            std = std.unsqueeze(-1) if std.dim() == 0 else std
+                    else:
+                        std = torch.tensor(std_val, device=y_pred.device, dtype=y_pred.dtype)
+
+                    if standardize_y_log_scale:
+                        # Unstandardize in log space: log_y = (y_pred_std * std) + mean
+                        # where y_pred_std is the model output in standardized log space
+                        log_y_pred = (y_pred[source_mask] * std) + mean
+                        log_y_std = output_std[source_mask] * std
+                        # Convert from log space to original space: exp(log_y) + data_min - epsilon
+                        exp_log_y = torch.exp(log_y_pred)
+                        # Get data_min for this source if available
+                        epsilon_tensor = torch.tensor(log_scale_epsilon, device=y_pred.device, dtype=y_pred.dtype)
+                        if y_train_min is not None:
+                            if isinstance(y_train_min, dict):
+                                min_val = y_train_min.get(source_key)
+                                if min_val is None:
+                                    min_val = y_train_min.get(0)
+                                if min_val is None and y_train_min:
+                                    min_val = next(iter(y_train_min.values()))
+                            else:
+                                min_val = y_train_min
+                            
+                            if min_val is not None:
+                                if isinstance(min_val, torch.Tensor):
+                                    min_val = min_val.squeeze().to(y_pred.device)
+                                    # Ensure min_val has compatible shape with y_pred (handle [N] vs [N,1])
+                                    if y_pred.dim() > min_val.dim():
+                                        min_val = min_val.unsqueeze(-1) if min_val.dim() == 0 else min_val
+                                else:
+                                    min_val = torch.tensor(min_val, device=y_pred.device, dtype=y_pred.dtype)
+                                
+                                # DEBUG: Print conversion details for all sources
+                                if source_mask.sum() > 0:
+                                    first_idx = torch.where(source_mask)[0][0].item()
+                                    print(f"\n[DEBUG LOG-SCALE CONVERSION] Source {source_key}:")
+                                    print(f"  num_samples: {source_mask.sum().item()}")
+                                    print(f"  y_pred[std log space] sample 0: {y_pred[source_mask][0].item():.6f}, stats: mean={y_pred[source_mask].mean().item():.6f}, std={y_pred[source_mask].std().item():.6f}")
+                                    print(f"  mean: {mean.item() if mean.numel() == 1 else mean[0].item():.6f}, std: {std.item() if std.numel() == 1 else std[0].item():.6f}")
+                                    print(f"  log_y_pred (unstandardized log) sample 0: {log_y_pred[0].item():.6f}, stats: mean={log_y_pred.mean().item():.6f}, std={log_y_pred.std().item():.6f}")
+                                    print(f"  exp_log_y sample 0: {exp_log_y[0].item():.6f}, stats: mean={exp_log_y.mean().item():.6f}, std={exp_log_y.std().item():.6f}, min={exp_log_y.min().item():.6f}, max={exp_log_y.max().item():.6f}")
+                                    print(f"  min_val: {min_val.item() if min_val.numel() == 1 else min_val[0].item():.6f}")
+                                    print(f"  epsilon: {log_scale_epsilon:.10f}")
+                                    final_sample_0 = exp_log_y[0].item() + (min_val.item() if min_val.numel() == 1 else min_val[0].item()) - log_scale_epsilon
+                                    print(f"  final y_pred_denorm sample 0: {final_sample_0:.6f}")
+                                    y_test_tensor = y_test if isinstance(y_test, torch.Tensor) else torch.tensor(y_test)
+                                    print(f"  y_test[first sample]: {y_test_tensor[first_idx].item():.6f}")
+                                    print(f"  y_pred_denorm stats: mean={y_pred_denorm[source_mask].mean().item():.6f}, std={y_pred_denorm[source_mask].std().item():.6f}, min={y_pred_denorm[source_mask].min().item():.6f}, max={y_pred_denorm[source_mask].max().item():.6f}")
+                                    print(f"  y_test[this source] stats: mean={y_test_tensor[source_mask].mean().item():.6f}, std={y_test_tensor[source_mask].std().item():.6f}, min={y_test_tensor[source_mask].min().item():.6f}, max={y_test_tensor[source_mask].max().item():.6f}")
+                                
+                                # Inverse transform: exp(log_y) + data_min - epsilon
+                                y_pred_denorm[source_mask] = exp_log_y + min_val - epsilon_tensor
+                            else:
+                                # ERROR: min_val is None but y_train_min is not None - this should not happen
+                                import warnings
+                                warnings.warn(f"y_train_min is not None but min_val is None for source {source_key}. Using fallback conversion which may be incorrect.")
+                                y_pred_denorm[source_mask] = exp_log_y - epsilon_tensor
+                        else:
+                            # ERROR: y_train_min is None but standardize_y_log_scale is True - this should not happen
+                            import warnings
+                            warnings.warn(f"y_train_min is None for log-scale standardization. Using fallback conversion which may be incorrect.")
+                            y_pred_denorm[source_mask] = exp_log_y - epsilon_tensor
+                        # Use delta method: std_original ≈ exp(log_mean) * log_std
+                        output_std_denorm[source_mask] = exp_log_y * log_y_std
+                    else:
+                        y_pred_denorm[source_mask] = (y_pred[source_mask] * std) + mean
+                        output_std_denorm[source_mask] = output_std[source_mask] * std
 
                 y_pred = y_pred_denorm
                 output_std = output_std_denorm
             else:
                 # If source_cols not provided but we have dicts, use first available source
                 first_key = list(y_train_mean.keys())[0]
-                y_pred = (y_pred * y_train_std[first_key]) + y_train_mean[first_key]
-                output_std = output_std * y_train_std[first_key]
+                mean_val = y_train_mean[first_key]
+                std_val = y_train_std[first_key]
+                
+                # Extract and ensure tensors are on same device as y_pred
+                # Keep shape compatible with y_pred for broadcasting
+                if isinstance(mean_val, torch.Tensor):
+                    mean = mean_val.squeeze().to(y_pred.device)
+                    # Ensure mean has compatible shape with y_pred (handle [N] vs [N,1])
+                    if y_pred.dim() > mean.dim():
+                        mean = mean.unsqueeze(-1) if mean.dim() == 0 else mean
+                else:
+                    mean = torch.tensor(mean_val, device=y_pred.device, dtype=y_pred.dtype)
+                
+                if isinstance(std_val, torch.Tensor):
+                    std = std_val.squeeze().to(y_pred.device)
+                    # Ensure std has compatible shape with y_pred (handle [N] vs [N,1])
+                    if y_pred.dim() > std.dim():
+                        std = std.unsqueeze(-1) if std.dim() == 0 else std
+                else:
+                    std = torch.tensor(std_val, device=y_pred.device, dtype=y_pred.dtype)
+                
+                if standardize_y_log_scale:
+                    # Unstandardize in log space
+                    log_y_pred = (y_pred * std) + mean
+                    log_y_std = output_std * std
+                    # Convert from log space to original space
+                    exp_log_y = torch.exp(log_y_pred)
+                    # Get data_min if available
+                    epsilon_tensor = torch.tensor(log_scale_epsilon, device=y_pred.device, dtype=y_pred.dtype)
+                    if y_train_min is not None:
+                        if isinstance(y_train_min, dict):
+                            min_val = y_train_min.get(first_key)
+                            if min_val is None:
+                                min_val = y_train_min.get(0)
+                            if min_val is None and y_train_min:
+                                min_val = next(iter(y_train_min.values()))
+                        else:
+                            min_val = y_train_min
+                        
+                        if min_val is not None:
+                            if isinstance(min_val, torch.Tensor):
+                                min_val = min_val.squeeze().to(y_pred.device)
+                                # Ensure min_val has compatible shape with y_pred (handle [N] vs [N,1])
+                                if y_pred.dim() > min_val.dim():
+                                    min_val = min_val.unsqueeze(-1) if min_val.dim() == 0 else min_val
+                            else:
+                                min_val = torch.tensor(min_val, device=y_pred.device, dtype=y_pred.dtype)
+                            y_pred = exp_log_y + min_val - epsilon_tensor
+                        else:
+                            y_pred = exp_log_y - epsilon_tensor
+                    else:
+                        y_pred = exp_log_y - epsilon_tensor
+                    output_std = exp_log_y * log_y_std
+                else:
+                    y_pred = (y_pred * std) + mean
+                    output_std = output_std * std
         else:
             # Single mean/std for all data (methods 0 and 1)
-            y_pred = (y_pred * y_train_std) + y_train_mean
-            output_std = output_std * y_train_std
+            if standardize_y_log_scale:
+                # Ensure tensors are on same device as y_pred
+                # Keep shape compatible with y_pred for broadcasting
+                if isinstance(y_train_mean, torch.Tensor):
+                    y_mean = y_train_mean.squeeze().to(y_pred.device)
+                    # Ensure y_mean has compatible shape with y_pred (handle [N] vs [N,1])
+                    if y_pred.dim() > y_mean.dim():
+                        y_mean = y_mean.unsqueeze(-1) if y_mean.dim() == 0 else y_mean
+                else:
+                    y_mean = torch.tensor(y_train_mean, device=y_pred.device, dtype=y_pred.dtype)
+                if isinstance(y_train_std, torch.Tensor):
+                    y_std = y_train_std.squeeze().to(y_pred.device)
+                    # Ensure y_std has compatible shape with y_pred (handle [N] vs [N,1])
+                    if y_pred.dim() > y_std.dim():
+                        y_std = y_std.unsqueeze(-1) if y_std.dim() == 0 else y_std
+                else:
+                    y_std = torch.tensor(y_train_std, device=y_pred.device, dtype=y_pred.dtype)
+                
+                # Unstandardize in log space
+                log_y_pred = (y_pred * y_std) + y_mean
+                log_y_std = output_std * y_std
+                # Convert from log space to original space
+                exp_log_y = torch.exp(log_y_pred)
+                # Get data_min if available
+                epsilon_tensor = torch.tensor(log_scale_epsilon, device=y_pred.device, dtype=y_pred.dtype)
+                if y_train_min is not None:
+                    min_val = y_train_min
+                    if isinstance(min_val, torch.Tensor):
+                        min_val = min_val.squeeze().to(y_pred.device)
+                    else:
+                        min_val = torch.tensor(min_val, device=y_pred.device, dtype=y_pred.dtype)
+                    
+                    if min_val is not None:
+                        y_pred = exp_log_y + min_val - epsilon_tensor
+                    else:
+                        y_pred = exp_log_y - epsilon_tensor
+                else:
+                    y_pred = exp_log_y - epsilon_tensor
+                output_std = exp_log_y * log_y_std
+            else:
+                y_pred = (y_pred * y_train_std) + y_train_mean
+                output_std = output_std * y_train_std
+
+    # Squeeze back to original shape if we added a dimension earlier
+    if y_pred.shape != original_y_pred_shape:
+        y_pred = y_pred.squeeze(-1) if y_pred.dim() > 1 else y_pred
+    if output_std.shape != original_output_std_shape:
+        output_std = output_std.squeeze(-1) if output_std.dim() > 1 else output_std
+
+    # DEBUG: Print final converted predictions
+    if standardize_y_log_scale:
+        print(f"\n[DEBUG] Final converted predictions (original scale):")
+        print(f"  y_pred shape: {y_pred.shape}, first 5: {y_pred[:5]}")
+        print(f"  y_pred stats: mean={y_pred.mean().item():.6f}, std={y_pred.std().item():.6f}, min={y_pred.min().item():.6f}, max={y_pred.max().item():.6f}")
+        if hasattr(y_test, '__len__') and len(y_test) > 0:
+            y_test_tensor = y_test if isinstance(y_test, torch.Tensor) else torch.tensor(y_test)
+            print(f"  y_test stats: mean={y_test_tensor.mean().item():.6f}, std={y_test_tensor.std().item():.6f}, min={y_test_tensor.min().item():.6f}, max={y_test_tensor.max().item():.6f}")
+            print(f"  First 5 y_pred vs y_test:")
+            for i in range(min(5, len(y_pred))):
+                print(f"    [{i}] pred={y_pred[i].item():.6f}, true={y_test_tensor[i].item():.6f}, diff={abs(y_pred[i].item() - y_test_tensor[i].item()):.6f}")
 
     y_pred_np = y_pred.detach().cpu().numpy().reshape(-1)
     output_std_np = output_std.detach().cpu().numpy().reshape(-1)
@@ -403,6 +622,9 @@ def train_eval_PFN(
     regressor=None,
     y_train_mean=None,
     y_train_std=None,
+    standardize_y_log_scale: bool = False,
+    log_scale_epsilon: float = 1e-10,  # Must match epsilon used in LogScaler during training
+    y_train_min=None,  # data_min from LogScaler, needed for inverse transform
     source_cols=None,
 ):
     """
@@ -487,30 +709,149 @@ def train_eval_PFN(
 
                     # Use the mean/std for this source, or fallback to source 0 or first available
                     if source_key in y_train_mean:
-                        mean = float(y_train_mean[source_key])
-                        std = float(y_train_std[source_key])
+                        mean_val = y_train_mean[source_key]
+                        std_val = y_train_std[source_key]
                     elif 0 in y_train_mean:
-                        mean = float(y_train_mean[0])
-                        std = float(y_train_std[0])
+                        mean_val = y_train_mean[0]
+                        std_val = y_train_std[0]
                     else:
                         first_key = list(y_train_mean.keys())[0]
-                        mean = float(y_train_mean[first_key])
-                        std = float(y_train_std[first_key])
+                        mean_val = y_train_mean[first_key]
+                        std_val = y_train_std[first_key]
+                    
+                    # Extract scalar from tensor if needed
+                    if isinstance(mean_val, torch.Tensor):
+                        mean_val = mean_val.squeeze()
+                        mean = float(mean_val.item() if mean_val.numel() == 1 else mean_val)
+                    else:
+                        mean = float(mean_val)
+                    
+                    if isinstance(std_val, torch.Tensor):
+                        std_val = std_val.squeeze()
+                        std = float(std_val.item() if std_val.numel() == 1 else std_val)
+                    else:
+                        std = float(std_val)
 
-                    y_pred_test_denorm[source_mask] = (y_pred_test[source_mask] * std) + mean
-                    output_std_test_denorm[source_mask] = output_std_test[source_mask] * std
+                    if standardize_y_log_scale:
+                        # Unstandardize in log space
+                        log_y_pred = (y_pred_test[source_mask] * std) + mean
+                        log_y_std = output_std_test[source_mask] * std
+                        # Convert from log space to original space
+                        exp_log_y = np.exp(log_y_pred)
+                        # Get data_min for this source if available
+                        if y_train_min is not None:
+                            if isinstance(y_train_min, dict):
+                                min_val = y_train_min.get(source_key)
+                                if min_val is None:
+                                    min_val = y_train_min.get(0)
+                                if min_val is None and y_train_min:
+                                    min_val = next(iter(y_train_min.values()))
+                            else:
+                                min_val = y_train_min
+                            
+                            if min_val is not None:
+                                if isinstance(min_val, torch.Tensor):
+                                    min_val = min_val.squeeze().item() if min_val.numel() == 1 else float(min_val)
+                                else:
+                                    min_val = float(min_val)
+                                y_pred_test_denorm[source_mask] = exp_log_y + min_val - log_scale_epsilon
+                            else:
+                                y_pred_test_denorm[source_mask] = exp_log_y - log_scale_epsilon
+                        else:
+                            y_pred_test_denorm[source_mask] = exp_log_y - log_scale_epsilon
+                        # Use delta method: std_original ≈ exp(log_mean) * log_std
+                        output_std_test_denorm[source_mask] = exp_log_y * log_y_std
+                    else:
+                        y_pred_test_denorm[source_mask] = (y_pred_test[source_mask] * std) + mean
+                        output_std_test_denorm[source_mask] = output_std_test[source_mask] * std
 
                 y_pred_test = y_pred_test_denorm
                 output_std_test = output_std_test_denorm
             else:
                 # If source_cols not provided but we have dicts, use first available source
                 first_key = list(y_train_mean.keys())[0]
-                y_pred_test = (y_pred_test * float(y_train_std[first_key])) + float(y_train_mean[first_key])
-                output_std_test = output_std_test * float(y_train_std[first_key])
+                mean_val = y_train_mean[first_key]
+                std_val = y_train_std[first_key]
+                
+                # Extract scalar from tensor if needed
+                if isinstance(mean_val, torch.Tensor):
+                    mean_val = mean_val.squeeze()
+                    mean = float(mean_val.item() if mean_val.numel() == 1 else mean_val)
+                else:
+                    mean = float(mean_val)
+                
+                if isinstance(std_val, torch.Tensor):
+                    std_val = std_val.squeeze()
+                    std = float(std_val.item() if std_val.numel() == 1 else std_val)
+                else:
+                    std = float(std_val)
+                
+                if standardize_y_log_scale:
+                    log_y_pred = (y_pred_test * std) + mean
+                    log_y_std = output_std_test * std
+                    # Convert from log space to original space
+                    exp_log_y = np.exp(log_y_pred)
+                    if y_train_min is not None:
+                        if isinstance(y_train_min, dict):
+                            min_val = y_train_min.get(first_key)
+                            if min_val is None:
+                                min_val = y_train_min.get(0)
+                            if min_val is None and y_train_min:
+                                min_val = next(iter(y_train_min.values()))
+                        else:
+                            min_val = y_train_min
+                        
+                        if min_val is not None:
+                            if isinstance(min_val, torch.Tensor):
+                                min_val = min_val.squeeze().item() if min_val.numel() == 1 else float(min_val)
+                            else:
+                                min_val = float(min_val)
+                            y_pred_test = exp_log_y + min_val - log_scale_epsilon
+                        else:
+                            y_pred_test = exp_log_y - log_scale_epsilon
+                    else:
+                        y_pred_test = exp_log_y - log_scale_epsilon
+                    output_std_test = exp_log_y * log_y_std
+                else:
+                    y_pred_test = (y_pred_test * std) + mean
+                    output_std_test = output_std_test * std
         else:
             # Single mean/std for all data (methods 0 and 1)
-            y_pred_test = (y_pred_test * float(y_train_std)) + float(y_train_mean)
-            output_std_test = output_std_test * float(y_train_std)
+            # Extract scalar from tensor if needed
+            if isinstance(y_train_mean, torch.Tensor):
+                y_train_mean_val = y_train_mean.squeeze()
+                mean_scalar = float(y_train_mean_val.item() if y_train_mean_val.numel() == 1 else y_train_mean_val)
+            else:
+                mean_scalar = float(y_train_mean)
+            
+            if isinstance(y_train_std, torch.Tensor):
+                y_train_std_val = y_train_std.squeeze()
+                std_scalar = float(y_train_std_val.item() if y_train_std_val.numel() == 1 else y_train_std_val)
+            else:
+                std_scalar = float(y_train_std)
+            
+            if standardize_y_log_scale:
+                log_y_pred = (y_pred_test * std_scalar) + mean_scalar
+                log_y_std = output_std_test * std_scalar
+                # Convert from log space to original space
+                exp_log_y = np.exp(log_y_pred)
+                if y_train_min is not None:
+                    min_val = y_train_min
+                    if isinstance(min_val, torch.Tensor):
+                        min_val = min_val.squeeze().item() if min_val.numel() == 1 else float(min_val)
+                    else:
+                        min_val = float(min_val)
+                    
+                    if min_val is not None:
+                        y_pred_test = exp_log_y + min_val - log_scale_epsilon
+                    else:
+                        y_pred_test = exp_log_y - log_scale_epsilon
+                else:
+                    y_pred_test = exp_log_y - log_scale_epsilon
+                output_std_test = exp_log_y * log_y_std
+            else:
+                y_pred_test = (y_pred_test * std_scalar) + mean_scalar
+                output_std_test = output_std_test * std_scalar
 
     metrics = compute_metrics(y_test, y_pred_test, output_std_test, start_time=t_start)
 

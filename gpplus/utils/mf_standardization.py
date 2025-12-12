@@ -9,7 +9,7 @@ This module provides functions for standardizing multi-fidelity data using diffe
 
 import torch
 
-from .standard_scaler import StandardScaler
+from .standard_scaler import StandardScaler, LogScaler
 
 
 def standardize_mf_data(
@@ -21,6 +21,7 @@ def standardize_mf_data(
     standardize_X=True,
     standardize_y=True,
     standardization_method=0,
+    standardize_y_log_scale=False,
 ):
     """
     Standardize multi-fidelity training and test data using the specified method.
@@ -53,13 +54,17 @@ def standardize_mf_data(
             X_train[:, cont_cols] = Xscaler.transform(X_train[:, cont_cols])
             X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])
         if standardize_y:
-            yscaler = StandardScaler()
+            if standardize_y_log_scale:
+                yscaler = LogScaler()
+            else:
+                yscaler = StandardScaler()
             yscaler.fit(y_train)
             y_train = yscaler.transform(y_train)
             y_train_mean = yscaler.mean
             y_train_std = yscaler.std
+            y_train_min = yscaler.data_min if standardize_y_log_scale else None
 
-        return X_train, X_test, y_train, y_train_mean, y_train_std
+        return X_train, X_test, y_train, y_train_mean, y_train_std, y_train_min
 
     elif standardization_method == 1:
         # Handle both one-hot encoded (list) and single column (int) cases
@@ -78,13 +83,17 @@ def standardize_mf_data(
             X_train[:, cont_cols] = Xscaler.transform(X_train[:, cont_cols])
             X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])
         if standardize_y:
-            yscaler = StandardScaler()
+            if standardize_y_log_scale:
+                yscaler = LogScaler()
+            else:
+                yscaler = StandardScaler()
             yscaler.fit(y_train[hf_mask])
             y_train = yscaler.transform(y_train)
             y_train_mean = yscaler.mean
             y_train_std = yscaler.std
+            y_train_min = yscaler.data_min if standardize_y_log_scale else None
 
-        return X_train, X_test, y_train, y_train_mean, y_train_std
+        return X_train, X_test, y_train, y_train_mean, y_train_std, y_train_min
 
     elif standardization_method == 2:
         # Extract source indices from X_train (used for both X and y standardization)
@@ -125,21 +134,35 @@ def standardize_mf_data(
             y_train_normal = torch.zeros_like(y_train)
             y_train_means = {}
             y_train_stds = {}
+            y_train_mins = {}
             for source_idx in unique_sources:
                 source_mask = source_indices_train == source_idx
                 y_train_source = y_train[source_mask]
-                y_mean = y_train_source.mean()
-                y_std = y_train_source.std()
-                y_train_means[source_idx.item()] = y_mean
-                y_train_stds[source_idx.item()] = y_std
-                y_train_normal[source_mask] = (y_train_source - y_mean) / y_std
+                
+                if standardize_y_log_scale:
+                    y_scaler = LogScaler()
+                else:
+                    y_scaler = StandardScaler()
+                
+                y_scaler.fit(y_train_source)
+                y_train_normal[source_mask] = y_scaler.transform(y_train_source)
+                
+                # Store mean, std, and min for this source
+                y_train_means[source_idx.item()] = y_scaler.mean.squeeze() if y_scaler.mean is not None else None
+                y_train_stds[source_idx.item()] = y_scaler.std.squeeze() if y_scaler.std is not None else None
+                if standardize_y_log_scale:
+                    y_train_mins[source_idx.item()] = y_scaler.data_min.squeeze() if y_scaler.data_min is not None else None
+                else:
+                    y_train_mins[source_idx.item()] = None
 
-            # For method 2, return dictionary of means/stds for each source
+            # For method 2, return dictionary of means/stds/mins for each source
             y_train_mean = y_train_means
             y_train_std = y_train_stds
+            y_train_min = y_train_mins if standardize_y_log_scale else None
         else:
             y_train_normal = y_train
             y_train_mean = None
             y_train_std = None
+            y_train_min = None
 
-        return X_train, X_test, y_train_normal, y_train_mean, y_train_std
+        return X_train, X_test, y_train_normal, y_train_mean, y_train_std, y_train_min

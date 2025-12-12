@@ -27,6 +27,7 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         title=None,
         standardize_X=True,
         standardize_y=True,
+        standardize_y_log_scale=True,
         noise_train=0.0,
         noise_test=0.0,
         noise_type='gaussian',
@@ -36,9 +37,9 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         pfn_dtype = defaults.DTYPE_PFN,
     ):
     if title is None:
-        title = f"bucklingSF_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"buckling_SF_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"bucklingSF{title}_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"buckling_SF_{title}_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     
     # Generate data
     set_seed(seed)
@@ -146,10 +147,14 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])
 
         # Normalize the GP data
-        Yscaler = gpplus.utils.StandardScaler()
+        if standardize_y_log_scale:
+            Yscaler = gpplus.utils.LogScaler()
+        else:
+            Yscaler = gpplus.utils.StandardScaler()
         Yscaler.fit(y_train)
         y_train_mean = Yscaler.mean 
         y_train_std = Yscaler.std
+        y_train_min = Yscaler.data_min if standardize_y_log_scale else None
         y_train_normal = Yscaler.transform(y_train)
         
         model = gpplus.models.GPR(
@@ -180,6 +185,8 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             device=gp_device,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
+            standardize_y_log_scale=standardize_y_log_scale,
+            y_train_min=y_train_min,
             source_cols=source_cols,
         )
         GPPlus_metrics.append(gp_metric)
@@ -201,9 +208,11 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             amp_device=amp_device,
             amp_dtype=pfn_dtype,
             regressor=regressor,
-            source_cols=source_cols,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
+            standardize_y_log_scale=standardize_y_log_scale,
+            y_train_min=y_train_min,
+            source_cols=source_cols,
         )
         TabPFN_metrics.append(tabpfn_metric)
 
@@ -231,6 +240,7 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 "test_samples": num_test,
                 "standardize_X": standardize_X,
                 "standardize_y": standardize_y,
+                "standardize_y_log_scale": standardize_y_log_scale,
                 "dtype": str(gp_dtype),
                 "device": str(gp_device),
                 "num_epochs": num_epochs,

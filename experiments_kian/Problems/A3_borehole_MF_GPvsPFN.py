@@ -28,6 +28,7 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         title=None,
         standardize_X=True,
         standardize_y=True,
+        standardize_y_log_scale=False,
         noise_train=[0.0, 0.0, 0.0, 0.0, 0.0],
         noise_test=[0.0, 0.0, 0.0, 0.0, 0.0],
         noise_type='gaussian',
@@ -38,9 +39,9 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         pfn_dtype = defaults.DTYPE_PFN
     ):
     if title is None:
-        title = f"boreholeMF_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"borehole_MF_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"boreholeMF{title}_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"borehole_MF_{title}_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     
     
     print(f" GP Device: {gp_device}")
@@ -129,7 +130,7 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         y_train = y_train.detach().clone().to(dtype=gp_dtype)
         y_test = y_test_all.detach().clone().to(dtype=gp_dtype)
 
-        X_train, X_test, y_train_normal, y_train_mean, y_train_std = gpplus.utils.standardize_mf_data(
+        X_train, X_test, y_train_normal, y_train_mean, y_train_std, y_train_min = gpplus.utils.standardize_mf_data(
             X_train,
             X_test,
             y_train,
@@ -138,6 +139,7 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             standardize_X=standardize_X,
             standardize_y=standardize_y,
             standardization_method=standardization_method,
+            standardize_y_log_scale=standardize_y_log_scale,
         )
 
         kernel = defaults.MF_kernel(
@@ -175,6 +177,8 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             device=gp_device,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
+            standardize_y_log_scale=standardize_y_log_scale,
+            y_train_min=y_train_min,
             source_cols=source_cols,
         )
         GPPlus_metrics.append(gp_metric)
@@ -201,9 +205,11 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             amp_device=amp_device,
             amp_dtype=pfn_dtype,
             regressor=regressor,
-            source_cols=source_cols,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
+            standardize_y_log_scale=standardize_y_log_scale,
+            y_train_min=y_train_min,
+            source_cols=source_cols,
         )
         TabPFN_metrics.append(tabpfn_metric)
 
@@ -242,6 +248,7 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 "test_samples": num_test,
                 "standardize_X": standardize_X,
                 "standardize_y": standardize_y,
+                "standardize_y_log_scale": standardize_y_log_scale,
                 "standardization_method": standardization_method,
                 "dtype": str(gp_dtype),
                 "device": str(gp_device),

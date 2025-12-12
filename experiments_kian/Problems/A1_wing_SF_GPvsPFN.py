@@ -39,7 +39,7 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     if title is None:
         title = f"wing_SF_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"wing_SF{title}_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"wing_SF_{title}_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
 
     # Generate data
     set_seed(seed)

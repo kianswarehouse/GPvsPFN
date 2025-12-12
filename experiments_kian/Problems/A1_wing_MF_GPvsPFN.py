@@ -38,9 +38,9 @@ def wing_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         pfn_dtype = defaults.DTYPE_PFN,
     ):
     if title is None:
-        title = f"wingMF_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"wing_MF_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"wingMF{title}_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"wing_MF_{title}_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
 
     # Generate data
     set_seed(seed)    
@@ -132,7 +132,7 @@ def wing_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         y_test = y_test_all.detach().clone().to(dtype=gp_dtype)
         # Get high-fidelity mask for standardization
         
-        X_train, X_test, y_train_normal, y_train_mean, y_train_std = gpplus.utils.standardize_mf_data(
+        X_train, X_test, y_train_normal, y_train_mean, y_train_std, y_train_min = gpplus.utils.standardize_mf_data(
             X_train,
             X_test,
             y_train,
