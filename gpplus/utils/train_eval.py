@@ -115,28 +115,6 @@ def train_eval_gp(
         # Replace NaN/Inf with small positive value
         output_std = torch.where(torch.isfinite(output_std), output_std, torch.ones_like(output_std) * 1e-6)
 
-    # Debug: Print actual values before and after transformation
-    print(f"\n=== GP DEBUG ===")
-    print(f"y_test (first 5): {y_test[:5].squeeze().tolist()}")
-    print(f"y_test (last 5): {y_test[-5:].squeeze().tolist()}")
-    print(f"y_pred before denorm (first 5): {y_pred[:5].squeeze().tolist()}")
-    print(f"y_pred before denorm (last 5): {y_pred[-5:].squeeze().tolist()}")
-    if hasattr(model, 'train_inputs') and len(model.train_inputs) > 1:
-        y_train_actual = model.train_inputs[1]
-        print(f"y_train input (first 5): {y_train_actual[:5].squeeze().tolist()}")
-        print(f"y_train input (last 5): {y_train_actual[-5:].squeeze().tolist()}")
-    if y_train_min is not None:
-        if isinstance(y_train_min, dict):
-            print(f"y_train_min (dict): {[(k, v.item() if isinstance(v, torch.Tensor) else v) for k, v in y_train_min.items()]}")
-        else:
-            y_min_val = y_train_min.item() if isinstance(y_train_min, torch.Tensor) else y_train_min
-            print(f"y_train_min: {y_min_val:.6f} (type: {type(y_train_min)})")
-            if isinstance(y_train_min, torch.Tensor):
-                print(f"y_train_min tensor shape: {y_train_min.shape}")
-    else:
-        print(f"y_train_min: None")
-    print(f"standardize_y_log_scale: {standardize_y_log_scale}")
-    
     if y_train_mean is not None and y_train_std is not None:
         # Check if y_train_mean/std are dictionaries (method 2: per-source standardization)
         if isinstance(y_train_mean, dict) and isinstance(y_train_std, dict):
@@ -196,8 +174,6 @@ def train_eval_gp(
 
                 y_pred = y_pred_denorm
                 output_std = output_std_denorm
-                print(f"y_pred after denorm (per-source, first 5): {y_pred[:5].squeeze().tolist()}")
-                print(f"y_pred after denorm (per-source, last 5): {y_pred[-5:].squeeze().tolist()}")
             else:
                 # If source_cols not provided but we have dicts, use first available source
                 first_key = list(y_train_mean.keys())[0]
@@ -252,8 +228,6 @@ def train_eval_gp(
             else:
                 y_pred = (y_pred * y_train_std) + y_train_mean
                 output_std = output_std * y_train_std
-                print(f"y_pred after denorm (normal, first 5): {y_pred[:5].squeeze().tolist()}")
-                print(f"y_pred after denorm (normal, last 5): {y_pred[-5:].squeeze().tolist()}")
 
     y_pred_np = y_pred.detach().cpu().numpy().reshape(-1)
     output_std_np = output_std.detach().cpu().numpy().reshape(-1)
@@ -695,10 +669,8 @@ def train_eval_PFN(
                         if y_train_min is not None:
                             y_min = y_train_min.get(source_key, y_train_min.get(0, 0.0)) if isinstance(y_train_min, dict) else float(y_train_min)
                             y_pred_test_denorm[source_mask] = exp_log_y + y_min - log_scale_epsilon
-                            print(f"  Source {source_key}: log_scale with min={y_min:.6f}, exp_log_y range=[{exp_log_y.min():.6f}, {exp_log_y.max():.6f}]")
                         else:
                             y_pred_test_denorm[source_mask] = exp_log_y - log_scale_epsilon
-                            print(f"  Source {source_key}: log_scale NO min, exp_log_y range=[{exp_log_y.min():.6f}, {exp_log_y.max():.6f}]")
                         # Use delta method: std_original ≈ exp(log_mean) * log_std
                         output_std_test_denorm[source_mask] = exp_log_y * log_y_std
                     else:
@@ -707,8 +679,6 @@ def train_eval_PFN(
 
                     y_pred_test = y_pred_test_denorm
                     output_std_test = output_std_test_denorm
-                    print(f"y_pred_test after denorm (per-source, first 5): {y_pred_test[:5].squeeze().tolist()}")
-                    print(f"y_pred_test after denorm (per-source, last 5): {y_pred_test[-5:].squeeze().tolist()}")
                 else:
                     # If source_cols not provided but we have dicts, use first available source
                     first_key = list(y_train_mean.keys())[0]
