@@ -37,9 +37,9 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         pfn_dtype = defaults.DTYPE_PFN,
     ):
     if title is None:
-        title = f"buckling_SF_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"buckling_SF_{train_size}D_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"buckling_SF_{title}_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"buckling_SF_{title}_{train_size}D_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
     
     # Generate data
     set_seed(seed)
@@ -155,7 +155,7 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         y_train_mean = Yscaler.mean 
         y_train_std = Yscaler.std
         y_train_normal = Yscaler.transform(y_train)
-        y_train_min = Yscaler.min if standardize_y_log_scale else None
+        y_train_min = None  # No longer needed with log1p transformation
         
         model = gpplus.models.GPR(
             X_train,

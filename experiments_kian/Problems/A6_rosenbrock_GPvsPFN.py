@@ -16,6 +16,7 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         num_test=5000,
         train_size=10, # total training size is train_size * number of X input dimensions
         dimensions=5,
+        x_bounds=[-5, 10], # or [-2.048, 2.048]
         num_runs=defaults.TRAINER_NUM_RUNS, 
         num_epochs=defaults.TRAINER_NUM_EPOCHS, 
         lr=defaults.TRAINER_LR, 
@@ -38,9 +39,9 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     ):
 
     if title is None:
-        title = f"Rosenbrock_{dimensions}xdim_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"Rosenbrock_{dimensions}xdim_{train_size}D_[{x_bounds[0]},{x_bounds[1]}]bounds_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"Rosenbrock_{dimensions}xdim_{train_size}D_{title}"
+        title = f"Rosenbrock_{title}_{dimensions}xdim_{train_size}D_[{x_bounds[0]},{x_bounds[1]}]bounds_noiseTest{noise_test}_noiseTrain{noise_train}"
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
@@ -65,6 +66,7 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         n_train=total_train,
         n_test=num_test,
         dimensions=dimensions,
+        x_bounds=x_bounds,
         train_noise=noise_train,
         test_noise=noise_test,
         noise_type=noise_type,
@@ -212,6 +214,7 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 "optimizer": optimizer_class.__name__,
                 "convergence_patience": convergence_patience,
                 "initializer": initializer_class.__name__ if initializer_class else None,
+                "x_bounds": x_bounds,
                 **y_test_stats,
                 "num_folds": num_folds,
                 "seed": seed,

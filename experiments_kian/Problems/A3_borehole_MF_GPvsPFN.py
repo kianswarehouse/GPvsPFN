@@ -28,7 +28,7 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         title=None,
         standardize_X=True,
         standardize_y=True,
-        standardize_y_log_scale=True,
+        standardize_y_log_scale=False,
         noise_train=[0.0, 0.0, 0.0, 0.0, 0.0],
         noise_test=[0.0, 0.0, 0.0, 0.0, 0.0],
         noise_type='gaussian',
@@ -39,9 +39,9 @@ def borehole_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         pfn_dtype = defaults.DTYPE_PFN
     ):
     if title is None:
-        title = f"borehole_MF_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"borehole_MF_{train_size}D_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"borehole_MF_{title}_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"borehole_MF_{title}_{train_size}D_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
     
     
     print(f" GP Device: {gp_device}")

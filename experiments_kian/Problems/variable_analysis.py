@@ -13,7 +13,10 @@ from load_experimental_data import (
     generate_ackley_data,
     generate_rastrigin_data,
     generate_rosenbrock_data,
-    generate_keane_bump_data,
+    generate_zakharov_data,
+    generate_griewank_data,
+    generate_dixon_price_data,
+    generate_styblinski_tang_data,
     generate_mf_wing_data,
     generate_mf_buckling_data,
     generate_mf_borehole_data
@@ -36,7 +39,10 @@ PROBLEMS = [
     ("ackley", generate_ackley_data, 20, 20, False),  # 20xdim for train
     ("rastrigin", generate_rastrigin_data, 20, 20, False),  # 20xdim for train
     ("rosenbrock", generate_rosenbrock_data, 20, 20, False),  # 20xdim for train
-    ("keane_bump", generate_keane_bump_data, 20, 20, False),  # 20xdim for train
+    ("zakharov", generate_zakharov_data, 20, 20, False),  # 20xdim for train
+    ("griewank", generate_griewank_data, 20, 20, False),  # 20xdim for train
+    ("dixon_price", generate_dixon_price_data, 20, 20, False),  # 20xdim for train
+    ("styblinski_tang", generate_styblinski_tang_data, 20, 20, False),  # 20xdim for train
 ]
 
 

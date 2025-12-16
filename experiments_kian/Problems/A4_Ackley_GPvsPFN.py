@@ -16,6 +16,7 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         num_test=5000,
         train_size=10, # total training size is train_size * number of X input dimensions
         dimensions=5,
+        x_bounds=[-5, 10],
         num_runs=defaults.TRAINER_NUM_RUNS, 
         num_epochs=defaults.TRAINER_NUM_EPOCHS, 
         lr=defaults.TRAINER_LR, 
@@ -40,9 +41,9 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
     v2 = "V2" if V2 else ""
     if title is None:
-        title = f"Ackley{v2}_{dimensions}xdim_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"Ackley{v2}_{dimensions}xdim_{train_size}D_[{x_bounds[0]},{x_bounds[1]}]bounds_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"Ackley{v2}_{dimensions}xdim_{train_size}D_{title}"
+        title = f"Ackley{v2}_{title}_{dimensions}xdim_{train_size}D_[{x_bounds[0]},{x_bounds[1]}]bounds_noiseTest{noise_test}_noiseTrain{noise_train}"
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
@@ -67,6 +68,7 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         n_train=total_train,
         n_test=num_test,
         dimensions=dimensions,
+        x_bounds=x_bounds,
         train_noise=noise_train,
         test_noise=noise_test,
         noise_type=noise_type,

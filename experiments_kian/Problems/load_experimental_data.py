@@ -1317,7 +1317,7 @@ def ackley_function(X: torch.Tensor, dimensions: int = None) -> torch.Tensor:
     return result
 
 
-def generate_ackley_data(n_train: int, n_test: int, dimensions: int = 2, train_noise: float = 0.0, 
+def generate_ackley_data(n_train: int, n_test: int, dimensions: int = 2, x_bounds: list[float] = [-5, 10], train_noise: float = 0.0, 
                         test_noise: float = 0.0, noise_type: str = 'gaussian', seed: int = None, V2: bool = False) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Generate train and test data for the Ackley function using Sobol sequences.
@@ -1337,8 +1337,8 @@ def generate_ackley_data(n_train: int, n_test: int, dimensions: int = 2, train_n
     if seed is not None:
         torch.manual_seed(seed)
     
-    l_bound = -5
-    u_bound = 10
+    l_bound = x_bounds[0]
+    u_bound = x_bounds[1]
     
     # Generate ALL samples at once to avoid repeats
     total_samples = n_train + n_test
@@ -1385,105 +1385,6 @@ def generate_ackley_data(n_train: int, n_test: int, dimensions: int = 2, train_n
         y_test = y_test + noise
     
     return X_train, y_train, X_test, y_test
-
-
-def rosenbrock_function(X: torch.Tensor, dimensions: int = None) -> torch.Tensor:
-    """
-    Compute the Rosenbrock function for given input variables.
-    
-    The Rosenbrock function is defined as:
-    f(x) = sum_{i=1}^{d-1} [100*(x_{i+1} - x_i^2)^2 + (1 - x_i)^2]
-    
-    where x ∈ [-5, 10]^d and d is the number of dimensions
-    
-    Args:
-        X (torch.Tensor): Input array of shape [n_samples, d] where d is the number of dimensions
-        dimensions (int): Number of dimensions (optional, inferred from X if not provided)
-        
-    Returns:
-        torch.Tensor: Rosenbrock function values for each input sample
-    """
-    if dimensions is None:
-        dimensions = X.shape[1]
-    
-    # Rosenbrock function: sum over i=1 to d-1 of [100*(x_{i+1} - x_i^2)^2 + (1 - x_i)^2]
-    # Vectorized computation: X[:, :-1] are x_i, X[:, 1:] are x_{i+1}
-    x_i = X[:, :-1]  # All x_i for i=0 to d-2
-    x_i_plus_1 = X[:, 1:]  # All x_{i+1} for i=0 to d-2
-    
-    term1 = 100 * (x_i_plus_1 - x_i**2)**2
-    term2 = (1 - x_i)**2
-    result = torch.sum(term1 + term2, dim=1)
-    
-    return result
-
-
-def generate_rosenbrock_data(n_train: int, n_test: int, dimensions: int = 2, train_noise: float = 0.0, 
-                            test_noise: float = 0.0, noise_type: str = 'gaussian', seed: int = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    Generate train and test data for the Rosenbrock function using Sobol sequences.
-    
-    Args:
-        n_train (int): Number of training samples to generate
-        n_test (int): Number of test samples to generate
-        dimensions (int): Number of dimensions for the Rosenbrock function
-        train_noise (float): Noise level for training data as a fraction of std
-        test_noise (float): Noise level for test data as a fraction of std
-        noise_type (str): Type of noise ('gaussian' or 'uniform')
-        seed (int): Random seed for reproducibility
-        
-    Returns:
-        X_train, y_train, X_test, y_test: Train and test data
-    """
-    if seed is not None:
-        torch.manual_seed(seed)
-    
-    l_bound = -2
-    u_bound = 2
-    
-    # Generate ALL samples at once to avoid repeats
-    total_samples = n_train + n_test
-    sobol = torch.quasirandom.SobolEngine(dimension=dimensions, scramble=True)
-    X_all = sobol.draw(total_samples).to(dtype=torch.float64)
-    
-    # Scale to Rosenbrock bounds
-    X_all = X_all * (u_bound - l_bound) + l_bound
-    
-    # Compute Rosenbrock function values
-    y_all = rosenbrock_function(X_all, dimensions)
-    
-    # Split into train and test
-    X_train = X_all[:n_train]
-    y_train = y_all[:n_train]
-    X_test = X_all[n_train:]
-    y_test = y_all[n_train:]
-    
-    # Add noise separately to train and test
-    # Both train and test noise are based on TEST std
-    y_test_std = y_test.std()
-    
-    if train_noise > 0:
-        noise_scale = train_noise * y_test_std
-        if noise_type == 'gaussian':
-            noise = torch.randn_like(y_train) * noise_scale
-        elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
-        else:
-            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
-        y_train = y_train + noise
-    
-    if test_noise > 0:
-        noise_scale = test_noise * y_test_std
-        if noise_type == 'gaussian':
-            noise = torch.randn_like(y_test) * noise_scale
-        elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
-        else:
-            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
-        y_test = y_test + noise
-    
-    return X_train, y_train, X_test, y_test
-
 
 def rastrigin_function(X: torch.Tensor, dimensions: int = None, shift: torch.Tensor | float | None = None) -> torch.Tensor:
     """
@@ -1545,7 +1446,7 @@ def rastrigin_function(X: torch.Tensor, dimensions: int = None, shift: torch.Ten
     return result
 
 
-def generate_rastrigin_data(n_train: int, n_test: int, dimensions: int = 2, train_noise: float = 0.0, 
+def generate_rastrigin_data(n_train: int, n_test: int, dimensions: int = 2, x_bounds: list[float] = [-5.12, 5.12], train_noise: float = 0.0, 
                            test_noise: float = 0.0, noise_type: str = 'gaussian', seed: int = None, 
                            shift: torch.Tensor | float | None = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
@@ -1570,8 +1471,8 @@ def generate_rastrigin_data(n_train: int, n_test: int, dimensions: int = 2, trai
     if seed is not None:
         torch.manual_seed(seed)
     
-    l_bound = -5.12
-    u_bound = 5.12
+    l_bound = x_bounds[0]
+    u_bound = x_bounds[1]
     
     # Generate ALL samples at once to avoid repeats
     total_samples = n_train + n_test
@@ -1583,6 +1484,314 @@ def generate_rastrigin_data(n_train: int, n_test: int, dimensions: int = 2, trai
     
     # Compute Rastrigin function values (with optional shift)
     y_all = rastrigin_function(X_all, dimensions, shift=shift)
+    
+    # Split into train and test
+    X_train = X_all[:n_train]
+    y_train = y_all[:n_train]
+    X_test = X_all[n_train:]
+    y_test = y_all[n_train:]
+    
+    # Add noise separately to train and test
+    # Both train and test noise are based on TEST std
+    y_test_std = y_test.std()
+    
+    if train_noise > 0:
+        noise_scale = train_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_train) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_train = y_train + noise
+    
+    if test_noise > 0:
+        noise_scale = test_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_test) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_test = y_test + noise
+    
+    return X_train, y_train, X_test, y_test
+
+def rosenbrock_function(X: torch.Tensor, dimensions: int = None) -> torch.Tensor:
+    """
+    Compute the Rosenbrock function for given input variables.
+    
+    The Rosenbrock function is defined as:
+    f(x) = sum_{i=1}^{d-1} [100*(x_{i+1} - x_i^2)^2 + (1 - x_i)^2]
+    
+    where x ∈ [-5, 10]^d and d is the number of dimensions
+    
+    Args:
+        X (torch.Tensor): Input array of shape [n_samples, d] where d is the number of dimensions
+        dimensions (int): Number of dimensions (optional, inferred from X if not provided)
+        
+    Returns:
+        torch.Tensor: Rosenbrock function values for each input sample
+    """
+    if dimensions is None:
+        dimensions = X.shape[1]
+    
+    # Rosenbrock function: sum over i=1 to d-1 of [100*(x_{i+1} - x_i^2)^2 + (1 - x_i)^2]
+    # Vectorized computation: X[:, :-1] are x_i, X[:, 1:] are x_{i+1}
+    x_i = X[:, :-1]  # All x_i for i=0 to d-2
+    x_i_plus_1 = X[:, 1:]  # All x_{i+1} for i=0 to d-2
+    
+    term1 = 100 * (x_i_plus_1 - x_i**2)**2
+    term2 = (1 - x_i)**2
+    result = torch.sum(term1 + term2, dim=1)
+    
+    return result
+
+
+def generate_rosenbrock_data(n_train: int, n_test: int, dimensions: int = 2, x_bounds: list[float] = [-5, 10], train_noise: float = 0.0, 
+                            test_noise: float = 0.0, noise_type: str = 'gaussian', seed: int = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Generate train and test data for the Rosenbrock function using Sobol sequences.
+    
+    Args:
+        n_train (int): Number of training samples to generate
+        n_test (int): Number of test samples to generate
+        dimensions (int): Number of dimensions for the Rosenbrock function
+        train_noise (float): Noise level for training data as a fraction of std
+        test_noise (float): Noise level for test data as a fraction of std
+        noise_type (str): Type of noise ('gaussian' or 'uniform')
+        seed (int): Random seed for reproducibility
+        
+    Returns:
+        X_train, y_train, X_test, y_test: Train and test data
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+    
+    l_bound = x_bounds[0]
+    u_bound = x_bounds[1]
+    
+    # Generate ALL samples at once to avoid repeats
+    total_samples = n_train + n_test
+    sobol = torch.quasirandom.SobolEngine(dimension=dimensions, scramble=True)
+    X_all = sobol.draw(total_samples).to(dtype=torch.float64)
+    
+    # Scale to Rosenbrock bounds
+    X_all = X_all * (u_bound - l_bound) + l_bound
+    
+    # Compute Rosenbrock function values
+    y_all = rosenbrock_function(X_all, dimensions)
+    
+    # Split into train and test
+    X_train = X_all[:n_train]
+    y_train = y_all[:n_train]
+    X_test = X_all[n_train:]
+    y_test = y_all[n_train:]
+    
+    # Add noise separately to train and test
+    # Both train and test noise are based on TEST std
+    y_test_std = y_test.std()
+    
+    if train_noise > 0:
+        noise_scale = train_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_train) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_train = y_train + noise
+    
+    if test_noise > 0:
+        noise_scale = test_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_test) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_test = y_test + noise
+    
+    return X_train, y_train, X_test, y_test
+
+
+def zakharov_function(X: torch.Tensor, dimensions: int = None) -> torch.Tensor:
+    """
+    Compute the Zakharov function for given input variables.
+    
+    The Zakharov function is defined as:
+    f(x) = sum_{i=1}^{d} x_i^2 + (sum_{i=1}^{d} 0.5*i*x_i)^2 + (sum_{i=1}^{d} 0.5*i*x_i)^4
+    
+    where x ∈ [-5, 10]^d and d is the number of dimensions
+    
+    Args:
+        X (torch.Tensor): Input array of shape [n_samples, d] where d is the number of dimensions
+        dimensions (int): Number of dimensions (optional, inferred from X if not provided)
+        
+    Returns:
+        torch.Tensor: Zakharov function values for each input sample
+    """
+    if dimensions is None:
+        dimensions = X.shape[1]
+    
+    # First term: sum of squares
+    term1 = torch.sum(X**2, dim=1)
+    
+    # Second and third terms: sum of 0.5*i*x_i
+    # Create indices [0.5, 1.0, 1.5, ..., 0.5*d] for each sample
+    i_values = torch.arange(1, dimensions + 1, dtype=X.dtype, device=X.device) * 0.5
+    weighted_sum = torch.sum(X * i_values.unsqueeze(0), dim=1)
+    
+    # Second term: (weighted_sum)^2
+    term2 = weighted_sum**2
+    
+    # Third term: (weighted_sum)^4
+    term3 = weighted_sum**4
+    
+    result = term1 + term2 + term3
+    
+    return result
+
+
+def generate_zakharov_data(n_train: int, n_test: int, dimensions: int = 2, x_bounds: list[float] = [-5, 10], train_noise: float = 0.0, 
+                            test_noise: float = 0.0, noise_type: str = 'gaussian', seed: int = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Generate train and test data for the Zakharov function using Sobol sequences.
+    
+    Args:
+        n_train (int): Number of training samples to generate
+        n_test (int): Number of test samples to generate
+        dimensions (int): Number of dimensions for the Zakharov function
+        x_bounds (list[float]): Bounds for each dimension [lower, upper] (default: [-5, 10])
+        train_noise (float): Noise level for training data as a fraction of std
+        test_noise (float): Noise level for test data as a fraction of std
+        noise_type (str): Type of noise ('gaussian' or 'uniform')
+        seed (int): Random seed for reproducibility
+        
+    Returns:
+        X_train, y_train, X_test, y_test: Train and test data
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+    
+    l_bound = x_bounds[0]
+    u_bound = x_bounds[1]
+    
+    # Generate ALL samples at once to avoid repeats
+    total_samples = n_train + n_test
+    sobol = torch.quasirandom.SobolEngine(dimension=dimensions, scramble=True)
+    X_all = sobol.draw(total_samples).to(dtype=torch.float64)
+    
+    # Scale to Zakharov bounds
+    X_all = X_all * (u_bound - l_bound) + l_bound
+    
+    # Compute Zakharov function values
+    y_all = zakharov_function(X_all, dimensions)
+    
+    # Split into train and test
+    X_train = X_all[:n_train]
+    y_train = y_all[:n_train]
+    X_test = X_all[n_train:]
+    y_test = y_all[n_train:]
+    
+    # Add noise separately to train and test
+    # Both train and test noise are based on TEST std
+    y_test_std = y_test.std()
+    
+    if train_noise > 0:
+        noise_scale = train_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_train) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_train = y_train + noise
+    
+    if test_noise > 0:
+        noise_scale = test_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_test) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_test = y_test + noise
+    
+    return X_train, y_train, X_test, y_test
+
+
+def michalewicz_function(X: torch.Tensor, dimensions: int = None, m: float = 10.0) -> torch.Tensor:
+    """
+    Compute the Michalewicz function for given input variables.
+    
+    The Michalewicz function is defined as:
+    f(x) = -sum_{i=1}^{d} sin(x_i) * sin^{2m}(i*x_i^2/π)
+    
+    where x ∈ [0, π]^d and d is the number of dimensions
+    m is typically 10
+    
+    Args:
+        X (torch.Tensor): Input array of shape [n_samples, d] where d is the number of dimensions
+        dimensions (int): Number of dimensions (optional, inferred from X if not provided)
+        m (float): Steepness parameter (default: 10.0)
+        
+    Returns:
+        torch.Tensor: Michalewicz function values for each input sample
+    """
+    if dimensions is None:
+        dimensions = X.shape[1]
+    
+    # Create indices [1, 2, 3, ..., d] for each sample
+    i_values = torch.arange(1, dimensions + 1, dtype=X.dtype, device=X.device)
+    
+    # Compute sin(x_i) * sin^{2m}(i*x_i^2/π) for each dimension
+    sin_x = torch.sin(X)
+    sin_power_arg = i_values.unsqueeze(0) * X**2 / torch.pi
+    sin_power = torch.sin(sin_power_arg) ** (2 * m)
+    
+    # Sum over all dimensions and negate
+    result = -torch.sum(sin_x * sin_power, dim=1)
+    
+    return result
+
+
+def generate_michalewicz_data(n_train: int, n_test: int, dimensions: int = 2, x_bounds: list[float] = [0, 3.141592653589793], train_noise: float = 0.0, 
+                               test_noise: float = 0.0, noise_type: str = 'gaussian', seed: int = None, 
+                               m: float = 10.0) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Generate train and test data for the Michalewicz function using Sobol sequences.
+    
+    Args:
+        n_train (int): Number of training samples to generate
+        n_test (int): Number of test samples to generate
+        dimensions (int): Number of dimensions for the Michalewicz function
+        x_bounds (list[float]): Bounds for each dimension [lower, upper] (default: [0, π])
+        train_noise (float): Noise level for training data as a fraction of std
+        test_noise (float): Noise level for test data as a fraction of std
+        noise_type (str): Type of noise ('gaussian' or 'uniform')
+        seed (int): Random seed for reproducibility
+        m (float): Steepness parameter for Michalewicz function (default: 10.0)
+        
+    Returns:
+        X_train, y_train, X_test, y_test: Train and test data
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+    
+    l_bound = x_bounds[0]
+    u_bound = x_bounds[1]
+    
+    # Generate ALL samples at once to avoid repeats
+    total_samples = n_train + n_test
+    sobol = torch.quasirandom.SobolEngine(dimension=dimensions, scramble=True)
+    X_all = sobol.draw(total_samples).to(dtype=torch.float64)
+    
+    # Scale to Michalewicz bounds
+    X_all = X_all * (u_bound - l_bound) + l_bound
+    
+    # Compute Michalewicz function values
+    y_all = michalewicz_function(X_all, dimensions, m=m)
     
     # Split into train and test
     X_train = X_all[:n_train]
@@ -1672,7 +1881,7 @@ def keane_bump_function(X: torch.Tensor, dimensions: int = None) -> torch.Tensor
     return result
 
 
-def generate_keane_bump_data(n_train: int, n_test: int, dimensions: int = 30, train_noise: float = 0.0, 
+def generate_keane_bump_data(n_train: int, n_test: int, dimensions: int = 30, x_bounds: list[float] = [0, 10], train_noise: float = 0.0, 
                               test_noise: float = 0.0, noise_type: str = 'gaussian', seed: int = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Generate train and test data for the Keane Bump function using Sobol sequences.
@@ -1692,8 +1901,8 @@ def generate_keane_bump_data(n_train: int, n_test: int, dimensions: int = 30, tr
     if seed is not None:
         torch.manual_seed(seed)
     
-    l_bound = 0.0
-    u_bound = 10.0
+    l_bound = x_bounds[0]
+    u_bound = x_bounds[1]
     
     # Generate ALL samples at once to avoid repeats
     total_samples = n_train + n_test
@@ -1903,6 +2112,460 @@ def generate_rover_trajectory_data(n_train: int, n_test: int, dimensions: int = 
         end_location=end_location,
         obstacles=obstacles
     )
+    
+    # Split into train and test
+    X_train = X_all[:n_train]
+    y_train = y_all[:n_train]
+    X_test = X_all[n_train:]
+    y_test = y_all[n_train:]
+    
+    # Add noise separately to train and test
+    # Both train and test noise are based on TEST std
+    y_test_std = y_test.std()
+    
+    if train_noise > 0:
+        noise_scale = train_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_train) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_train = y_train + noise
+    
+    if test_noise > 0:
+        noise_scale = test_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_test) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_test = y_test + noise
+    
+    return X_train, y_train, X_test, y_test
+
+
+def powell_function(X: torch.Tensor, dimensions: int = None) -> torch.Tensor:
+    """
+    Compute the Powell function for given input variables.
+    
+    The Powell function is defined as:
+    f(x) = Σ_{i=1}^{d/4} [ (x_{4i-3} + 10x_{4i-2})^2 + 5(x_{4i-1} - x_{4i})^2 + (x_{4i-2} - 2x_{4i-1})^4 + 10(x_{4i-3} - x_{4i})^4 ]
+    
+    where x ∈ [-4, 5]^d and d is the number of dimensions (must be a multiple of 4)
+    
+    Global minimum: f(x*) = 0, at x* = (0,..., 0)
+    
+    Args:
+        X (torch.Tensor): Input array of shape [n_samples, d] where d is the number of dimensions
+        dimensions (int): Number of dimensions (optional, inferred from X if not provided)
+        
+    Returns:
+        torch.Tensor: Powell function values for each input sample
+    """
+    if dimensions is None:
+        dimensions = X.shape[1]
+    
+    # Check that dimensions is a multiple of 4
+    if dimensions % 4 != 0:
+        raise ValueError(f"Dimensions must be a multiple of 4, got {dimensions}")
+    
+    n_terms = dimensions // 4
+    result = torch.zeros(X.shape[0], dtype=X.dtype, device=X.device)
+    
+    # Compute each term in the sum
+    for i in range(n_terms):
+        # Indices: 4i-3, 4i-2, 4i-1, 4i (converted to 0-based: 4i-4, 4i-3, 4i-2, 4i-1)
+        idx_base = i * 4
+        x_4i_minus_3 = X[:, idx_base]      # x_{4i-3} (0-based: 4i-4)
+        x_4i_minus_2 = X[:, idx_base + 1]  # x_{4i-2} (0-based: 4i-3)
+        x_4i_minus_1 = X[:, idx_base + 2]  # x_{4i-1} (0-based: 4i-2)
+        x_4i = X[:, idx_base + 3]          # x_{4i} (0-based: 4i-1)
+        
+        # Term 1: (x_{4i-3} + 10x_{4i-2})^2
+        term1 = (x_4i_minus_3 + 10 * x_4i_minus_2) ** 2
+        
+        # Term 2: 5(x_{4i-1} - x_{4i})^2
+        term2 = 5 * (x_4i_minus_1 - x_4i) ** 2
+        
+        # Term 3: (x_{4i-2} - 2x_{4i-1})^4
+        term3 = (x_4i_minus_2 - 2 * x_4i_minus_1) ** 4
+        
+        # Term 4: 10(x_{4i-3} - x_{4i})^4
+        term4 = 10 * (x_4i_minus_3 - x_4i) ** 4
+        
+        # Add all terms for this i
+        result += term1 + term2 + term3 + term4
+    
+    return result
+
+
+def generate_powell_data(n_train: int, n_test: int, dimensions: int = 4, x_bounds: list[float] = [-4, 5], train_noise: float = 0.0, 
+                         test_noise: float = 0.0, noise_type: str = 'gaussian', seed: int = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Generate train and test data for the Powell function using Sobol sequences.
+    
+    Args:
+        n_train (int): Number of training samples to generate
+        n_test (int): Number of test samples to generate
+        dimensions (int): Number of dimensions for the Powell function (must be a multiple of 4, default: 4)
+        x_bounds (list[float]): Bounds for each dimension [lower, upper] (default: [-4, 5])
+        train_noise (float): Noise level for training data as a fraction of std
+        test_noise (float): Noise level for test data as a fraction of std
+        noise_type (str): Type of noise ('gaussian' or 'uniform')
+        seed (int): Random seed for reproducibility
+        
+    Returns:
+        X_train, y_train, X_test, y_test: Train and test data
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+    
+    # Check that dimensions is a multiple of 4
+    if dimensions % 4 != 0:
+        raise ValueError(f"Dimensions must be a multiple of 4, got {dimensions}")
+    
+    l_bound = x_bounds[0]
+    u_bound = x_bounds[1]
+    
+    # Generate ALL samples at once to avoid repeats
+    total_samples = n_train + n_test
+    sobol = torch.quasirandom.SobolEngine(dimension=dimensions, scramble=True)
+    X_all = sobol.draw(total_samples).to(dtype=torch.float64)
+    
+    # Scale to Powell bounds
+    X_all = X_all * (u_bound - l_bound) + l_bound
+    
+    # Compute Powell function values
+    y_all = powell_function(X_all, dimensions)
+    
+    # Split into train and test
+    X_train = X_all[:n_train]
+    y_train = y_all[:n_train]
+    X_test = X_all[n_train:]
+    y_test = y_all[n_train:]
+    
+    # Add noise separately to train and test
+    # Both train and test noise are based on TEST std
+    y_test_std = y_test.std()
+    
+    if train_noise > 0:
+        noise_scale = train_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_train) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_train = y_train + noise
+    
+    if test_noise > 0:
+        noise_scale = test_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_test) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_test = y_test + noise
+    
+    return X_train, y_train, X_test, y_test
+
+
+def griewank_function(X: torch.Tensor, dimensions: int = None) -> torch.Tensor:
+    """
+    Compute the Griewank function for given input variables.
+    
+    The Griewank function is defined as:
+    f(x) = sum_{i=1}^{d} (x_i^2 / 4000) - product_{i=1}^{d} cos(x_i / sqrt(i)) + 1
+    
+    where x ∈ [-600, 600]^d and d is the number of dimensions
+    
+    Global minimum: f(x*) = 0, at x* = (0,...,0)
+    
+    Args:
+        X (torch.Tensor): Input array of shape [n_samples, d] where d is the number of dimensions
+        dimensions (int): Number of dimensions (optional, inferred from X if not provided)
+        
+    Returns:
+        torch.Tensor: Griewank function values for each input sample
+    """
+    if dimensions is None:
+        dimensions = X.shape[1]
+    
+    # First term: sum_{i=1}^{d} (x_i^2 / 4000)
+    sum_squares = torch.sum(X**2, dim=1) / 4000.0
+    
+    # Second term: product_{i=1}^{d} cos(x_i / sqrt(i))
+    # Create indices [1, 2, 3, ..., d] for each sample
+    i_values = torch.arange(1, dimensions + 1, dtype=X.dtype, device=X.device)
+    sqrt_i = torch.sqrt(i_values)  # [sqrt(1), sqrt(2), ..., sqrt(d)]
+    
+    # Compute cos(x_i / sqrt(i)) for each dimension
+    cos_terms = torch.cos(X / sqrt_i.unsqueeze(0))  # [n_samples, d]
+    
+    # Product over all dimensions
+    product_cos = torch.prod(cos_terms, dim=1)  # [n_samples]
+    
+    # Griewank function: sum_squares - product_cos + 1
+    result = sum_squares - product_cos + 1.0
+    
+    return result
+
+
+def generate_griewank_data(n_train: int, n_test: int, dimensions: int = 2, x_bounds: list[float] = [-600, 600], train_noise: float = 0.0, 
+                            test_noise: float = 0.0, noise_type: str = 'gaussian', seed: int = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Generate train and test data for the Griewank function using Sobol sequences.
+    
+    Args:
+        n_train (int): Number of training samples to generate
+        n_test (int): Number of test samples to generate
+        dimensions (int): Number of dimensions for the Griewank function
+        x_bounds (list[float]): Bounds for each dimension [lower, upper] (default: [-600, 600])
+        train_noise (float): Noise level for training data as a fraction of std
+        test_noise (float): Noise level for test data as a fraction of std
+        noise_type (str): Type of noise ('gaussian' or 'uniform')
+        seed (int): Random seed for reproducibility
+        
+    Returns:
+        X_train, y_train, X_test, y_test: Train and test data
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+    
+    l_bound = x_bounds[0]
+    u_bound = x_bounds[1]
+    
+    # Generate ALL samples at once to avoid repeats
+    total_samples = n_train + n_test
+    sobol = torch.quasirandom.SobolEngine(dimension=dimensions, scramble=True)
+    X_all = sobol.draw(total_samples).to(dtype=torch.float64)
+    
+    # Scale to Griewank bounds
+    X_all = X_all * (u_bound - l_bound) + l_bound
+    
+    # Compute Griewank function values
+    y_all = griewank_function(X_all, dimensions)
+    
+    # Split into train and test
+    X_train = X_all[:n_train]
+    y_train = y_all[:n_train]
+    X_test = X_all[n_train:]
+    y_test = y_all[n_train:]
+    
+    # Add noise separately to train and test
+    # Both train and test noise are based on TEST std
+    y_test_std = y_test.std()
+    
+    if train_noise > 0:
+        noise_scale = train_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_train) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_train = y_train + noise
+    
+    if test_noise > 0:
+        noise_scale = test_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_test) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_test = y_test + noise
+    
+    return X_train, y_train, X_test, y_test
+
+
+def dixon_price_function(X: torch.Tensor, dimensions: int = None) -> torch.Tensor:
+    """
+    Compute the Dixon-Price function for given input variables.
+    
+    The Dixon-Price function is defined as:
+    f(x) = (x_1 - 1)^2 + sum_{i=2}^{d} i * (2x_i^2 - x_{i-1})^2
+    
+    where x ∈ [-10, 10]^d and d is the number of dimensions
+    
+    Global minimum: f(x*) = 0, at x_i = 2^((2^(i-1) - 1) / 2^(i-1)) for i = 1, ..., d
+    
+    Args:
+        X (torch.Tensor): Input array of shape [n_samples, d] where d is the number of dimensions
+        dimensions (int): Number of dimensions (optional, inferred from X if not provided)
+        
+    Returns:
+        torch.Tensor: Dixon-Price function values for each input sample
+    """
+    if dimensions is None:
+        dimensions = X.shape[1]
+    
+    # First term: (x_1 - 1)^2
+    first_term = (X[:, 0] - 1.0) ** 2
+    
+    # Sum term: sum_{i=2}^{d} i * (2x_i^2 - x_{i-1})^2
+    # For i=2 to d: i * (2x_i^2 - x_{i-1})^2
+    # x_i corresponds to X[:, i-1] (0-indexed)
+    # x_{i-1} corresponds to X[:, i-2] (0-indexed)
+    
+    sum_term = torch.zeros(X.shape[0], dtype=X.dtype, device=X.device)
+    
+    for i in range(2, dimensions + 1):  # i from 2 to d
+        x_i = X[:, i - 1]  # x_i (0-indexed: column i-1)
+        x_i_minus_1 = X[:, i - 2]  # x_{i-1} (0-indexed: column i-2)
+        
+        # Compute (2x_i^2 - x_{i-1})^2
+        term = (2.0 * x_i**2 - x_i_minus_1) ** 2
+        
+        # Multiply by i and add to sum
+        sum_term += float(i) * term
+    
+    # Dixon-Price function: first_term + sum_term
+    result = first_term + sum_term
+    
+    return result
+
+
+def generate_dixon_price_data(n_train: int, n_test: int, dimensions: int = 2, x_bounds: list[float] = [-10, 10], train_noise: float = 0.0, 
+                               test_noise: float = 0.0, noise_type: str = 'gaussian', seed: int = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Generate train and test data for the Dixon-Price function using Sobol sequences.
+    
+    Args:
+        n_train (int): Number of training samples to generate
+        n_test (int): Number of test samples to generate
+        dimensions (int): Number of dimensions for the Dixon-Price function
+        x_bounds (list[float]): Bounds for each dimension [lower, upper] (default: [-10, 10])
+        train_noise (float): Noise level for training data as a fraction of std
+        test_noise (float): Noise level for test data as a fraction of std
+        noise_type (str): Type of noise ('gaussian' or 'uniform')
+        seed (int): Random seed for reproducibility
+        
+    Returns:
+        X_train, y_train, X_test, y_test: Train and test data
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+    
+    l_bound = x_bounds[0]
+    u_bound = x_bounds[1]
+    
+    # Generate ALL samples at once to avoid repeats
+    total_samples = n_train + n_test
+    sobol = torch.quasirandom.SobolEngine(dimension=dimensions, scramble=True)
+    X_all = sobol.draw(total_samples).to(dtype=torch.float64)
+    
+    # Scale to Dixon-Price bounds
+    X_all = X_all * (u_bound - l_bound) + l_bound
+    
+    # Compute Dixon-Price function values
+    y_all = dixon_price_function(X_all, dimensions)
+    
+    # Split into train and test
+    X_train = X_all[:n_train]
+    y_train = y_all[:n_train]
+    X_test = X_all[n_train:]
+    y_test = y_all[n_train:]
+    
+    # Add noise separately to train and test
+    # Both train and test noise are based on TEST std
+    y_test_std = y_test.std()
+    
+    if train_noise > 0:
+        noise_scale = train_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_train) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_train = y_train + noise
+    
+    if test_noise > 0:
+        noise_scale = test_noise * y_test_std
+        if noise_type == 'gaussian':
+            noise = torch.randn_like(y_test) * noise_scale
+        elif noise_type == 'uniform':
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+        else:
+            raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
+        y_test = y_test + noise
+    
+    return X_train, y_train, X_test, y_test
+
+
+def styblinski_tang_function(X: torch.Tensor, dimensions: int = None) -> torch.Tensor:
+    """
+    Compute the Styblinski-Tang function for given input variables.
+    
+    The Styblinski-Tang function is defined as:
+    f(x) = (1/2) * sum_{i=1}^{d} (x_i^4 - 16x_i^2 + 5x_i)
+    
+    where x ∈ [-5, 5]^d and d is the number of dimensions
+    
+    Global minimum: f(x*) = -39.16599d, at x* = (-2.903534, ..., -2.903534)
+    
+    Args:
+        X (torch.Tensor): Input array of shape [n_samples, d] where d is the number of dimensions
+        dimensions (int): Number of dimensions (optional, inferred from X if not provided)
+        
+    Returns:
+        torch.Tensor: Styblinski-Tang function values for each input sample
+    """
+    if dimensions is None:
+        dimensions = X.shape[1]
+    
+    # Compute (x_i^4 - 16x_i^2 + 5x_i) for each dimension
+    x_squared = X ** 2
+    x_fourth = x_squared ** 2
+    term = x_fourth - 16.0 * x_squared + 5.0 * X
+    
+    # Sum over all dimensions
+    sum_term = torch.sum(term, dim=1)
+    
+    # Multiply by 1/2
+    result = 0.5 * sum_term
+    
+    return result
+
+
+def generate_styblinski_tang_data(n_train: int, n_test: int, dimensions: int = 2, x_bounds: list[float] = [-5, 5], train_noise: float = 0.0, 
+                                   test_noise: float = 0.0, noise_type: str = 'gaussian', seed: int = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Generate train and test data for the Styblinski-Tang function using Sobol sequences.
+    
+    Args:
+        n_train (int): Number of training samples to generate
+        n_test (int): Number of test samples to generate
+        dimensions (int): Number of dimensions for the Styblinski-Tang function
+        x_bounds (list[float]): Bounds for each dimension [lower, upper] (default: [-5, 5])
+        train_noise (float): Noise level for training data as a fraction of std
+        test_noise (float): Noise level for test data as a fraction of std
+        noise_type (str): Type of noise ('gaussian' or 'uniform')
+        seed (int): Random seed for reproducibility
+        
+    Returns:
+        X_train, y_train, X_test, y_test: Train and test data
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+    
+    l_bound = x_bounds[0]
+    u_bound = x_bounds[1]
+    
+    # Generate ALL samples at once to avoid repeats
+    total_samples = n_train + n_test
+    sobol = torch.quasirandom.SobolEngine(dimension=dimensions, scramble=True)
+    X_all = sobol.draw(total_samples).to(dtype=torch.float64)
+    
+    # Scale to Styblinski-Tang bounds
+    X_all = X_all * (u_bound - l_bound) + l_bound
+    
+    # Compute Styblinski-Tang function values
+    y_all = styblinski_tang_function(X_all, dimensions)
     
     # Split into train and test
     X_train = X_all[:n_train]

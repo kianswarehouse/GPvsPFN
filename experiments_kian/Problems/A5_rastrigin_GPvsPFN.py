@@ -16,6 +16,7 @@ def rastrigin_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         num_test=5000,
         train_size=10, # total training size is train_size * number of X input dimensions
         dimensions=5,
+        x_bounds=[-10,10],
         num_runs=defaults.TRAINER_NUM_RUNS, 
         num_epochs=defaults.TRAINER_NUM_EPOCHS, 
         lr=defaults.TRAINER_LR, 
@@ -40,9 +41,9 @@ def rastrigin_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
     shift_str = f"_shifted{shift}" if shift is not None else ""
     if title is None:
-        title = f"Rastrigin{shift_str}_{dimensions}xdim_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"Rastrigin{shift_str}_{dimensions}xdim_{train_size}D_[{x_bounds[0]},{x_bounds[1]}]bounds_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"Rastrigin{shift_str}_{dimensions}xdim_{train_size}D_{title}"
+        title = f"Rastrigin{shift_str}_{title}_{dimensions}xdim_{train_size}D_[{x_bounds[0]},{x_bounds[1]}]bounds_noiseTest{noise_test}_noiseTrain{noise_train}"
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
@@ -69,6 +70,7 @@ def rastrigin_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         n_train=total_train,
         n_test=num_test,
         dimensions=dimensions,
+        x_bounds=x_bounds,
         train_noise=noise_train,
         test_noise=noise_test,
         noise_type=noise_type,
@@ -216,6 +218,7 @@ def rastrigin_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 "convergence_patience": convergence_patience,
                 "initializer": initializer_class.__name__ if initializer_class else None,
                 "shift": str(shift) if shift is not None else None,
+                "x_bounds": x_bounds,
                 **y_test_stats,
                 "num_folds": num_folds,
                 "seed": seed,

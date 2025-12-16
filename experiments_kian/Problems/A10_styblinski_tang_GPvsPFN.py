@@ -7,15 +7,16 @@ import time
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
-from load_experimental_data import generate_keane_bump_data
+from load_experimental_data import generate_styblinski_tang_data
 import defaults
 
 # import warnings
 # warnings.filterwarnings("ignore")
-def keane_bump_GPvsPFN(num_folds=defaults.NUM_FOLDS,
+def styblinski_tang_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         num_test=5000,
         train_size=10, # total training size is train_size * number of X input dimensions
-        dimensions=30,
+        dimensions=2,
+        x_bounds=[-5, 5],
         num_runs=defaults.TRAINER_NUM_RUNS, 
         num_epochs=defaults.TRAINER_NUM_EPOCHS, 
         lr=defaults.TRAINER_LR, 
@@ -24,7 +25,7 @@ def keane_bump_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         initializer_class=defaults.TRAINER_INITIALIZER_CLASS,
         gp_device=defaults.TRAINER_GP_DEVICE,
         amp_device=defaults.TRAINER_AMP_DEVICE,
-        save_path='./results/keane_bump',
+        save_path='./results/styblinski_tang',
         title=None,
         standardize_X=True,
         standardize_y=True,
@@ -38,9 +39,9 @@ def keane_bump_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     ):
 
     if title is None:
-        title = f"KeaneBump_{dimensions}xdim_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"StyblinskiTang_{dimensions}xdim_{train_size}D_[{x_bounds[0]},{x_bounds[1]}]bounds_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"KeaneBump_{dimensions}xdim_{train_size}D_{title}"
+        title = f"StyblinskiTang_{title}_{dimensions}xdim_{train_size}D_[{x_bounds[0]},{x_bounds[1]}]bounds_noiseTest{noise_test}_noiseTrain{noise_train}"
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
@@ -54,17 +55,18 @@ def keane_bump_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     set_seed(seed)
     
     # Calculate total samples needed
-    train_per_fold = train_size * dimensions  # train_size * dimensions for Keane Bump
+    train_per_fold = train_size * dimensions  # train_size * dimensions for Styblinski-Tang
     total_train = num_folds * train_per_fold
     total_samples = num_test + total_train
     
-    print(f"Generating {total_samples} unique Sobol samples for {dimensions}D Keane Bump function\n\tTest samples: {num_test} / Train samples: {total_train}")
+    print(f"Generating {total_samples} unique Sobol samples for {dimensions}D Styblinski-Tang function\n\tTest samples: {num_test} / Train samples: {total_train}")
     
     # Generate train and test data in one call
-    X_train_all, y_train_all, X_test_all, y_test_all = generate_keane_bump_data(
+    X_train_all, y_train_all, X_test_all, y_test_all = generate_styblinski_tang_data(
         n_train=total_train,
         n_test=num_test,
         dimensions=dimensions,
+        x_bounds=x_bounds,
         train_noise=noise_train,
         test_noise=noise_test,
         noise_type=noise_type,
@@ -132,7 +134,8 @@ def keane_bump_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             likelihood=defaults.SF_likelihood,
         )
         if (i == 0) or (i == num_folds - 1):
-            print(f"X_train: {X_train.shape} / X_test: {X_test.shape}")
+            print(f"X_train: {X_train.shape}")
+            print(f"X_test: {X_test.shape}")
             print(f"y_test mean: {y_test.mean().item()} / y_test std: {y_test.std().item()}")
             print(model)
 
@@ -211,6 +214,7 @@ def keane_bump_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 "optimizer": optimizer_class.__name__,
                 "convergence_patience": convergence_patience,
                 "initializer": initializer_class.__name__ if initializer_class else None,
+                "x_bounds": x_bounds,
                 **y_test_stats,
                 "num_folds": num_folds,
                 "seed": seed,
@@ -273,9 +277,9 @@ def keane_bump_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
 
 if __name__ == "__main__":
-    # Standard Keane Bump (30D as per benchmark)
-    # keane_bump_GPvsPFN(num_folds=1, train_size=10, dimensions=30, num_runs=4, save_path='./results/keane_bump/temp')
-    keane_bump_GPvsPFN(num_folds=1, train_size=20, dimensions=30, num_runs=4, save_path='./results/keane_bump/temp')
-
+    styblinski_tang_GPvsPFN(num_folds=1, train_size=40, dimensions=5, num_runs=4, save_path='./results/styblinski_tang/temp')
+    styblinski_tang_GPvsPFN(num_folds=1, train_size=80, dimensions=10, num_runs=4, save_path='./results/styblinski_tang/temp')
+    styblinski_tang_GPvsPFN(num_folds=1, train_size=10, dimensions=40, num_runs=4, save_path='./results/styblinski_tang/temp')
+    styblinski_tang_GPvsPFN(num_folds=1, train_size=40, dimensions=40, num_runs=4, save_path='./results/styblinski_tang/temp')
 
 

@@ -7,15 +7,16 @@ import time
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
-from load_experimental_data import generate_rover_trajectory_data
+from load_experimental_data import generate_dixon_price_data
 import defaults
 
 # import warnings
 # warnings.filterwarnings("ignore")
-def rover_trajectory_GPvsPFN(num_folds=defaults.NUM_FOLDS,
+def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         num_test=5000,
         train_size=10, # total training size is train_size * number of X input dimensions
-        dimensions=60,
+        dimensions=2,
+        x_bounds=[-10, 10],
         num_runs=defaults.TRAINER_NUM_RUNS, 
         num_epochs=defaults.TRAINER_NUM_EPOCHS, 
         lr=defaults.TRAINER_LR, 
@@ -24,7 +25,7 @@ def rover_trajectory_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         initializer_class=defaults.TRAINER_INITIALIZER_CLASS,
         gp_device=defaults.TRAINER_GP_DEVICE,
         amp_device=defaults.TRAINER_AMP_DEVICE,
-        save_path='./results/rover_trajectory',
+        save_path='./results/dixon_price',
         title=None,
         standardize_X=True,
         standardize_y=True,
@@ -35,15 +36,12 @@ def rover_trajectory_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         seed_trainer=defaults.SEED_TRAINER,
         gp_dtype = defaults.DTYPE_GP,
         pfn_dtype = defaults.DTYPE_PFN,
-        start_location: torch.Tensor = None,
-        end_location: torch.Tensor = None,
-        obstacles: list = None,
     ):
 
     if title is None:
-        title = f"RoverTrajectory_{dimensions}xdim_{train_size}D_{num_epochs}epochs_{num_runs}runs_{lr}_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"DixonPrice_{dimensions}xdim_{train_size}D_[{x_bounds[0]},{x_bounds[1]}]bounds_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"RoverTrajectory_{dimensions}xdim_{train_size}D_{title}"
+        title = f"DixonPrice_{title}_{dimensions}xdim_{train_size}D_[{x_bounds[0]},{x_bounds[1]}]bounds_noiseTest{noise_test}_noiseTrain{noise_train}"
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
@@ -57,24 +55,22 @@ def rover_trajectory_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     set_seed(seed)
     
     # Calculate total samples needed
-    train_per_fold = train_size * dimensions  # train_size * dimensions for Rover Trajectory
+    train_per_fold = train_size * dimensions  # train_size * dimensions for Dixon-Price
     total_train = num_folds * train_per_fold
     total_samples = num_test + total_train
     
-    print(f"Generating {total_samples} unique Sobol samples for {dimensions}D Rover Trajectory Planning problem\n\tTest samples: {num_test} / Train samples: {total_train}")
+    print(f"Generating {total_samples} unique Sobol samples for {dimensions}D Dixon-Price function\n\tTest samples: {num_test} / Train samples: {total_train}")
     
     # Generate train and test data in one call
-    X_train_all, y_train_all, X_test_all, y_test_all = generate_rover_trajectory_data(
+    X_train_all, y_train_all, X_test_all, y_test_all = generate_dixon_price_data(
         n_train=total_train,
         n_test=num_test,
         dimensions=dimensions,
+        x_bounds=x_bounds,
         train_noise=noise_train,
         test_noise=noise_test,
         noise_type=noise_type,
-        seed=seed,
-        start_location=start_location,
-        end_location=end_location,
-        obstacles=obstacles
+        seed=seed
     )
     X = torch.cat([X_test_all, X_train_all], dim=0)
 
@@ -92,6 +88,8 @@ def rover_trajectory_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     GPPlus_metrics = []
 
     # Randomize across the single source, then split across folds
+    # Use seed to ensure consistent fold splits
+    torch.manual_seed(seed)
     all_indices = torch.randperm(total_train)
     train_indices_2d = all_indices.reshape(num_folds, train_per_fold)
         
@@ -136,7 +134,8 @@ def rover_trajectory_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             likelihood=defaults.SF_likelihood,
         )
         if (i == 0) or (i == num_folds - 1):
-            print(f"X_train: {X_train.shape} / X_test: {X_test.shape}")
+            print(f"X_train: {X_train.shape}")
+            print(f"X_test: {X_test.shape}")
             print(f"y_test mean: {y_test.mean().item()} / y_test std: {y_test.std().item()}")
             print(model)
 
@@ -215,6 +214,7 @@ def rover_trajectory_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 "optimizer": optimizer_class.__name__,
                 "convergence_patience": convergence_patience,
                 "initializer": initializer_class.__name__ if initializer_class else None,
+                "x_bounds": x_bounds,
                 **y_test_stats,
                 "num_folds": num_folds,
                 "seed": seed,
@@ -277,9 +277,9 @@ def rover_trajectory_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
 
 if __name__ == "__main__":
-    # Standard Rover Trajectory (60D as per benchmark: 30 design points × 2D)
-    rover_trajectory_GPvsPFN(num_folds=1, train_size=10, dimensions=60, num_runs=4, save_path='./results/rover_trajectory/temp')
-    # rover_trajectory_GPvsPFN(num_folds=1, train_size=20, dimensions=60, num_runs=4, save_path='./results/rover_trajectory/temp')
-
+    dixon_price_GPvsPFN(num_folds=1, train_size=10, dimensions=20, num_runs=4, save_path='./results/dixon_price/temp')
+    dixon_price_GPvsPFN(num_folds=1, train_size=20, dimensions=20, num_runs=4, save_path='./results/dixon_price/temp')
+    dixon_price_GPvsPFN(num_folds=1, train_size=10, dimensions=40, num_runs=4, save_path='./results/dixon_price/temp')
+    dixon_price_GPvsPFN(num_folds=1, train_size=20, dimensions=40, num_runs=4, save_path='./results/dixon_price/temp')
 
 
