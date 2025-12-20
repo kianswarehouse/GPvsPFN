@@ -126,7 +126,7 @@ class DefaultParameterInitializer(ParameterInitializer):
             return {
                 "method": "uniform",
                 "lower": -7.0,
-                "upper": 3.0,
+                "upper": -1.0,
                 "description": "Noise parameter - uniform scale",
             }
         elif param_type == "constant":
