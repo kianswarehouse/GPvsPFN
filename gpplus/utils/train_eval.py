@@ -7,7 +7,7 @@ from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
 from gpplus.training import GPTrainer
 from gpplus.training.callbacks import FinalParameterStorageCallback
 # from gpplus.training.eval import evaluate_gp_model
-
+from gpplus.training.stop_conditions import ConvergencePatienceStopCondition, MinLossChangeStopCondition
 from gpplus.training.eval2 import evaluate_gp_model
 from gpplus.training.optimizers import LBFGSScipy
 from gpplus.utils.metrics_functions import compute_metrics, compute_per_source_metrics
@@ -22,6 +22,7 @@ def train_eval_gp(
     num_runs: int,
     lr: float,
     convergence_patience: int,
+    min_loss_change: float,
     optimizer_class=None,
     initializer_class=None,
     device: str = "cpu",
@@ -77,7 +78,7 @@ def train_eval_gp(
         seed=seed,
         num_runs=num_runs,
         # optimizer_kwargs=optimizer_kwargs,
-        convergence_patience=convergence_patience,
+        stop_conditions=[ConvergencePatienceStopCondition(patience=convergence_patience), MinLossChangeStopCondition(min_loss_change=min_loss_change)],
         callbacks=callbacks,
         optimizer_class=optimizer_class,
         device=device,

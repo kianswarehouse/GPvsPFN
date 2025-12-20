@@ -25,14 +25,12 @@ class ParameterInitializer(ABC):
 
 class DefaultParameterInitializer(ParameterInitializer):
     """
-    Simplified parameter initializer that works with built-in constraints.
+    Parameter initializer that looks at parameter names to determine initialization strategies.
 
     Features:
-    - Simple parameter type detection based on parameter names only
-    - No complex kernel-specific logic - just looks at parameter names
-    - Works with built-in constraints in custom kernels and likelihoods
+    - Parameter type detection based on parameter names only
     - Conservative initialization values for numerical stability
-    - Clean and maintainable architecture
+    - Allows the user to specify custom initialization strategies for specific parameters.
     """
 
     def __init__(self, num_runs: int, seed: int = None, parameter_configs: Optional[Dict[str, Dict[str, Any]]] = None):
@@ -45,9 +43,8 @@ class DefaultParameterInitializer(ParameterInitializer):
             parameter_configs: Optional custom parameter configurations.
 
         Note:
-            This initializer is greatly simplified and only looks at parameter names to
-            determine initialization strategies. All constraints are handled by the
-            kernel and likelihood classes themselves.
+            This initializer looks at parameter names to determine initialization strategies.
+            All constraints are handled by the model's kernel and likelihood classes.
         """
         self.num_runs = num_runs
         self.seed = seed
@@ -56,14 +53,25 @@ class DefaultParameterInitializer(ParameterInitializer):
         self.parameter_configs = parameter_configs or {}
 
     def setup(self, model: torch.nn.Module):
-        """Calculate the total number of learnable parameters and precompute Sobol samples."""
-        self.num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        """
+        Calculate the total number of learnable parameters and precompute Sobol samples.
+
+        Excludes '.weight' and '.bias' parameters from Sobol sampling count,
+        as these are initialized separately (Xavier uniform for weights, zeros for biases).
+        """
+        # Count only parameters that will use Sobol samples (exclude .weight and .bias)
+        self.num_params = 0
+        for name, param in model.named_parameters():
+            if param.requires_grad and ".weight" not in name and ".bias" not in name:
+                self.num_params += param.numel()
+
         sobol_engine = SobolEngine(dimension=self.num_params, scramble=True, seed=self.seed)
         self.sobol_samples = sobol_engine.draw(self.num_runs)
 
         logger.info("Using DefaultParameterInitializer")
         logger.debug(f"Sobol samples generated: {self.sobol_samples.shape}")
         logger.info("All constraints are now built into kernel and likelihood classes - no manual setup needed")
+        logger.debug("Excluding .weight and .bias parameters from Sobol sampling (initialized separately)")
 
     def get_parameter_type(self, name: str, param: torch.Tensor) -> str:
         """Determine the parameter type based on parameter name only."""
@@ -73,7 +81,7 @@ class DefaultParameterInitializer(ParameterInitializer):
             return "raw_lengthscale"
         elif "raw_outputscale" in name:
             return "raw_outputscale"
-        elif "raw_noise" in name or "noise" in name:
+        elif "raw_noise" in name:
             return "raw_noise"
         elif "weight" in name and param.dim() >= 2:
             return "weight"
@@ -98,7 +106,7 @@ class DefaultParameterInitializer(ParameterInitializer):
             config["description"] = f"{param_type} parameter (custom config)"
             return config
 
-        # Simple configurations based on parameter type
+        # Default configurations based on parameter type
         if param_type == "raw_lengthscale":
             is_ard = param.dim() == 2 and param.shape[1] > 1
             return {
@@ -150,8 +158,8 @@ class DefaultParameterInitializer(ParameterInitializer):
             }
         elif param_type == "projection_matrix":
             # Try to find the initialization type from the specific module
-            init_type = "orthogonal"  # default
-            init_std = 0.1  # default value
+            init_type = "orthogonal"
+            init_std = 0.1
 
             # Look for the parameter in the model's modules
             if model is not None:
@@ -168,7 +176,7 @@ class DefaultParameterInitializer(ParameterInitializer):
                             ):
                                 init_std = module._param_init_params["projection_matrix"]["init_std"]
                             else:
-                                init_std = 0.1  # default
+                                init_std = 0.1
                             break
 
             if init_type == "orthogonal":
@@ -208,7 +216,6 @@ class DefaultParameterInitializer(ParameterInitializer):
     def _generate_normal_samples(self, sample: torch.Tensor, mean: float, std: float) -> torch.Tensor:
         """Generate normal samples using inverse CDF from Sobol samples."""
         # Use inverse CDF of normal distribution directly
-        # This is more efficient and numerically stable than Box-Muller
         # Ensure all operations maintain the same dtype as the input sample
         z = torch.erfinv(2.0 * sample - 1.0) * torch.sqrt(torch.tensor(2.0, dtype=sample.dtype, device=sample.device))
         return mean + std * z
@@ -272,9 +279,12 @@ class DefaultParameterInitializer(ParameterInitializer):
             )
 
         elif method == "xavier_uniform":
-            limit = config.get("limit", 1.0)
-            raw_value = (sample * 2 - 1) * limit
-            param.data = raw_value.to(dtype=param.dtype)
+            # Use PyTorch's xavier_uniform initialization directly
+            # Use run_index to generate different seeds for each initialization
+            generator_seed = (self.seed + run_index) if self.seed is not None else run_index
+            g = torch.Generator().manual_seed(generator_seed)
+            torch.nn.init.xavier_uniform_(param, generator=g)
+            logger.debug(f"Initialized weight parameter '{name}' with Xavier uniform (seed={generator_seed})")
 
         elif method == "uniform":
             lower = config.get("lower", -6.0)
@@ -306,7 +316,17 @@ class DefaultParameterInitializer(ParameterInitializer):
             param.data = raw_value.to(dtype=param.dtype)
 
     def initialize(self, model: torch.nn.Module, run_index: int):
-        """Initialize the model parameters for a specific run using improved configuration."""
+        """
+        Initialize the model parameters for a specific run.
+
+        We exclude '.weight' and '.bias' parameters from Sobol sampling:
+        - '.weight': Xavier uniform
+        - '.bias': zeros
+        Other parameters are mapped from Sobol [0,1] samples into configured ranges.
+
+        :param model: The model whose parameters need initialization.
+        :param run_index: The run index corresponding to the precomputed Sobol sample.
+        """
         idx = 0
 
         with torch.no_grad():
@@ -321,6 +341,21 @@ class DefaultParameterInitializer(ParameterInitializer):
 
                 # Get initialization configuration
                 config = self.get_initialization_config(name, param, model)
+
+                # Handle weight parameters with Xavier uniform (exclude from Sobol sampling)
+                if ".weight" in name:
+                    # reproducible per-run, on CPU
+                    generator_seed = (self.seed + run_index) if self.seed is not None else run_index
+                    g = torch.Generator().manual_seed(generator_seed)
+                    torch.nn.init.xavier_uniform_(param, generator=g)
+                    logger.debug(f"Initialized weight parameter '{name}' with Xavier uniform")
+                    continue
+
+                # Handle bias parameters with zeros (exclude from Sobol sampling)
+                if ".bias" in name:
+                    torch.nn.init.zeros_(param)
+                    logger.debug(f"Initialized bias parameter '{name}' with zeros")
+                    continue
 
                 # Slice the sobol_samples for the current parameter
                 sample = self.sobol_samples[run_index, idx : idx + param_length]
@@ -349,98 +384,3 @@ class DefaultParameterInitializer(ParameterInitializer):
                 idx += param_length
 
         logger.info(f"Model parameters initialized with run #{run_index}")
-
-
-class SimpleParameterInitializer(DefaultParameterInitializer):
-    """
-    Simplified parameter initializer that uses the same method for all parameters.
-
-    Features:
-    - Uses the same initialization method for all parameters
-    - Inherits parameter initialization logic from DefaultParameterInitializer
-    - Works with built-in constraints in custom kernels and likelihoods
-    - Clean and maintainable architecture
-    """
-
-    def __init__(self, num_runs: int, seed: int = None, method: str = "normal", **method_kwargs):
-        """
-        Initialize the simple parameter initializer.
-
-        Args:
-            num_runs: Total number of initialization runs.
-            seed: Random seed for reproducibility.
-            method: Method to use for all parameters ("normal", "uniform", "xavier_uniform", etc.)
-            **method_kwargs: Additional parameters for the chosen method (e.g., mean, std for normal)
-        """
-        # Initialize parent class with empty parameter_configs since we override get_initialization_config
-        super().__init__(num_runs=num_runs, seed=seed, parameter_configs={})
-        self.method = method
-        self.method_kwargs = method_kwargs
-
-    def setup(self, model: torch.nn.Module):
-        """Calculate the total number of learnable parameters and precompute Sobol samples."""
-        # Call parent setup method
-        super().setup(model)
-
-        # Override the log message to indicate we're using SimpleParameterInitializer
-        logger.info("Using SimpleParameterInitializer")
-        logger.info(f"All parameters will use method: {self.method}")
-
-    def get_initialization_config(
-        self, name: str, param: torch.Tensor, model: torch.nn.Module = None
-    ) -> Dict[str, Any]:
-        """Get initialization configuration - all parameters use the same method."""
-        if self.method == "normal":
-            mean = self.method_kwargs.get("mean", -2.0)
-            std = self.method_kwargs.get("std", 1.5)
-            return {
-                "method": "normal",
-                "mean": mean,
-                "std": std,
-                "description": f"Normal initialization for all parameters (mean={mean}, std={std})",
-            }
-        elif self.method == "uniform":
-            lower = self.method_kwargs.get("lower", -6.0)
-            upper = self.method_kwargs.get("upper", 3.0)
-            return {
-                "method": "uniform",
-                "lower": lower,
-                "upper": upper,
-                "description": f"Uniform initialization for all parameters (lower={lower}, upper={upper})",
-            }
-        elif self.method == "xavier_uniform":
-            fan_in, fan_out = param.size(1) if param.dim() >= 2 else 1, param.size(0)
-            limit = torch.sqrt(torch.tensor(2.0 / (fan_in + fan_out)))
-            return {
-                "method": "xavier_uniform",
-                "limit": limit.item(),
-                "description": f"Xavier uniform initialization for all parameters (limit={limit.item():.4f})",
-            }
-        elif self.method == "zeros":
-            return {
-                "method": "zeros",
-                "value": -6.0,
-                "description": "10^-6 initialization for all parameters",
-            }
-        elif self.method == "ones":
-            return {
-                "method": "constant",
-                "value": 0.0,
-                "description": "10^0 initialization for all parameters",
-            }
-        else:
-            # Fallback to uniform
-            return {
-                "method": "uniform",
-                "lower": -6.0,
-                "upper": 3.0,
-                "description": f"Fallback uniform initialization (method '{self.method}' not recognized)",
-            }
-
-    def initialize(self, model: torch.nn.Module, run_index: int):
-        """Initialize the model parameters for a specific run using the same method for all parameters."""
-        # Call parent initialize method which handles the main logic
-        super().initialize(model, run_index)
-
-        # Override the final log message to indicate the method used
-        logger.info(f"Model parameters initialized with run #{run_index} using {self.method} method")

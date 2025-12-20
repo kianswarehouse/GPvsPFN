@@ -5,10 +5,13 @@ from typing import List, Optional
 import gpytorch
 import torch
 from joblib import Parallel, delayed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from ..config import logger
+from ..config import get_settings, logger
 from .callbacks import Callback
+from .optimizers import LBFGSScipy
 from .parameter_initializer import DefaultParameterInitializer, ParameterInitializer
+from .stop_conditions import StopCondition
 from .training_single_run import GPTrainerSingleProcess
 
 
@@ -21,12 +24,14 @@ class GPTrainer:
         optimizer_class (torch.optim.Optimizer, optional): The optimizer class to use for training.
         optimizer_kwargs (dict, optional): The arguments for the optimizer, excluding 'params'.
         num_epochs (int, optional): Number of epochs to train the model. Defaults to 50.
-        convergence_patience (int, optional): Early stopping patience. Defaults to 20.
         seed (int, optional): Random seed for parameter initialization. Defaults to None.
         num_runs (int, optional): Number of runs (initializations). Defaults to 64.
         mll_class (gpytorch.mlls.MarginalLogLikelihood, optional): The Marginal Log Likelihood class to use.
         cholesky_jitter (float, optional): Jitter term for numerical stability in Cholesky. Defaults to 1e-6.
         callbacks (list[Callback]): Optional list of callback objects.
+        stop_conditions (list[StopCondition], optional): List of stop conditions to check after each epoch.
+            If None, defaults to ConvergencePatienceStopCondition(patience=20) and
+            MinLossChangeStopCondition(min_loss_change=1e-7).
         device (str, optional): Device to run on. Defaults to "cpu", but set to "cuda" or "cuda:0"
                                 if you have a GPU and want GPU training.
     """
@@ -39,16 +44,15 @@ class GPTrainer:
         scheduler_class: torch.optim.lr_scheduler.LRScheduler = None,
         scheduler_kwargs: dict = None,
         num_epochs: int = 50,
-        convergence_patience=20,  # Stop if no improvement for 20 epochs
         seed: int = None,
-        num_runs: int = 16,
+        num_runs: int = 64,
         mll_class: gpytorch.mlls.MarginalLogLikelihood = None,
         cholesky_jitter: float = 1e-6,
         callbacks: Optional[List[Callback]] = None,
         initializer_class: ParameterInitializer = None,
         initializer_kwargs: dict = None,
         device: str = "cpu",
-        min_loss_change: float = 1e-7,
+        stop_conditions: Optional[List[StopCondition]] = None,
     ):
         # -------------------------------------------------------
         # Set up the device (CPU or CUDA)
@@ -68,14 +72,23 @@ class GPTrainer:
         #  CORE CONFIG
         # --------------------------------------------------
         self.num_epochs = num_epochs
-        self.convergence_patience = convergence_patience
         self.num_runs = num_runs
         self.seed = seed
         self.callbacks = callbacks or []
         self.cholesky_jitter = cholesky_jitter
-        self.min_loss_change = min_loss_change
         self.scheduler_class = scheduler_class
         self.scheduler_kwargs = scheduler_kwargs
+
+        # Set default stop conditions if none provided
+        if stop_conditions is None:
+            from .stop_conditions import ConvergencePatienceStopCondition, MinLossChangeStopCondition
+
+            self.stop_conditions = [
+                ConvergencePatienceStopCondition(patience=20),
+                MinLossChangeStopCondition(min_loss_change=1e-7),
+            ]
+        else:
+            self.stop_conditions = stop_conditions
         # Get dtype from the model (which should be set from input data)
         if hasattr(model, "dtype") and model.dtype is not None:
             self.dtype = model.dtype
@@ -105,8 +118,6 @@ class GPTrainer:
         # --------------------------------------------------
         # Handle optimizer class, use LBFGS as default
         if optimizer_class is None:
-            from .optimizers import LBFGSScipy
-
             self.optimizer_class = LBFGSScipy
             logger.warning("No optimizer class passed. Defaulting to LBFGS Scipy optimizer.")
         else:
@@ -142,15 +153,14 @@ class GPTrainer:
         # Initialize parameters for the model copy on CPU using the initializer
         self.initializer.initialize(base_model, run_index)
 
-        # Snapshot initialized state dict before training
-        initial_state_dict = copy.deepcopy(base_model.state_dict())
-
         # Move model_copy to device
         base_model = base_model.to(self.device)
 
         # Train the model
         # Create isolated callback instances per run to avoid cross-run state mixing
         callbacks_copy = [copy.deepcopy(cb) for cb in self.callbacks] if self.callbacks else []
+        # Create isolated stop condition instances per run to avoid cross-run state mixing
+        stop_conditions_copy = [copy.deepcopy(sc) for sc in self.stop_conditions] if self.stop_conditions else None
 
         run = GPTrainerSingleProcess(
             model=base_model,
@@ -158,13 +168,12 @@ class GPTrainer:
             optimizer_kwargs=self.optimizer_kwargs,
             mll_class=self.mll_class,
             num_epochs=self.num_epochs,
-            convergence_patience=self.convergence_patience,
             cholesky_jitter=self.cholesky_jitter,
             callbacks=callbacks_copy,
             device=self.device,
-            min_loss_change=self.min_loss_change,
             scheduler_class=self.scheduler_class,
             scheduler_kwargs=self.scheduler_kwargs,
+            stop_conditions=stop_conditions_copy,
         )
         train_result = run.train()
 
@@ -175,7 +184,7 @@ class GPTrainer:
                 if param.requires_grad:
                     param.data.copy_(trained_param.data.to(dtype=param.dtype))
 
-        return {"run_index": run_index, "initial_state_dict": initial_state_dict, **train_result}
+        return {"run_index": run_index, **train_result}
 
     def train_multiple_process_parallel(self):
         """
@@ -209,34 +218,38 @@ class GPTrainer:
                     "error": str(e),
                 }
 
-        def _worker_init(seed=self.seed, cg_tol=5e-3, max_iters=2000):
-            from gpytorch.settings import max_cholesky_size
+        def _worker_init():
+            """Initialize worker process with global GP settings."""
+            get_settings().apply()
 
-            max_cholesky_size._global_value = 10_000
-            from linear_operator.settings import cg_tolerance, max_cg_iterations
-
-            cg_tolerance._global_value = cg_tol
-            max_cg_iterations._global_value = max_iters
-
-        # Cap the number of parallel jobs
+        # Use joblib with appropriate backend to avoid time.sleep overhead
+        # - CPU: Use 'loky' backend (multiprocessing) - eliminates time.sleep polling, true parallelism
+        # - GPU: Use 'threading' backend with verbose=0 - CUDA doesn't work well with multiprocessing
         if self.device.type == "cpu":
             max_jobs = min(self.num_runs, max(1, (os.cpu_count() or 1) - 2))
             logger.info(
-                f"Running {self.num_runs} runs using {max_jobs} parallel jobs on {os.cpu_count()} available CPU cores."
+                f"Running {self.num_runs} runs using {max_jobs} parallel processes on CPU "
+                f"(using joblib 'loky' backend - eliminates time.sleep polling)."
             )
-            results = Parallel(n_jobs=max_jobs, backend="threading", verbose=11)(
+            # Use loky backend (multiprocessing) - eliminates time.sleep polling, provides true parallelism
+            # verbose=0 minimizes logging overhead
+            results = Parallel(n_jobs=max_jobs, backend="loky", verbose=0)(
                 delayed(safe_single_process)(run_index) for run_index in range(self.num_runs)
             )
 
         elif str(self.device).startswith("cuda"):
             torch.cuda.empty_cache()
             num_gpus = torch.cuda.device_count()
-            # Allow as many parallel jobs as there are GPUs.
+            # For GPU tasks, use threading backend (multiprocessing doesn't work well with CUDA)
+            # Allow as many parallel jobs as there are GPUs
             max_jobs = min(self.num_runs, num_gpus)
-            logger.info(f"Running {self.num_runs} runs distributed across {num_gpus} GPUs.")
-
-            results = Parallel(n_jobs=max_jobs, backend="threading", verbose=11)(
-                # For each run, choose a GPU device based on the run index.
+            logger.info(
+                f"Running {self.num_runs} runs distributed across {num_gpus} GPUs "
+                f"(using joblib 'threading' backend with verbose=0)."
+            )
+            # Use threading backend for GPU (CUDA doesn't work with multiprocessing)
+            # verbose=0 minimizes logging overhead (time.sleep still present but reduced)
+            results = Parallel(n_jobs=max_jobs, backend="threading", verbose=0)(
                 delayed(safe_single_process)(run_index, device_override=torch.device(f"cuda:{run_index % num_gpus}"))
                 for run_index in range(self.num_runs)
             )
@@ -275,11 +288,5 @@ class GPTrainer:
             )
         else:
             logger.warning("No valid best run found. Model was not updated.")
-
-        # Attach best initial state dict to results for external consumers
-        for r in results:
-            if r.get("run_index") == (best_run.get("run_index") if best_run else None):
-                r["best_initial_state_dict"] = best_run.get("initial_state_dict") if best_run else None
-                break
 
         return results

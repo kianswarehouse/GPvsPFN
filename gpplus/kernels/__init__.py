@@ -10,6 +10,7 @@ from .advanced_kernels import (
     SinhKernel,
 )
 from .mvmf_kernel import MVMFKernel  # was combined_kernel_OneCatK
+from .seek_kernel import SEEKKernel
 
 from .unconstrained_kernel import UnconstrainedKernel
 from .gaussian_kernel import GaussianKernel

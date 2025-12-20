@@ -116,7 +116,7 @@ class NeuralScaleKernel(Kernel):
         super().__init__(**kwargs)
         self.input_transform = InputTransformNet(input_dim, layer_config)
 
-    def forward(self, x1, x2, **params):
+    def forward(self, x1, x2=None, diag=False, **params):
         """
         Compute the dot product kernel matrix between transformed inputs.
 
@@ -128,9 +128,17 @@ class NeuralScaleKernel(Kernel):
         Returns:
             torch.Tensor: Kernel matrix of shape (n1, n2).
         """
+        if x2 is None:
+            x2 = x1
+
         # Apply the input transformation
         f_x1 = self.input_transform(x1)  # Shape: (n1, m)
         f_x2 = self.input_transform(x2)  # Shape: (n2, m)
+
+        if diag:
+            # Diagonal of dot-product kernel: sum_j f(x)_j * f(x')_j
+            # Assumes x1 and x2 have the same leading dimension when diag=True.
+            return (f_x1 * f_x2).sum(dim=-1)
 
         # Compute the dot product between transformed inputs
         return torch.mm(f_x1, f_x2.t())
