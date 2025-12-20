@@ -13,6 +13,103 @@ from gpplus.training.optimizers import LBFGSScipy
 from gpplus.utils.metrics_functions import compute_metrics, compute_per_source_metrics
 
 
+def _process_trainer_info(stored_params, train_results, num_epochs):
+    """
+    Process stored parameters from callback into a structured trainer log.
+    
+    Args:
+        stored_params: List of parameter records from FinalParameterStorageCallback
+        train_results: Results from trainer.train()
+        num_epochs: Number of epochs used in training
+        
+    Returns:
+        dict: Structured trainer log with runs, best_parameters, and average_final_parameters
+    """
+    import numpy as np
+    
+    runs_data = []
+    best_run_idx = None
+    best_loss = float('inf')
+    
+    # Process each run
+    for i, record in enumerate(stored_params):
+        run_data = {
+            "run": record.get("run", i + 1),
+            "num_epochs": record.get("num_epochs", num_epochs),
+            "best_epoch": record.get("best_epoch"),
+            "epoch": record.get("epoch"),
+            "loss": record.get("best_loss"),
+            "jitter": record.get("jitter"),
+            "initial_parameters": record.get("initial", {}),
+            "final_parameters": record.get("final", {}),
+        }
+        runs_data.append(run_data)
+        
+        # Track best run
+        loss = record.get("best_loss")
+        if loss is not None and loss < best_loss:
+            best_loss = loss
+            best_run_idx = i
+    
+    # Extract best parameters
+    best_parameters = None
+    if best_run_idx is not None and best_run_idx < len(stored_params):
+        best_record = stored_params[best_run_idx]
+        best_parameters = {
+            "run": best_record.get("run", best_run_idx + 1),
+            "num_epochs": best_record.get("num_epochs", num_epochs),
+            "best_epoch": best_record.get("best_epoch"),
+            "loss": best_record.get("best_loss"),
+            "jitter": best_record.get("jitter"),
+            "initial_parameters": best_record.get("initial", {}),
+            "final_parameters": best_record.get("final", {}),
+        }
+    
+    # Calculate average final parameters statistics
+    avg_final_params = {}
+    if stored_params:
+        # Collect all final parameter values
+        param_collections = {}
+        
+        for record in stored_params:
+            final = record.get("final", {})
+            for key, value in final.items():
+                if key not in param_collections:
+                    param_collections[key] = []
+                
+                # Handle different types of values
+                if value is None:
+                    continue
+                elif isinstance(value, (list, tuple)):
+                    # For lists (like lengthscales), collect all values
+                    if key not in param_collections:
+                        param_collections[key] = []
+                    param_collections[key].extend([float(v) for v in value if v is not None])
+                elif isinstance(value, (int, float)):
+                    param_collections[key].append(float(value))
+                elif hasattr(value, 'item'):  # Tensor
+                    param_collections[key].append(float(value.item()))
+        
+        # Calculate statistics for each parameter
+        for key, values in param_collections.items():
+            if len(values) > 0:
+                values_array = np.array(values)
+                avg_final_params[key] = {
+                    "min": float(np.min(values_array)),
+                    "mean": float(np.mean(values_array)),
+                    "median": float(np.median(values_array)),
+                    "std": float(np.std(values_array, ddof=1)) if len(values_array) > 1 else 0.0,
+                    "max": float(np.max(values_array)),
+                    "count": int(len(values_array)),
+                }
+    
+    return {
+        "runs": runs_data,
+        "best_parameters": best_parameters,
+        "average_final_parameters": avg_final_params,
+    }
+
+
 def train_eval_gp(
     model,
     X_test: torch.Tensor,
@@ -30,9 +127,10 @@ def train_eval_gp(
     y_train_mean: torch.Tensor | None = None,
     y_train_std: torch.Tensor | None = None,
     standardize_y_log_scale: bool = False,
-    log_scale_epsilon: float = 1e-8,  # Must match epsilon used in LogScaler during training
-    y_train_min: torch.Tensor | dict | None = None,  # Minimum value from training data (for log scale with negative values)
+    log_scale_C: float = None,  # C used in log(y + C) transformation. If None, will use LogScaler's C from fit.
+    y_train_min: torch.Tensor | dict | None = None,  # Unused, kept for backward compatibility
     source_cols: int | list[int] | None = None,
+    trainer_info: bool = False,
 ):
     """
     Train a GP model and evaluate metrics on the provided test set.
@@ -101,9 +199,9 @@ def train_eval_gp(
         import warnings
         warnings.warn(
             f"train_eval_gp: Model predictions contain {nan_count} NaN/Inf values before denormalization. "
-            "This may indicate model training issues."
+            "This may indicate model training issues. Replacing with mean prediction (0 in standardized space)."
         )
-        # Replace NaN/Inf with 0 (will be handled better after denormalization)
+        # Replace NaN/Inf with 0 (mean in standardized space) - this will be handled correctly in inverse transform
         y_pred = torch.where(torch.isfinite(y_pred), y_pred, torch.zeros_like(y_pred))
     
     if torch.any(~torch.isfinite(output_std)):
@@ -149,6 +247,12 @@ def train_eval_gp(
                         first_key = list(y_train_mean.keys())[0]
                         mean = y_train_mean[first_key]
                         std = y_train_std[first_key]
+                    
+                    # Ensure mean/std are properly squeezed to avoid broadcasting issues
+                    if isinstance(mean, torch.Tensor):
+                        mean = mean.squeeze()
+                    if isinstance(std, torch.Tensor):
+                        std = std.squeeze()
 
                     if standardize_y_log_scale:
                         # Unstandardize in log space
@@ -157,16 +261,10 @@ def train_eval_gp(
                         # Clamp to prevent overflow in exp (exp(700) ≈ inf for float32)
                         max_log_val = 700.0 if log_y_pred.dtype == torch.float32 else 1000.0
                         log_y_pred = torch.clamp(log_y_pred, min=-max_log_val, max=max_log_val)
-                        # Convert from log space to original space
+                        # Convert from log space to original space: exp(log_data) - C
+                        # This is the inverse of log(y + C)
                         exp_log_y = torch.exp(log_y_pred)
-                        if y_train_min is not None:
-                            y_min = y_train_min.get(source_key, y_train_min.get(0, 0.0)) if isinstance(y_train_min, dict) else y_train_min
-                            y_min = y_min.item() if isinstance(y_min, torch.Tensor) else float(y_min)
-                            y_pred_denorm[source_mask] = exp_log_y + y_min - log_scale_epsilon
-                            print(f"  Source {source_key}: log_scale with min={y_min:.6f}, exp_log_y range=[{exp_log_y.min().item():.6f}, {exp_log_y.max().item():.6f}]")
-                        else:
-                            y_pred_denorm[source_mask] = exp_log_y - log_scale_epsilon
-                            print(f"  Source {source_key}: log_scale NO min, exp_log_y range=[{exp_log_y.min().item():.6f}, {exp_log_y.max().item():.6f}]")
+                        y_pred_denorm[source_mask] = exp_log_y - log_scale_C
                         # Use delta method: std_original ≈ exp(log_mean) * log_std
                         output_std_denorm[source_mask] = exp_log_y * log_y_std
                     else:
@@ -180,6 +278,12 @@ def train_eval_gp(
                 first_key = list(y_train_mean.keys())[0]
                 mean = y_train_mean[first_key]
                 std = y_train_std[first_key]
+                
+                # Ensure mean/std are properly squeezed to avoid broadcasting issues
+                if isinstance(mean, torch.Tensor):
+                    mean = mean.squeeze()
+                if isinstance(std, torch.Tensor):
+                    std = std.squeeze()
                 if standardize_y_log_scale:
                     # Unstandardize in log space
                     log_y_pred = (y_pred * std) + mean
@@ -187,14 +291,10 @@ def train_eval_gp(
                     # Clamp to prevent overflow in exp (exp(700) ≈ inf for float32)
                     max_log_val = 700.0 if log_y_pred.dtype == torch.float32 else 1000.0
                     log_y_pred = torch.clamp(log_y_pred, min=-max_log_val, max=max_log_val)
-                    # Convert from log space to original space
+                    # Convert from log space to original space: exp(log_data) - C
+                    # This is the inverse of log(y + C)
                     exp_log_y = torch.exp(log_y_pred)
-                    if y_train_min is not None:
-                        y_min = list(y_train_min.values())[0] if isinstance(y_train_min, dict) else y_train_min
-                        y_min = y_min.item() if isinstance(y_min, torch.Tensor) else float(y_min)
-                        y_pred = exp_log_y + y_min - log_scale_epsilon
-                    else:
-                        y_pred = exp_log_y - log_scale_epsilon
+                    y_pred = exp_log_y - log_scale_C
                     # Use delta method: std_original ≈ exp(log_mean) * log_std
                     output_std = exp_log_y * log_y_std
                 else:
@@ -204,27 +304,28 @@ def train_eval_gp(
                     print(f"y_pred after denorm (normal, last 5): {y_pred[-5:].squeeze().tolist()}")
         else:
             # Single mean/std for all data (methods 0 and 1)
+            # Ensure mean/std are properly squeezed to avoid broadcasting issues
+            mean_val = y_train_mean.squeeze() if isinstance(y_train_mean, torch.Tensor) else y_train_mean
+            std_val = y_train_std.squeeze() if isinstance(y_train_std, torch.Tensor) else y_train_std
+            
             if standardize_y_log_scale:
                 # Unstandardize in log space
-                log_y_pred = (y_pred * y_train_std) + y_train_mean
-                log_y_std = output_std * y_train_std
+                log_y_pred = (y_pred * std_val) + mean_val
+                log_y_std = output_std * std_val
                 # Clamp to prevent overflow in exp (exp(700) ≈ inf for float32)
                 max_log_val = 700.0 if log_y_pred.dtype == torch.float32 else 1000.0
                 log_y_pred = torch.clamp(log_y_pred, min=-max_log_val, max=max_log_val)
-                # Convert from log space to original space
+                # Convert from log space to original space: exp(log_data) - C
+                # This is the inverse of log(y + C)
                 exp_log_y = torch.exp(log_y_pred)
-                if y_train_min is not None:
-                    y_min = y_train_min.item() if isinstance(y_train_min, torch.Tensor) else float(y_train_min)
-                    y_pred = exp_log_y + y_min - log_scale_epsilon
-                else:
-                    y_pred = exp_log_y - log_scale_epsilon
+                y_pred = exp_log_y - log_scale_C
                 # Use delta method: std_original ≈ exp(log_mean) * log_std
                 output_std = exp_log_y * log_y_std
                 print(f"y_pred after denorm (single, first 5): {y_pred[:5].squeeze().tolist()}")
                 print(f"y_pred after denorm (single, last 5): {y_pred[-5:].squeeze().tolist()}")
             else:
-                y_pred = (y_pred * y_train_std) + y_train_mean
-                output_std = output_std * y_train_std
+                y_pred = (y_pred * std_val) + mean_val
+                output_std = output_std * std_val
 
     y_pred_np = y_pred.detach().cpu().numpy().reshape(-1)
     output_std_np = output_std.detach().cpu().numpy().reshape(-1)
@@ -233,12 +334,12 @@ def train_eval_gp(
     if np.any(~np.isfinite(y_pred_np)):
         nan_mask = ~np.isfinite(y_pred_np)
         if standardize_y_log_scale:
-            # For log-scale, use median of valid predictions or fallback to exp of log_mean
+            # For log-scale, use median of valid predictions or fallback to exp(log_mean) - epsilon
             valid_preds = y_pred_np[np.isfinite(y_pred_np)]
             if len(valid_preds) > 0:
                 replacement = np.median(valid_preds)
             else:
-                # Fallback: use exp of log_mean if available
+            # Fallback: use exp(log_mean) - epsilon (inverse of log(y + epsilon))
                 if y_train_mean is not None:
                     if isinstance(y_train_mean, dict):
                         log_mean_val = list(y_train_mean.values())[0]
@@ -246,7 +347,7 @@ def train_eval_gp(
                         log_mean_val = y_train_mean
                     if isinstance(log_mean_val, torch.Tensor):
                         log_mean_val = log_mean_val.item() if log_mean_val.numel() == 1 else log_mean_val.cpu().numpy()
-                    replacement = np.exp(float(log_mean_val)) - log_scale_epsilon
+                    replacement = np.exp(float(log_mean_val)) - log_scale_C
                 else:
                     replacement = 0.0
             y_pred_np[nan_mask] = replacement
@@ -540,10 +641,42 @@ def train_eval_gp(
                 )
         else:
             # Methods 0 and 1: single mean/std
-            gp_metric["y_train_mean"] = float(y_train_mean.item() if hasattr(y_train_mean, "item") else y_train_mean)
-            gp_metric["y_train_std"] = float(y_train_std.item() if hasattr(y_train_std, "item") else y_train_std)
+            # Handle tensors that may need squeezing (e.g., from LogScaler with keepdim=True)
+            if hasattr(y_train_mean, "item"):
+                mean_val = y_train_mean.item() if y_train_mean.numel() == 1 else y_train_mean.squeeze().item()
+            else:
+                mean_val = y_train_mean
+            if hasattr(y_train_std, "item"):
+                std_val = y_train_std.item() if y_train_std.numel() == 1 else y_train_std.squeeze().item()
+            else:
+                std_val = y_train_std
+            gp_metric["y_train_mean"] = float(mean_val)
+            gp_metric["y_train_std"] = float(std_val)
 
-    return gp_metric, y_pred_np, output_std_np
+    # Process trainer info if requested
+    gp_trainer_info = None
+    if trainer_info:
+        # Collect stored parameters from all runs in train_results
+        all_stored_params = []
+        for result in train_results:
+            callback_data = result.get("callback_data", {})
+            # Look for FinalParameterStorageCallback data
+            for cb_key, stored_params_list in callback_data.items():
+                if "FinalParameterStorage" in cb_key or "ParameterStorage" in cb_key:
+                    all_stored_params.extend(stored_params_list)
+        
+        if all_stored_params:
+            gp_trainer_info = _process_trainer_info(all_stored_params, train_results, num_epochs)
+        else:
+            # Return empty structure if no parameters stored
+            gp_trainer_info = {
+                "runs": [],
+                "best_parameters": None,
+                "average_final_parameters": {},
+            }
+
+    # Always return 4 values (gp_trainer_info will be None if trainer_info is False)
+    return gp_metric, y_pred_np, output_std_np, gp_trainer_info
 
 
 def train_eval_PFN(
@@ -558,8 +691,8 @@ def train_eval_PFN(
     y_train_mean=None,
     y_train_std=None,
     standardize_y_log_scale: bool = False,
-    log_scale_epsilon: float = 1e-8,  # Must match epsilon used in LogScaler during training
-    y_train_min=None,  # Minimum value from training data (for log scale with negative values)
+    log_scale_C: float = None,  # C used in log(y + C) transformation. If None, will use LogScaler's C from fit.
+    y_train_min=None,  # Unused, kept for backward compatibility
     source_cols=None,
 ):
     """
@@ -661,24 +794,22 @@ def train_eval_PFN(
                         # Clamp to prevent overflow in exp (exp(700) ≈ inf for float32)
                         max_log_val = 700.0
                         log_y_pred = np.clip(log_y_pred, -max_log_val, max_log_val)
-                        # Convert from log space to original space
+                        # Convert from log space to original space: exp(log_data) - C
+                        # This is the inverse of log(y + C)
                         exp_log_y = np.exp(log_y_pred)
-                        if y_train_min is not None:
-                            y_min = y_train_min.get(source_key, y_train_min.get(0, 0.0)) if isinstance(y_train_min, dict) else float(y_train_min)
-                            y_pred_test_denorm[source_mask] = exp_log_y + y_min - log_scale_epsilon
-                        else:
-                            y_pred_test_denorm[source_mask] = exp_log_y - log_scale_epsilon
+                        y_pred_test_denorm[source_mask] = exp_log_y - log_scale_C
                         # Use delta method: std_original ≈ exp(log_mean) * log_std
                         output_std_test_denorm[source_mask] = exp_log_y * log_y_std
-                    else:
-                        y_pred_test_denorm[source_mask] = (y_pred_test[source_mask] * std) + mean
-                        output_std_test_denorm[source_mask] = output_std_test[source_mask] * std
-
-                    y_pred_test = y_pred_test_denorm
-                    output_std_test = output_std_test_denorm
                 else:
-                    # If source_cols not provided but we have dicts, use first available source
-                    first_key = list(y_train_mean.keys())[0]
+                    y_pred_test_denorm[source_mask] = (y_pred_test[source_mask] * std) + mean
+                    output_std_test_denorm[source_mask] = output_std_test[source_mask] * std
+
+                # Update predictions and std after processing all sources
+                y_pred_test = y_pred_test_denorm
+                output_std_test = output_std_test_denorm
+            else:
+                # If source_cols not provided but we have dicts, use first available source
+                first_key = list(y_train_mean.keys())[0]
                 mean = float(y_train_mean[first_key])
                 std = float(y_train_std[first_key])
                 if standardize_y_log_scale:
@@ -688,18 +819,13 @@ def train_eval_PFN(
                     # Clamp to prevent overflow in exp (exp(700) ≈ inf for float32)
                     max_log_val = 700.0
                     log_y_pred = np.clip(log_y_pred, -max_log_val, max_log_val)
-                    # Convert from log space to original space
+                    # Convert from log space to original space: exp(log_data) - C
+                    # This is the inverse of log(y + C)
                     exp_log_y = np.exp(log_y_pred)
-                    if y_train_min is not None:
-                        y_min = list(y_train_min.values())[0] if isinstance(y_train_min, dict) else float(y_train_min)
-                        y_pred_test = exp_log_y + y_min - log_scale_epsilon
-                        print(f"log_scale with min={y_min:.6f}, exp_log_y range=[{exp_log_y.min():.6f}, {exp_log_y.max():.6f}]")
-                    else:
-                        y_pred_test = exp_log_y - log_scale_epsilon
-                        print(f"log_scale NO min, exp_log_y range=[{exp_log_y.min():.6f}, {exp_log_y.max():.6f}]")
+                    y_pred_test = exp_log_y - log_scale_C
                     # Use delta method: std_original ≈ exp(log_mean) * log_std
-                output_std_test = exp_log_y * log_y_std
-            else:
+                    output_std_test = exp_log_y * log_y_std
+                else:
                     y_pred_test = (y_pred_test * std) + mean
                     output_std_test = output_std_test * std
         else:
@@ -711,13 +837,10 @@ def train_eval_PFN(
                 # Clamp to prevent overflow in exp (exp(700) ≈ inf for float32)
                 max_log_val = 700.0
                 log_y_pred = np.clip(log_y_pred, -max_log_val, max_log_val)
-                # Convert from log space to original space
+                # Convert from log space to original space: exp(log_data) - C
+                # This is the inverse of log(y + C)
                 exp_log_y = np.exp(log_y_pred)
-                if y_train_min is not None:
-                    y_min = float(y_train_min)
-                    y_pred_test = exp_log_y + y_min - log_scale_epsilon
-                else:
-                    y_pred_test = exp_log_y - log_scale_epsilon
+                y_pred_test = exp_log_y - log_scale_C
                 # Use delta method: std_original ≈ exp(log_mean) * log_std
                 output_std_test = exp_log_y * log_y_std
             else:

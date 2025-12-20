@@ -35,11 +35,12 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         seed_trainer=defaults.SEED_TRAINER,
         gp_dtype = defaults.DTYPE_GP,
         pfn_dtype = defaults.DTYPE_PFN,
+        trainer_info=False,
     ):
     if title is None:
-        title = f"buckling_SF_{train_size}D_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"buckling_SF_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"buckling_SF_{title}_{train_size}D_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"buckling_SF_{title}_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
     
     # Generate data
     set_seed(seed)
@@ -68,6 +69,8 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         noise_type=noise_type,
         seed=seed,
     )
+    # y_test_all = y_test_all+2
+    # y_train_folds = [y_train_fold+2 for y_train_fold in y_train_folds]
     # Drop the 5th (source) column since SF uses only s0
     for i in range(len(X_train_folds)):
         if X_train_folds[i].shape[1] == 5:
@@ -98,6 +101,7 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     # print(cat_cols)
     TabPFN_metrics = []
     GPPlus_metrics = []
+    GPTrainer_info = []  # Accumulate trainer logs across folds
 
     # Debug: Print categorical distributions for each fold
     print(f"\n{'='*20} PRE-STRATIFIED FOLDS VERIFICATION {'='*20}")
@@ -147,15 +151,48 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])
 
         # Normalize the GP data
+        # Print unscaled y_train statistics
+        print(f"\n--- Fold {i+1}/{num_folds} y_train statistics (unscaled) ---")
+        print(f"  Mean: {y_train.mean().item():.6f}")
+        print(f"  Std: {y_train.std().item():.6f}")
+        print(f"  Median: {y_train.median().item():.6f}")
+        print(f"  Min: {y_train.min().item():.6f}")
+        print(f"  Max: {y_train.max().item():.6f}")
+        
         if standardize_y_log_scale:
-            Yscaler = gpplus.utils.LogScaler()
+            Yscaler = gpplus.utils.LogScaler()#C=y_train.median().item())
         else:
             Yscaler = gpplus.utils.StandardScaler()
         Yscaler.fit(y_train)
         y_train_mean = Yscaler.mean 
         y_train_std = Yscaler.std
         y_train_normal = Yscaler.transform(y_train)
-        y_train_min = None  # No longer needed with log1p transformation
+        # Get C from LogScaler if using log scale to ensure it matches
+        log_scale_C = Yscaler.C if standardize_y_log_scale else None
+        
+        # Print scaled y_train statistics
+        if standardize_y_log_scale:
+            # Compute log-space values before standardization for display
+            y_train_log_space = torch.log(y_train + log_scale_C)
+            print(f"\n--- Fold {i+1}/{num_folds} y_train statistics (log-scaled) ---")
+            print(f"  LogScaler C: {log_scale_C}")
+            print(f"  Log-scaled Mean: {y_train_normal.mean().item():.6f}")
+            print(f"  Log-scaled Std: {y_train_normal.std().item():.6f}")
+            print(f"  Log-scaled Median: {y_train_normal.median().item():.6f}")
+            print(f"  Log-scaled Min: {y_train_normal.min().item():.6f}")
+            print(f"  Log-scaled Max: {y_train_normal.max().item():.6f}")
+            print(f"  Log-space mean (before standardization): {y_train_mean.item() if y_train_mean.numel() == 1 else y_train_mean.squeeze().item():.6f}")
+            print(f"  Log-space std (before standardization): {y_train_std.item() if y_train_std.numel() == 1 else y_train_std.squeeze().item():.6f}")
+            print(f"  Log-space median (before standardization): {y_train.median().item() if y_train.median().numel() == 1 else y_train.median().squeeze().item():.6f}")
+            print(f"  Log-space min (before standardization): {y_train_log_space.min().item():.6f}")
+            print(f"  Log-space max (before standardization): {y_train_log_space.max().item():.6f}")
+        else:
+            print(f"\n--- Fold {i+1}/{num_folds} y_train statistics (standard-scaled) ---")
+            print(f"  Scaled Mean: {y_train_normal.mean().item():.6f}")
+            print(f"  Scaled Std: {y_train_normal.std().item():.6f}")
+            print(f"  Scaled Median: {y_train_normal.median().item():.6f}")
+            print(f"  Scaled Min: {y_train_normal.min().item():.6f}")
+            print(f"  Scaled Max: {y_train_normal.max().item():.6f}")
         
         model = gpplus.models.GPR(
             X_train,
@@ -168,10 +205,12 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             print(f"X_train: {X_train.shape}")
             print(f"X_test: {X_test.shape}")
             print(f"y_test mean: {y_test.mean().item()} / y_test std: {y_test.std().item()}")
+            if standardize_y_log_scale:
+                print(f"LogScaler C: {log_scale_C}")
             print(model)
 
         # Create trainer
-        gp_metric, y_pred_gp, output_std_gp = train_eval_gp(
+        gp_metric, y_pred_gp, output_std_gp, gp_trainer_info = train_eval_gp(
             model,
             X_test,
             y_test,
@@ -186,10 +225,18 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
             standardize_y_log_scale=standardize_y_log_scale,
-            y_train_min=y_train_min,
+            log_scale_C=log_scale_C,
             source_cols=source_cols,
+            trainer_info=trainer_info,
         )
         GPPlus_metrics.append(gp_metric)
+        
+        # Accumulate trainer info if available
+        if gp_trainer_info:
+            # Add fold information to trainer log
+            gp_trainer_info["fold"] = i + 1
+            gp_trainer_info["metrics"] = gp_metric  # Include metrics for this fold
+            GPTrainer_info.append(gp_trainer_info)
 
         print(f"\nGP Results (Fold {i+1}/{num_folds})")
         for k, v in gp_metric.items():
@@ -211,6 +258,7 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
             standardize_y_log_scale=standardize_y_log_scale,
+            log_scale_C=log_scale_C,
             source_cols=source_cols,
         )
         TabPFN_metrics.append(tabpfn_metric)
@@ -301,6 +349,31 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             (out_dir / f"gpVpfn_{title}.json").write_text(json.dumps(combined_data, indent=2))
         except Exception:
             pass
+        
+        # Save trainer info if trainer_info is enabled
+        if trainer_info and GPTrainer_info:
+            try:
+                # Create trainer_analysis directory (same level as plots)
+                trainer_analysis_dir = Path(save_path) / "trainer_analysis"
+                trainer_analysis_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Save raw trainer info (just the parameter info)
+                trainer_info_data = {
+                    "title": title,
+                    "num_folds": num_folds,
+                    "num_runs_per_fold": num_runs,
+                    "trainer_info": GPTrainer_info,
+                }
+                
+                # Save trainer info JSON
+                trainer_info_file = trainer_analysis_dir / f"gpVpfn_{title}_GP_Trainer_Analysis.json"
+                trainer_info_file.write_text(json.dumps(trainer_info_data, indent=2))
+                print(f"\nTrainer info saved to: {trainer_info_file}")
+                
+            except Exception as e:
+                print(f"Error saving trainer info: {e}")
+                import traceback
+                traceback.print_exc()
     print(f"\nTotal experiment time for {num_folds} folds: {time.time() - total_start_time:.2f}s")
     print("="*60)
     print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\tX_standardize: {standardize_X}\n\ty_standardize: {standardize_y}")

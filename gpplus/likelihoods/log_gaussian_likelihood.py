@@ -28,9 +28,9 @@ class LogScaleHomoskedasticNoise(_HomoskedasticNoiseBase):
         batch_shape: torch.Size = torch.Size(),
         **kwargs: Any,
     ) -> None:
-        # Default constraint for log noise (allows noise from 0.0000001 to 1000)
+        # Default constraint for log noise (allows noise from 0.000001 to 1)
         if noise_constraint is None:
-            noise_constraint = SoftClamp(lower_bound=-7.0, upper_bound=3.0)
+            noise_constraint = SoftClamp(lower_bound=-7.0, upper_bound=-1.0)
 
         # Call parent constructor with our custom constraint
         # We'll override the constraint after initialization

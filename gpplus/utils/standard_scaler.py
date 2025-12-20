@@ -28,6 +28,7 @@ class StandardScaler:
             - If `data` has NaN or Inf values, the computed statistics may be invalid.
             - Uses `std(dim=0, correction=0)` which mimics `unbiased=False` behavior (like
               dividing by N instead of N-1 in NumPy).
+            - If there's only 1 sample, std is set to 1.0 to avoid division by zero warnings.
         """
         self.mean = data.mean(dim=0, keepdim=True)
         self.std = data.std(dim=0, correction=0, keepdim=True)
@@ -74,64 +75,75 @@ class StandardScaler:
 class LogScaler:
     """A utility class for standardizing data in log space.
 
-    This scaler first applies a log transformation to the data, then standardizes
+    This scaler first applies a log(y + C) transformation to the data, then standardizes
     the log-transformed values. This is useful for heavily right-skewed distributions
     or when the coefficient of variation (std/mean) is high.
 
     The transformation pipeline is:
-    1. Log transform: log(data + epsilon) where epsilon prevents log(0)
+    1. Log transform: log(data + C)
     2. Standardize: (log_data - mean) / std
 
     The inverse transformation pipeline is:
     1. Unstandardize: log_data = standardized * std + mean
-    2. Exp transform: exp(log_data) - epsilon
+    2. Exp transform: exp(log_data) - C
 
     Attributes:
         mean (torch.Tensor or None): The per-feature mean of log-transformed data, computed in `fit`.
         std (torch.Tensor or None): The per-feature standard deviation of log-transformed data, computed in `fit`.
-        min (torch.Tensor or None): The per-feature minimum value of original data, computed in `fit`.
-        epsilon (float): Small value added before log transform to avoid log(0). Default is 1e-8.
+        epsilon (float): Small value used to ensure positivity when C is auto-computed. Default is 1e-8.
+        C (float): Constant added to data before log transform. Auto-computed from data minimum if None.
     """
 
-    def __init__(self, epsilon: float = 1e-8):
+    def __init__(self, epsilon: float = 1, C: float = None):
         """Initializes a new instance of the LogScaler.
 
         Args:
-            epsilon (float): Small value added to data before log transform to avoid log(0).
-                Default is 1e-8.
+            epsilon (float): Small value added to data before log transform.
+                Default is 1e-8. Used to ensure positivity when C is auto-computed.
+            C (float, optional): Constant to add to data before log transform.
+                If None, will be automatically set to ensure data + C > 0 during fit.
+                Default is None.
         """
         self.mean = None
         self.std = None
-        self.min = None
         self.epsilon = epsilon
+        self.C = C  # Will be set during fit if None
 
     def fit(self, data: torch.Tensor) -> None:
         """Computes the mean and standard deviation for log-transformed data.
 
         Args:
             data (torch.Tensor): The input data of shape [N, features]. Should contain
-                positive values (or values that become positive after adding epsilon).
+                positive values (or values that become positive after adding C).
 
         Notes:
-            - Applies log(data + epsilon) before computing statistics.
+            - Applies log(data + C) before computing statistics.
+            - If C is None, automatically sets C to ensure data + C > 0.
             - If `data` has NaN or Inf values, the computed statistics may be invalid.
             - Uses `std(dim=0, correction=0)` which mimics `unbiased=False` behavior.
-            - Warns if data contains negative values that would become problematic.
         """
-        # Check if we have negative values (due to noise)
-        data_min = data.min(dim=0, keepdim=True)[0]
-        has_negatives = torch.any(data_min < 0)
+        # Auto-compute C if not provided: set C such that data + C > epsilon
+        if self.C is None:
+            data_min = data.min().item()  # Global minimum across all features
+            # Set C to ensure data + C >= epsilon (i.e., C >= epsilon - min(data))
+            self.C = max(self.epsilon, self.epsilon - data_min)
         
-        if has_negatives:
-            # Store minimum value and shift data to be non-negative
-            self.min = data_min
-            data_shifted = data - self.min + self.epsilon
-        else:
-            # No negatives, no need to shift
-            self.min = None
-            data_shifted = data + self.epsilon
-
-        # Apply log transform
+        # Validate that data + C is positive
+        data_min_shifted = (data + self.C).min().item()
+        if data_min_shifted <= 0:
+            raise ValueError(
+                f"Data minimum with C shift is <= 0: min(data + C) = {data_min_shifted} <= 0. "
+                f"Consider using a larger C value (current C = {self.C})."
+            )
+        if data_min_shifted < self.epsilon:
+            import warnings
+            warnings.warn(
+                f"Data minimum with C shift is less than epsilon: min(data + C) = {data_min_shifted} < {self.epsilon}. "
+                f"Consider using a larger C value (current C = {self.C})."
+            )
+        
+        # Shift data and apply log transform
+        data_shifted = data + self.C
         log_data = torch.log(data_shifted)
 
         # Compute statistics on log-transformed data
@@ -153,12 +165,11 @@ class LogScaler:
         """
         if self.mean is None or self.std is None:
             raise ValueError("LogScaler has not been fitted. Call `fit` first.")
+        if self.C is None:
+            raise ValueError("LogScaler.C has not been set. Call `fit` first.")
 
-        # Shift data to be non-negative (only if we had negatives during fit)
-        if self.min is not None:
-            data_shifted = data - self.min + self.epsilon
-        else:
-            data_shifted = data + self.epsilon
+        # Shift data using C (same C used during fit)
+        data_shifted = data + self.C
 
         # Apply log transform
         log_data = torch.log(data_shifted)
@@ -220,14 +231,10 @@ class LogScaler:
         # Unstandardize (reverse standardization)
         log_data = data * safe_std + self.mean
 
-        # Apply inverse log transform (exp)
+        # Apply inverse log transform: exp(log_data) - C
+        # This is the inverse of log(y + C)
         exp_data = torch.exp(log_data)
-        
-        # Add back the minimum value if we shifted during fit
-        if self.min is not None:
-            return exp_data + self.min - self.epsilon
-        else:
-            return exp_data - self.epsilon
+        return exp_data - self.C
 
 
 if __name__ == "__main__":

@@ -36,12 +36,13 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         seed_trainer=defaults.SEED_TRAINER,
         gp_dtype = defaults.DTYPE_GP,
         pfn_dtype = defaults.DTYPE_PFN,
+        trainer_info=False,
     ):
 
     if title is None:
-        title = f"Rosenbrock_{dimensions}xdim_{train_size}D_[{x_bounds[0]},{x_bounds[1]}]bounds_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"Rosenbrock_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"Rosenbrock_{title}_{dimensions}xdim_{train_size}D_[{x_bounds[0]},{x_bounds[1]}]bounds_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"Rosenbrock_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
@@ -86,6 +87,7 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     # print(cat_cols)
     TabPFN_metrics = []
     GPPlus_metrics = []
+    GPTrainer_info = []  # Accumulate trainer logs across folds
 
     # Randomize across the single source, then split across folds
     # Use seed to ensure consistent fold splits
@@ -140,7 +142,7 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             print(model)
 
         # Create trainer
-        gp_metric, y_pred_gp, output_std_gp = train_eval_gp(
+        gp_metric, y_pred_gp, output_std_gp, gp_trainer_info = train_eval_gp(
             model,
             X_test,
             y_test,
@@ -155,8 +157,16 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
             source_cols=source_cols,
+            trainer_info=trainer_info,
         )
         GPPlus_metrics.append(gp_metric)
+        
+        # Accumulate trainer info if available
+        if gp_trainer_info:
+            # Add fold information to trainer log
+            gp_trainer_info["fold"] = i + 1
+            gp_trainer_info["metrics"] = gp_metric  # Include metrics for this fold
+            GPTrainer_info.append(gp_trainer_info)
 
         print(f"\nGP Results (Fold {i+1}/{num_folds})")
         for k, v in gp_metric.items():
@@ -268,6 +278,31 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             (out_dir / f"gpVpfn_{title}.json").write_text(json.dumps(combined_data, indent=2))
         except Exception:
             pass
+        
+        # Save trainer info if trainer_info is enabled
+        if trainer_info and GPTrainer_info:
+            try:
+                # Create trainer_analysis directory (same level as plots)
+                trainer_analysis_dir = Path(save_path) / "trainer_analysis"
+                trainer_analysis_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Save raw trainer info (just the parameter info)
+                trainer_info_data = {
+                    "title": title,
+                    "num_folds": num_folds,
+                    "num_runs_per_fold": num_runs,
+                    "trainer_info": GPTrainer_info,
+                }
+                
+                # Save trainer info JSON
+                trainer_info_file = trainer_analysis_dir / f"gpVpfn_{title}_GP_Trainer_Analysis.json"
+                trainer_info_file.write_text(json.dumps(trainer_info_data, indent=2))
+                print(f"\nTrainer info saved to: {trainer_info_file}")
+                
+            except Exception as e:
+                print(f"Error saving trainer info: {e}")
+                import traceback
+                traceback.print_exc()
     print(f"\nTotal experiment time for {num_folds} folds: {time.time() - total_start_time:.2f}s")
     print("="*60)
     print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\tX_standardize: {standardize_X}\n\ty_standardize: {standardize_y}")
