@@ -34,6 +34,7 @@ def wing_SF_GPvsPFN(
     title: str | None = None,
     standardize_X: bool = True,
     standardize_y: bool = True,
+    x_standardize_method: int = 2,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
     noise_train: float = 0.0,
     noise_test: float = 0.0,
     noise_type: str = "gaussian",
@@ -124,7 +125,8 @@ def wing_SF_GPvsPFN(
         
     total_start_time = time.time()
     for i in range(num_folds):
-        print(f"\n{'='*20} {title} FOLD {i+1}/{num_folds} {'='*20}")
+        fold_seed = seed_trainer if seed_trainer is not None else (seed + i)
+        print(f"\n{'='*20} {title} FOLD {i+1}/{num_folds}: {fold_seed} {'='*20}")
 
         # Get training indices for this fold
         fold_train_indices = train_indices_2d[i]
@@ -143,8 +145,20 @@ def wing_SF_GPvsPFN(
         X_test = X_test_all.detach().clone().to(dtype=gp_dtype)
         y_train = y_train.detach().clone().to(dtype=gp_dtype)
         y_test = y_test_all.detach().clone().to(dtype=gp_dtype)
+        # Determine X scaling type
+        X_scaling_type = "None"
         if standardize_X:
-            Xscaler = gpplus.utils.StandardScaler()
+            if x_standardize_method == 0:
+                Xscaler = gpplus.utils.StandardScaler()
+                X_scaling_type = "StandardScaler (Gaussian)"
+            elif x_standardize_method == 1:
+                Xscaler = gpplus.utils.UniformScaler(scale_to_neg_one=False)
+                X_scaling_type = "UniformScaler [0, 1]"
+            elif x_standardize_method == 2:
+                Xscaler = gpplus.utils.UniformScaler(scale_to_neg_one=True)
+                X_scaling_type = "UniformScaler [-1, 1]"
+            else:
+                raise ValueError(f"x_standardize_method must be 0, 1, or 2, got {x_standardize_method}")
             Xscaler.fit(X_train)
             X_train = Xscaler.transform(X_train)
             X_test = Xscaler.transform(X_test)
@@ -254,7 +268,7 @@ def wing_SF_GPvsPFN(
             X_test,
             y_test,
             num_epochs=num_epochs,
-            seed=seed_trainer,
+            seed=fold_seed,
             num_runs=num_runs,
             lr=lr,
             convergence_patience=convergence_patience,
@@ -381,6 +395,8 @@ def wing_SF_GPvsPFN(
                 "test_samples": num_test,
                 "standardize_X": standardize_X,
                 "standardize_y": standardize_y,
+                "x_standardize_method": x_standardize_method,
+                "X_scaling_type": X_scaling_type,
                 "dtype": str(gp_dtype),
                 "device": str(gp_device),
                 "num_epochs": num_epochs,
@@ -463,6 +479,7 @@ def wing_SF_GPvsPFN(
         f"\n\tcat_cols: {cat_cols}"
         f"\n\tsource_cols: {source_cols}"
         f"\n\tX_standardize: {standardize_X}"
+        f"\n\tX_scaling_type: {X_scaling_type}"
         f"\n\ty_standardize: {standardize_y}"
     )
     print(f"Experiment details: \n\t{len(X_test)} test samples, {len(X_train)} train samples\n\tfolds: {num_folds}")

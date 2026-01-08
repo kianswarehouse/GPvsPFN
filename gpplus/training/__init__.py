@@ -2,3 +2,5 @@ from .eval import evaluate_gp_model
 from .optimizers import LBFGSScipy
 from .trainer import GPTrainer
 from .parameter_initializer import DefaultParameterInitializer
+from .initialization_prescreener import InitializationPrescreener
+from .prescreening_recorder import PrescreeningRecorder

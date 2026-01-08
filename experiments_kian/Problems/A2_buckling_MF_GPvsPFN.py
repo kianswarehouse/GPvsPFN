@@ -125,7 +125,8 @@ def buckling_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         
     total_start_time = time.time()
     for i in range(num_folds):
-        print(f"\n{'='*20} {title} FOLD {i+1}/{num_folds}: {i} {'='*20}")
+        fold_seed = seed_trainer if seed_trainer is not None else (seed + i)
+        print(f"\n{'='*20} {title} FOLD {i+1}/{num_folds}: {fold_seed} {'='*20}")
 
         # Use pre-generated fold
         X_train_orig = X_train_folds[i]
@@ -186,7 +187,7 @@ def buckling_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             X_test,
             y_test,
             num_epochs=num_epochs,
-            seed=seed_trainer,
+            seed=fold_seed,
             num_runs=num_runs,
             lr=lr,
             convergence_patience=convergence_patience,

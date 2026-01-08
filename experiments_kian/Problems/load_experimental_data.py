@@ -235,9 +235,9 @@ def generate_mf_wing_data(train_samples_per_source: list[int], test_samples_per_
     """
     if seed is not None:
         torch.manual_seed(seed)
-    # else:
-    #     seed = 42
-    #     torch.manual_seed(seed)
+    else:
+        seed = 42
+        torch.manual_seed(seed)
 
     # Defaults and validation for per-source noise (4 sources)
     if train_noise is None:

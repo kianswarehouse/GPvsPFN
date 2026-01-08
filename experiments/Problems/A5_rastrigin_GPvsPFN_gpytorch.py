@@ -129,10 +129,6 @@ def rastrigin_GPvsPFN(
     TabPFN_metrics: list[dict] = []
     GPPlus_metrics: list[dict] = []
 
-    # Per-fold run seeds (same pattern as other gpytorch scripts)
-    set_seed(0)
-    seeds = np.random.RandomState(0).choice(10**6, size=num_folds, replace=False).tolist()
-
     # Fold splits: make deterministic given `seed`
     torch.manual_seed(seed)
     all_indices = torch.randperm(total_train)
@@ -140,7 +136,8 @@ def rastrigin_GPvsPFN(
 
     total_start_time = time.time()
     for i in range(num_folds):
-        print(f"\n{'=' * 20} {title} FOLD {i + 1}/{num_folds} {'=' * 20}")
+        fold_seed = seed_trainer if seed_trainer is not None else (seed + i)
+        print(f"\n{'=' * 20} {title} FOLD {i + 1}/{num_folds}: {fold_seed} {'=' * 20}")
 
         fold_train_indices = train_indices_2d[i]
         X_train = X_train_all[fold_train_indices]
@@ -191,7 +188,6 @@ def rastrigin_GPvsPFN(
             print(f"y_test mean: {y_test.mean().item()} / y_test std: {y_test.std().item()}")
             print(model)
 
-        fold_seed = seeds[i]
         gp_metric, y_pred_gp, output_std_gp = train_eval_gp_gpytorch_default(
             model,
             X_test,

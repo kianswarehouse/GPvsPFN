@@ -48,6 +48,7 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         title=None,
         standardize_X=True,
         standardize_y=True,
+        x_standardize_method=2,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
         noise_train=0.0,
         noise_test=0.0,
         noise_type='gaussian',
@@ -106,10 +107,6 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     TabPFN_metrics = []
     GPPlus_metrics = []
 
-    # Generate seeds the same way as M2AX_GPvsPFN.py
-    set_seed(0)  # Set global seed for reproducible seeds
-    seeds = np.random.RandomState(0).choice(10**6, size=num_folds, replace=False).tolist()
-
     # Randomize across the single source, then split across folds
     # Use seed to ensure consistent fold splits
     torch.manual_seed(seed)
@@ -118,7 +115,8 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         
     total_start_time = time.time()
     for i in range(num_folds):
-        print(f"\n{'='*20} {title} FOLD {i+1}/{num_folds} {'='*20}")
+        fold_seed = seed_trainer if seed_trainer is not None else (seed + i)
+        print(f"\n{'='*20} {title} FOLD {i+1}/{num_folds}: {fold_seed} {'='*20}")
 
         # Get training indices for this fold
         fold_train_indices = train_indices_2d[i]
@@ -135,11 +133,25 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         X_test = X_test_all.detach().clone().to(dtype=gp_dtype)
         y_train = y_train.detach().clone().to(dtype=gp_dtype)
         y_test = y_test_all.detach().clone().to(dtype=gp_dtype)
+        # Determine X scaling type
+        X_scaling_type = "None"
         if standardize_X:
-            Xscaler = gpplus.utils.StandardScaler()
+            if x_standardize_method == 0:
+                Xscaler = gpplus.utils.StandardScaler()
+                X_scaling_type = "StandardScaler (Gaussian)"
+            elif x_standardize_method == 1:
+                Xscaler = gpplus.utils.UniformScaler(scale_to_neg_one=False)
+                X_scaling_type = "UniformScaler [0, 1]"
+            elif x_standardize_method == 2:
+                Xscaler = gpplus.utils.UniformScaler(scale_to_neg_one=True)
+                X_scaling_type = "UniformScaler [-1, 1]"
+            else:
+                raise ValueError(f"x_standardize_method must be 0, 1, or 2, got {x_standardize_method}")
             Xscaler.fit(X_train[:, cont_cols])
             X_train[:, cont_cols] = Xscaler.transform(X_train[:, cont_cols])
             X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])
+        else:
+            X_scaling_type = "None"
 
         # Normalize the GP data
         Yscaler = gpplus.utils.StandardScaler()
@@ -177,8 +189,6 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             print(model)
 
         # Train with gpytorch defaults
-        # Use seed from the generated seeds list (same method as M2AX_GPvsPFN.py)
-        fold_seed = seeds[i]
         gp_metric, y_pred_gp, output_std_gp = train_eval_gp_gpytorch_default(
             model,
             X_test,

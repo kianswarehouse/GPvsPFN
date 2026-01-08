@@ -37,6 +37,7 @@ def buckling_SF_GPvsPFN(num_seeds=20,
         title=None,
         standardize_X=True,
         standardize_y=True,
+        x_standardize_method=2,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
         noise_train=0.0,
         noise_test=0.0,
         noise_type='gaussian',
@@ -150,8 +151,20 @@ def buckling_SF_GPvsPFN(num_seeds=20,
         X_test = X_enc_test_all.detach().clone().to(dtype=dtype)
         y_train = y_train.detach().clone().to(dtype=dtype)
         y_test = y_test_all.detach().clone().to(dtype=dtype)
+        # Determine X scaling type
+        X_scaling_type = "None"
         if standardize_X:
-            Xscaler = gpplus.utils.StandardScaler()
+            if x_standardize_method == 0:
+                Xscaler = gpplus.utils.StandardScaler()
+                X_scaling_type = "StandardScaler (Gaussian)"
+            elif x_standardize_method == 1:
+                Xscaler = gpplus.utils.UniformScaler(scale_to_neg_one=False)
+                X_scaling_type = "UniformScaler [0, 1]"
+            elif x_standardize_method == 2:
+                Xscaler = gpplus.utils.UniformScaler(scale_to_neg_one=True)
+                X_scaling_type = "UniformScaler [-1, 1]"
+            else:
+                raise ValueError(f"x_standardize_method must be 0, 1, or 2, got {x_standardize_method}")
             Xscaler.fit(X_train[:, cont_cols])
             X_train[:, cont_cols] = Xscaler.transform(X_train[:, cont_cols])
             X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])

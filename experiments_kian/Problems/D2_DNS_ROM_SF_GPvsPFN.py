@@ -71,7 +71,7 @@ def DNS_ROM_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     
     total_start_time = time.time()
     for i in range(num_folds):
-        print(f"\n{'='*20} {title} FOLD {i+1}/{num_folds} {'='*20}")
+        print(f"\n{'='*20} {title} FOLD {i+1}/{num_folds}: {fold_seed} {'='*20}")
 
         # Train/test split on all data - like am_data
         # Use different seed for each fold to get different splits
@@ -160,7 +160,7 @@ def DNS_ROM_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             X_test_gp,
             y_test_gp,
             num_epochs=num_epochs,
-            seed=seed_trainer,
+            seed=fold_seed,
             num_runs=num_runs,
             lr=lr,
             convergence_patience=convergence_patience,

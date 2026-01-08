@@ -28,7 +28,7 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         title=None,
         standardize_X=True,
         standardize_y=True,
-        x_standardize_method=0,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
+        x_standardize_method=2,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
         noise_train=0.0,
         noise_test=0.0,
         noise_type='gaussian',
@@ -99,7 +99,8 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         
     total_start_time = time.time()
     for i in range(num_folds):
-        print(f"\n{'='*20} {title} FOLD {i+1}/{num_folds} {'='*20}")
+        fold_seed = seed_trainer if seed_trainer is not None else (seed + i)
+        print(f"\n{'='*20} {title} FOLD {i+1}/{num_folds}: {fold_seed} {'='*20}")
 
         # Get training indices for this fold
         fold_train_indices = train_indices_2d[i]
@@ -163,7 +164,7 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             X_test,
             y_test,
             num_epochs=num_epochs,
-            seed=seed_trainer,
+            seed=fold_seed,
             num_runs=num_runs,
             lr=lr,
             convergence_patience=convergence_patience,
@@ -331,6 +332,6 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
 
 if __name__ == "__main__":
-    wing_SF_GPvsPFN(trainer_info=False, num_folds=1, train_size=10, num_test=5000, noise_train=0, noise_test=0, num_runs=4, num_epochs=10000, save_path="./results/wing/temp")
+    wing_SF_GPvsPFN(trainer_info=False, num_folds=1, train_size=10, num_test=5000, noise_train=0, noise_test=0, num_runs=4, num_epochs=100, save_path="./results/wing/temp")
     # wing_SF_GPvsPFN(num_folds=1, train_size=10, num_test=5000, noise_train=0.05, noise_test=0.05, num_runs=4, num_epochs=10000, save_path="./results/wing/temp")
     # wing_SF_GPvsPFN(num_folds=5, train_size=80, num_test=5000, noise_train=0.05, noise_test=0.05, num_runs=4, num_epochs=10000, save_path="./results/wing/temp")
