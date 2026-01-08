@@ -2598,3 +2598,125 @@ def generate_styblinski_tang_data(n_train: int, n_test: int, dimensions: int = 2
         y_test = y_test + noise
     
     return X_train, y_train, X_test, y_test
+
+
+def load_dns_rom_data_all(print_info=False):
+    """
+    Load all DNS ROM multi-fidelity data from CSV files without splitting.
+    
+    CSV files are located in experiments_kian/data/DNS_ROM/:
+    - Data_high.csv (source 0)
+    - Data_LF1.csv (source 1)
+    - Data_LF2.csv (source 2)
+    - Data_LF3.csv (source 3)
+    
+    Each CSV has format: [6 input features, source_id, y]
+    
+    Args:
+        print_info (bool): If True, prints information about the loaded data
+        
+    Returns:
+        X, y: All data with 7 features (6 continuous + 1 source column in {0,1,2,3})
+    """
+    # Path to DNS ROM data directory
+    data_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'DNS_ROM')
+    data_dir = os.path.abspath(data_dir)
+    
+    # Load CSV files
+    csv_files = [
+        os.path.join(data_dir, 'Data_high.csv'),  # source 0
+        os.path.join(data_dir, 'Data_LF1.csv'),  # source 1
+        os.path.join(data_dir, 'Data_LF2.csv'),  # source 2
+        os.path.join(data_dir, 'Data_LF3.csv'),  # source 3
+    ]
+    
+    # Load and combine all data
+    all_data_list = []
+    for source_idx, csv_path in enumerate(csv_files):
+        if not os.path.isfile(csv_path):
+            raise FileNotFoundError(f"Could not find DNS ROM data file: {csv_path}")
+        
+        df = pd.read_csv(csv_path, header=None)
+        arr = df.values.astype(np.float64)
+        
+        # Verify format: should have 8 columns (6 features + source + y)
+        if arr.shape[1] != 8:
+            raise ValueError(f"Expected 8 columns in {csv_path}, got {arr.shape[1]}")
+        
+        # Verify source column matches expected source
+        source_col = arr[:, 6].astype(int)
+        if not np.all(source_col == source_idx):
+            # If source column doesn't match, set it to the expected source
+            arr[:, 6] = source_idx
+        
+        all_data_list.append(arr)
+    
+    # Combine all sources
+    all_data = np.vstack(all_data_list)
+    
+    # Extract features (first 6 columns), source (column 6), and y (column 7)
+    X_features = torch.tensor(all_data[:, :6], dtype=torch.float64)
+    source_ids = torch.tensor(all_data[:, 6], dtype=torch.float64)
+    y_all = torch.tensor(all_data[:, 7], dtype=torch.float64)
+    
+    # Append source id as 7th feature
+    source_col = source_ids.unsqueeze(1)
+    X = torch.cat([X_features, source_col], dim=1)
+    
+    if print_info:
+        print(f"Loaded DNS ROM data:")
+        print(f"  Total samples: {len(X)}")
+        print(f"  X shape: {X.shape}")
+        print(f"  y shape: {y_all.shape}")
+        for source_idx in range(4):
+            source_mask = source_ids == source_idx
+            n_samples = source_mask.sum().item()
+            print(f"  Source {source_idx}: {n_samples} samples")
+    
+    return X, y_all
+
+
+def load_dns_rom_hf_data(print_info=False):
+    """
+    Load only high-fidelity DNS ROM data from Data_high.csv (single-fidelity version).
+    
+    CSV file is located in experiments_kian/data/DNS_ROM/:
+    - Data_high.csv
+    
+    Each CSV has format: [6 input features, source_id, y]
+    
+    Args:
+        print_info (bool): If True, prints information about the loaded data
+        
+    Returns:
+        X, y: Data with 6 features (no source column)
+    """
+    # Path to DNS ROM data directory
+    data_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'DNS_ROM')
+    data_dir = os.path.abspath(data_dir)
+    
+    # Load only high-fidelity CSV file
+    csv_path = os.path.join(data_dir, 'Data_high.csv')
+    
+    if not os.path.isfile(csv_path):
+        raise FileNotFoundError(f"Could not find DNS ROM data file: {csv_path}")
+    
+    df = pd.read_csv(csv_path, header=None)
+    arr = df.values.astype(np.float64)
+    
+    # Verify format: should have 8 columns (6 features + source + y)
+    if arr.shape[1] != 8:
+        raise ValueError(f"Expected 8 columns in {csv_path}, got {arr.shape[1]}")
+    
+    # Extract features (first 6 columns) and y (column 7)
+    # Don't include source column for single-fidelity
+    X = torch.tensor(arr[:, :6], dtype=torch.float64)
+    y = torch.tensor(arr[:, 7], dtype=torch.float64)
+    
+    if print_info:
+        print(f"Loaded DNS ROM high-fidelity data:")
+        print(f"  Total samples: {len(X)}")
+        print(f"  X shape: {X.shape}")
+        print(f"  y shape: {y.shape}")
+    
+    return X, y

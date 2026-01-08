@@ -2,7 +2,6 @@ import time
 
 import numpy as np
 import torch
-
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
 from gpplus.training import GPTrainer
 from gpplus.training.callbacks import FinalParameterStorageCallback
@@ -118,8 +117,8 @@ def train_eval_gp(
     seed: int,
     num_runs: int,
     lr: float,
-    convergence_patience: int,
-    min_loss_change: float,
+    convergence_patience: int=10,
+    min_loss_change: float=1e-7,
     optimizer_class=None,
     initializer_class=None,
     device: str = "cpu",
@@ -800,9 +799,10 @@ def train_eval_PFN(
                         y_pred_test_denorm[source_mask] = exp_log_y - log_scale_C
                         # Use delta method: std_original ≈ exp(log_mean) * log_std
                         output_std_test_denorm[source_mask] = exp_log_y * log_y_std
-                else:
-                    y_pred_test_denorm[source_mask] = (y_pred_test[source_mask] * std) + mean
-                    output_std_test_denorm[source_mask] = output_std_test[source_mask] * std
+                    else:
+                        # Normal unstandardization (not log scale)
+                        y_pred_test_denorm[source_mask] = (y_pred_test[source_mask] * std) + mean
+                        output_std_test_denorm[source_mask] = output_std_test[source_mask] * std
 
                 # Update predictions and std after processing all sources
                 y_pred_test = y_pred_test_denorm

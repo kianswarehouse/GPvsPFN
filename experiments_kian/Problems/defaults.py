@@ -38,13 +38,14 @@ def MF_kernel(
             **kwargs
         )
     )
-MF_STANDARDIZATION_METHOD = 2
+MF_STANDARDIZATION_METHOD = 2 # 0: standardize all data according to all data, 1: standardize all data according to HF data only, 2: standardize each data source independently
 
 NUM_FOLDS = 20
 TRAINER_LR = 0.1
 TRAINER_NUM_EPOCHS = 100
 TRAINER_NUM_RUNS = 16
 TRAINER_CONVERGENCE_PATIENCE = 10
+TRAINER_MIN_LOSS_CHANGE = 1e-7
 TRAINER_OPTIMIZER_CLASS = gpplus.training.optimizers.LBFGSScipy
 TRAINER_INITIALIZER_CLASS = gpplus.training.parameter_initializer.DefaultParameterInitializer
 TRAINER_GP_DEVICE = 'cpu'

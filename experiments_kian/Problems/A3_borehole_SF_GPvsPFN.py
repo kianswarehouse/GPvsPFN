@@ -19,6 +19,7 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         num_epochs=defaults.TRAINER_NUM_EPOCHS, 
         lr=defaults.TRAINER_LR, 
         convergence_patience=defaults.TRAINER_CONVERGENCE_PATIENCE,
+        min_loss_change=defaults.TRAINER_MIN_LOSS_CHANGE,
         optimizer_class=defaults.TRAINER_OPTIMIZER_CLASS,
         initializer_class=defaults.TRAINER_INITIALIZER_CLASS,
         gp_device=defaults.TRAINER_GP_DEVICE,
@@ -27,6 +28,7 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         title=None,
         standardize_X=True,
         standardize_y=True,
+        x_standardize_method=0,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
         standardize_y_log_scale=False,
         noise_train=0.0,
         noise_test=0.0,
@@ -35,7 +37,7 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         seed_trainer=defaults.SEED_TRAINER,
         gp_dtype = defaults.DTYPE_GP,
         pfn_dtype = defaults.DTYPE_PFN,
-        trainer_info=False,
+        trainer_info=True,
     ):
     if title is None:
         title = f"borehole_SF_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
@@ -111,8 +113,20 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         X_test = X_test_all.detach().clone().to(dtype=gp_dtype)
         y_train = y_train.detach().clone().to(dtype=gp_dtype)
         y_test = y_test_all.detach().clone().to(dtype=gp_dtype)
+        # Determine X scaling type
+        X_scaling_type = "None"
         if standardize_X:
-            Xscaler = gpplus.utils.StandardScaler()
+            if x_standardize_method == 0:
+                Xscaler = gpplus.utils.StandardScaler()
+                X_scaling_type = "StandardScaler (Gaussian)"
+            elif x_standardize_method == 1:
+                Xscaler = gpplus.utils.UniformScaler(scale_to_neg_one=False)
+                X_scaling_type = "UniformScaler [0, 1]"
+            elif x_standardize_method == 2:
+                Xscaler = gpplus.utils.UniformScaler(scale_to_neg_one=True)
+                X_scaling_type = "UniformScaler [-1, 1]"
+            else:
+                raise ValueError(f"x_standardize_method must be 0, 1, or 2, got {x_standardize_method}")
             Xscaler.fit(X_train[:, cont_cols])
             X_train[:, cont_cols] = Xscaler.transform(X_train[:, cont_cols])
             X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])
@@ -152,6 +166,7 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             num_runs=num_runs,
             lr=lr,
             convergence_patience=convergence_patience,
+            min_loss_change=min_loss_change,
             optimizer_class=optimizer_class,
             initializer_class=initializer_class,
             device=gp_device,
@@ -220,6 +235,8 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 "test_samples": num_test,
                 "standardize_X": standardize_X,
                 "standardize_y": standardize_y,
+                "x_standardize_method": x_standardize_method,
+                "X_scaling_type": X_scaling_type,
                 "standardize_y_log_scale": standardize_y_log_scale,
                 "dtype": str(gp_dtype),
                 "device": str(gp_device),

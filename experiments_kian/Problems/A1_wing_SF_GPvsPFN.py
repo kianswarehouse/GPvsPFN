@@ -19,6 +19,7 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         num_epochs=defaults.TRAINER_NUM_EPOCHS, 
         lr=defaults.TRAINER_LR, 
         convergence_patience=defaults.TRAINER_CONVERGENCE_PATIENCE,
+        min_loss_change=defaults.TRAINER_MIN_LOSS_CHANGE,
         optimizer_class=defaults.TRAINER_OPTIMIZER_CLASS,        
         initializer_class=defaults.TRAINER_INITIALIZER_CLASS,
         gp_device=defaults.TRAINER_GP_DEVICE,
@@ -27,6 +28,7 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         title=None,
         standardize_X=True,
         standardize_y=True,
+        x_standardize_method=0,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
         noise_train=0.0,
         noise_test=0.0,
         noise_type='gaussian',
@@ -34,7 +36,7 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         seed_trainer=defaults.SEED_TRAINER,
         gp_dtype = defaults.DTYPE_GP,
         pfn_dtype = defaults.DTYPE_PFN,
-        trainer_info=False,
+        trainer_info=True,
     ):
     
     if title is None:
@@ -116,8 +118,20 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         X_test = X_test_all.detach().clone().to(dtype=gp_dtype)
         y_train = y_train.detach().clone().to(dtype=gp_dtype)
         y_test = y_test_all.detach().clone().to(dtype=gp_dtype)
+        # Determine X scaling type
+        X_scaling_type = "None"
         if standardize_X:
-            Xscaler = gpplus.utils.StandardScaler()
+            if x_standardize_method == 0:
+                Xscaler = gpplus.utils.StandardScaler()
+                X_scaling_type = "StandardScaler (Gaussian)"
+            elif x_standardize_method == 1:
+                Xscaler = gpplus.utils.UniformScaler(scale_to_neg_one=False)
+                X_scaling_type = "UniformScaler [0, 1]"
+            elif x_standardize_method == 2:
+                Xscaler = gpplus.utils.UniformScaler(scale_to_neg_one=True)
+                X_scaling_type = "UniformScaler [-1, 1]"
+            else:
+                raise ValueError(f"x_standardize_method must be 0, 1, or 2, got {x_standardize_method}")
             Xscaler.fit(X_train)
             X_train = Xscaler.transform(X_train)
             X_test = Xscaler.transform(X_test)
@@ -153,6 +167,7 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             num_runs=num_runs,
             lr=lr,
             convergence_patience=convergence_patience,
+            min_loss_change=min_loss_change,
             optimizer_class=optimizer_class,
             initializer_class=initializer_class,
             device=gp_device,
@@ -219,6 +234,8 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 "test_samples": num_test,
                 "standardize_X": standardize_X,
                 "standardize_y": standardize_y,
+                "x_standardize_method": x_standardize_method,
+                "X_scaling_type": X_scaling_type,
                 "dtype": str(gp_dtype),
                 "device": str(gp_device),
                 "num_epochs": num_epochs,
@@ -314,6 +331,6 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
 
 if __name__ == "__main__":
-    wing_SF_GPvsPFN(num_folds=1, train_size=10, num_test=5000, noise_train=0.0025, noise_test=0.025, num_runs=4, num_epochs=10000, save_path="./results/wing/temp")
+    wing_SF_GPvsPFN(trainer_info=False, num_folds=1, train_size=10, num_test=5000, noise_train=0, noise_test=0, num_runs=4, num_epochs=10000, save_path="./results/wing/temp")
     # wing_SF_GPvsPFN(num_folds=1, train_size=10, num_test=5000, noise_train=0.05, noise_test=0.05, num_runs=4, num_epochs=10000, save_path="./results/wing/temp")
     # wing_SF_GPvsPFN(num_folds=5, train_size=80, num_test=5000, noise_train=0.05, noise_test=0.05, num_runs=4, num_epochs=10000, save_path="./results/wing/temp")

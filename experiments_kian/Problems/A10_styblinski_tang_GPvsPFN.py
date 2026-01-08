@@ -21,14 +21,16 @@ def styblinski_tang_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         num_epochs=defaults.TRAINER_NUM_EPOCHS, 
         lr=defaults.TRAINER_LR, 
         convergence_patience=defaults.TRAINER_CONVERGENCE_PATIENCE,
+        min_loss_change=defaults.TRAINER_MIN_LOSS_CHANGE,
         optimizer_class=defaults.TRAINER_OPTIMIZER_CLASS,
         initializer_class=defaults.TRAINER_INITIALIZER_CLASS,
         gp_device=defaults.TRAINER_GP_DEVICE,
         amp_device=defaults.TRAINER_AMP_DEVICE,
-        save_path='./results/styblinski_tang',
+        save_path='./results/styblinski',
         title=None,
         standardize_X=True,
         standardize_y=True,
+        x_standardize_method=0,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
         noise_train=0.0,
         noise_test=0.0,
         noise_type='gaussian',
@@ -36,12 +38,13 @@ def styblinski_tang_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         seed_trainer=defaults.SEED_TRAINER,
         gp_dtype = defaults.DTYPE_GP,
         pfn_dtype = defaults.DTYPE_PFN,
+        trainer_info=True,
     ):
 
     if title is None:
-        title = f"StyblinskiTang_{dimensions}xdim_{train_size}D_[{x_bounds[0]},{x_bounds[1]}]bounds_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"StyblinskiTang_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"StyblinskiTang_{title}_{dimensions}xdim_{train_size}D_[{x_bounds[0]},{x_bounds[1]}]bounds_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"StyblinskiTang_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
@@ -86,6 +89,7 @@ def styblinski_tang_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     # print(cat_cols)
     TabPFN_metrics = []
     GPPlus_metrics = []
+    GPTrainer_info = []  # Accumulate trainer logs across folds
 
     # Randomize across the single source, then split across folds
     # Use seed to ensure consistent fold splits
@@ -112,11 +116,24 @@ def styblinski_tang_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         X_test = X_test_all.detach().clone().to(dtype=gp_dtype)
         y_train = y_train.detach().clone().to(dtype=gp_dtype)
         y_test = y_test_all.detach().clone().to(dtype=gp_dtype)
+        # Determine X scaling type
         if standardize_X:
-            Xscaler = gpplus.utils.StandardScaler()
+            if x_standardize_method == 0:
+                Xscaler = gpplus.utils.StandardScaler()
+                X_scaling_type = "StandardScaler (Gaussian)"
+            elif x_standardize_method == 1:
+                Xscaler = gpplus.utils.UniformScaler(scale_to_neg_one=False)
+                X_scaling_type = "UniformScaler [0, 1]"
+            elif x_standardize_method == 2:
+                Xscaler = gpplus.utils.UniformScaler(scale_to_neg_one=True)
+                X_scaling_type = "UniformScaler [-1, 1]"
+            else:
+                raise ValueError(f"x_standardize_method must be 0, 1, or 2, got {x_standardize_method}")
             Xscaler.fit(X_train[:, cont_cols])
             X_train[:, cont_cols] = Xscaler.transform(X_train[:, cont_cols])
             X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])
+        else:
+            X_scaling_type = "None"
 
         # Normalize the GP data
         Yscaler = gpplus.utils.StandardScaler()
@@ -140,7 +157,7 @@ def styblinski_tang_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             print(model)
 
         # Create trainer
-        gp_metric, y_pred_gp, output_std_gp = train_eval_gp(
+        gp_metric, y_pred_gp, output_std_gp, gp_trainer_info = train_eval_gp(
             model,
             X_test,
             y_test,
@@ -149,14 +166,23 @@ def styblinski_tang_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             num_runs=num_runs,
             lr=lr,
             convergence_patience=convergence_patience,
+            min_loss_change=min_loss_change,
             optimizer_class=optimizer_class,
             initializer_class=initializer_class,
             device=gp_device,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
             source_cols=source_cols,
+            trainer_info=trainer_info,
         )
         GPPlus_metrics.append(gp_metric)
+        
+        # Accumulate trainer info if available
+        if gp_trainer_info:
+            # Add fold information to trainer log
+            gp_trainer_info["fold"] = i + 1
+            gp_trainer_info["metrics"] = gp_metric  # Include metrics for this fold
+            GPTrainer_info.append(gp_trainer_info)
 
         print(f"\nGP Results (Fold {i+1}/{num_folds})")
         for k, v in gp_metric.items():
@@ -206,6 +232,8 @@ def styblinski_tang_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 "y_train_std": float(y_train_std.item()),
                 "standardize_X": standardize_X,
                 "standardize_y": standardize_y,
+                "X_scaling_type": X_scaling_type,
+                "x_standardize_method": x_standardize_method,
                 "dtype": str(gp_dtype),
                 "device": str(gp_device),
                 "num_epochs": num_epochs,
@@ -268,18 +296,47 @@ def styblinski_tang_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             (out_dir / f"gpVpfn_{title}.json").write_text(json.dumps(combined_data, indent=2))
         except Exception:
             pass
+        
+        # Save trainer info if trainer_info is enabled
+        if trainer_info and GPTrainer_info:
+            try:
+                # Create trainer_analysis directory (same level as plots)
+                trainer_analysis_dir = Path(save_path) / "trainer_analysis"
+                trainer_analysis_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Save raw trainer info (just the parameter info)
+                trainer_info_data = {
+                    "title": title,
+                    "num_folds": num_folds,
+                    "num_runs_per_fold": num_runs,
+                    "trainer_info": GPTrainer_info,
+                }
+                
+                # Save trainer info JSON
+                trainer_info_file = trainer_analysis_dir / f"gpVpfn_{title}_GP_Trainer_Analysis.json"
+                trainer_info_file.write_text(json.dumps(trainer_info_data, indent=2))
+                print(f"\nTrainer info saved to: {trainer_info_file}")
+                
+            except Exception as e:
+                print(f"Error saving trainer info: {e}")
+                import traceback
+                traceback.print_exc()
     print(f"\nTotal experiment time for {num_folds} folds: {time.time() - total_start_time:.2f}s")
     print("="*60)
-    print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\tX_standardize: {standardize_X}\n\ty_standardize: {standardize_y}")
+    print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\tX_standardize: {standardize_X}\n\tX_scaling_type: {X_scaling_type}\n\ty_standardize: {standardize_y}")
     print(f"Experiment details: \n\t{len(X_test_all)} test samples, {len(X_train)} train samples\n\tfolds: {num_folds}")
 
     return GPPlus_metrics, TabPFN_metrics
 
 
 if __name__ == "__main__":
-    styblinski_tang_GPvsPFN(num_folds=1, train_size=40, dimensions=5, num_runs=4, save_path='./results/styblinski_tang/temp')
-    styblinski_tang_GPvsPFN(num_folds=1, train_size=80, dimensions=10, num_runs=4, save_path='./results/styblinski_tang/temp')
-    styblinski_tang_GPvsPFN(num_folds=1, train_size=10, dimensions=40, num_runs=4, save_path='./results/styblinski_tang/temp')
-    styblinski_tang_GPvsPFN(num_folds=1, train_size=40, dimensions=40, num_runs=4, save_path='./results/styblinski_tang/temp')
+    styblinski_tang_GPvsPFN(num_folds=1, train_size=40, dimensions=5, num_runs=4, save_path='./results/styblinski/temp')
+    # styblinski_tang_GPvsPFN(num_folds=1, train_size=80, dimensions=10, num_runs=4, save_path='./results/styblinski/temp')
+    # styblinski_tang_GPvsPFN(num_folds=1, train_size=10, dimensions=40, num_runs=4, save_path='./results/styblinski/temp')
+    # styblinski_tang_GPvsPFN(num_folds=1, train_size=40, dimensions=40, num_runs=4, save_path='./results/styblinski/temp')
+
+
+
+
 
 

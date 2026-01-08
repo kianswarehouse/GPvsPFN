@@ -7,16 +7,15 @@ import time
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
-from load_experimental_data import generate_griewank_data
+from load_experimental_data import load_dns_rom_data_all
+from sklearn.model_selection import train_test_split
+import numpy as np
 import defaults
 
 # import warnings
 # warnings.filterwarnings("ignore")
-def griewank_GPvsPFN(num_folds=defaults.NUM_FOLDS,
-        num_test=5000,
-        train_size=10, # total training size is train_size * number of X input dimensions
-        dimensions=2,
-        x_bounds=[-600, 600],
+def DNS_ROM_MF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
+        test_size=0.2,
         num_runs=defaults.TRAINER_NUM_RUNS, 
         num_epochs=defaults.TRAINER_NUM_EPOCHS, 
         lr=defaults.TRAINER_LR, 
@@ -26,26 +25,27 @@ def griewank_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         initializer_class=defaults.TRAINER_INITIALIZER_CLASS,
         gp_device=defaults.TRAINER_GP_DEVICE,
         amp_device=defaults.TRAINER_AMP_DEVICE,
-        save_path='./results/griewank',
+        save_path='./results/DNS_ROM',
         title=None,
+        encode_data=True,
         standardize_X=True,
         standardize_y=True,
+        standardization_method=defaults.MF_STANDARDIZATION_METHOD,
         x_standardize_method=0,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
-        noise_train=0.0,
-        noise_test=0.0,
-        noise_type='gaussian',
         seed=defaults.SEED,
         seed_trainer=defaults.SEED_TRAINER,
-        gp_dtype = defaults.DTYPE_GP,
-        pfn_dtype = defaults.DTYPE_PFN,
+        gp_dtype=defaults.DTYPE_GP,
+        pfn_dtype=defaults.DTYPE_PFN,
         trainer_info=True,
     ):
-
     if title is None:
-        title = f"Griewank_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"DNS_ROM_MF_{test_size}test_{num_runs}runs"
     else: 
-        title = f"Griewank_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
-    
+        title = f"DNS_ROM_MF_{title}_{test_size}test_{num_runs}runs"
+
+    # Load data
+    set_seed(seed)   
+
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
     regressor = VanillaDirectTabPFNRegressor(device=amp_device)
@@ -53,114 +53,134 @@ def griewank_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         plot_save_path = f"{save_path}/plots"
     else:
         plot_save_path = None
-
-    # Generate data
-    set_seed(seed)
     
-    # Calculate total samples needed
-    train_per_fold = train_size * dimensions  # train_size * dimensions for Griewank
-    total_train = num_folds * train_per_fold
-    total_samples = num_test + total_train
+    # Load all DNS ROM data
+    print("Loading DNS ROM data...")
+    X, y = load_dns_rom_data_all(print_info=True)
     
-    print(f"Generating {total_samples} unique Sobol samples for {dimensions}D Griewank function\n\tTest samples: {num_test} / Train samples: {total_train}")
-    
-    # Generate train and test data in one call
-    X_train_all, y_train_all, X_test_all, y_test_all = generate_griewank_data(
-        n_train=total_train,
-        n_test=num_test,
-        dimensions=dimensions,
-        x_bounds=x_bounds,
-        train_noise=noise_train,
-        test_noise=noise_test,
-        noise_type=noise_type,
-        seed=seed
-    )
-    X = torch.cat([X_test_all, X_train_all], dim=0)
-
     print("="*10)
     print(f"{title}: TabPFN vs GP Comparison")
     print("="*10)
+    print(f"Total samples: {len(X)}")
+    print(f"X dimensions: {X.shape[1]}")
 
-    # Prepare encoded data once from already loaded X, y (no extra CSV/label encoding)
-    qual_dict = learn_encodings(X)
-    print(qual_dict)
-    _, cont_cols, cat_cols, source_cols = encode_qual_data(X_train_all, qual_dict=qual_dict, source_col=None)
-    _, _, _, _ = encode_qual_data(X_test_all, qual_dict=qual_dict, source_col=None)
-    # print(cat_cols)
+    # Prepare encoded data once
+    if encode_data:
+        qual_dict = learn_encodings(X, cont_cols=[1])
+        print(qual_dict)
+        X_enc, cont_cols, cat_cols, source_cols = encode_qual_data(X, qual_dict=qual_dict, source_col=-1)
+        print(f"cont_cols: {cont_cols}")
+        print(f"cat_cols: {cat_cols}")
+        print(f"source_cols: {source_cols}")
+    else:
+        cont_cols = list(range(6))  # First 6 columns are continuous features
+        cat_cols = []
+        source_cols = [6]  # Last column is source
+        qual_dict = {}
+    
     TabPFN_metrics = []
     GPPlus_metrics = []
     GPTrainer_info = []  # Accumulate trainer logs across folds
-
-    # Randomize across the single source, then split across folds
-    # Use seed to ensure consistent fold splits
-    torch.manual_seed(seed)
-    all_indices = torch.randperm(total_train)
-    train_indices_2d = all_indices.reshape(num_folds, train_per_fold)
-        
+    gp_model_info = None
+    tabpfn_model_info = None
+    
     total_start_time = time.time()
     for i in range(num_folds):
         print(f"\n{'='*20} {title} FOLD {i+1}/{num_folds} {'='*20}")
 
-        # Get training indices for this fold
-        fold_train_indices = train_indices_2d[i]
-        X_train = X_train_all[fold_train_indices]
-        y_train = y_train_all[fold_train_indices]
+        # Train/test split on ALL data (all sources mixed) - like am_data
+        # Use different seed for each fold to get different splits
+        fold_seed = seed + i
+        np.random.seed(fold_seed)
+        torch.manual_seed(fold_seed)
+        
+        # Convert to numpy for sklearn train_test_split
+        X_np = X_enc.numpy() if encode_data else X.numpy()
+        y_np = y.numpy()
+        
+        # Train/test split on all data together
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_np, y_np, test_size=test_size, random_state=fold_seed
+        )
+        
+        # Convert back to torch
+        X_train = torch.tensor(X_train, dtype=torch.float32)
+        X_test = torch.tensor(X_test, dtype=torch.float32)
+        y_train = torch.tensor(y_train, dtype=torch.float32)
+        y_test = torch.tensor(y_test, dtype=torch.float32)
+        
+        print(f"Train size: {len(X_train)}, Test size: {len(X_test)}")
+        print(f"Test y mean: {y_test.mean().item():.4f}, Test y std: {y_test.std().item():.4f}")
+        
+        # Get source info for verification
+        # After encoding, source is one-hot encoded, so we need to find which column is 1
+        if source_cols and len(source_cols) > 0:
+            # source_cols is a list of indices for the one-hot encoded source columns
+            source_onehot_train = X_train[:, source_cols]  # Shape: (N, 4)
+            source_onehot_test = X_test[:, source_cols]    # Shape: (N, 4)
+            # Get the source index by finding which column is 1
+            source_train = torch.argmax(source_onehot_train, dim=1)  # Shape: (N,)
+            source_test = torch.argmax(source_onehot_test, dim=1)    # Shape: (N,)
+        else:
+            # If not encoded, source is in the last column
+            source_train = X_train[:, -1].long()
+            source_test = X_test[:, -1].long()
+        
+        # Verify source distribution
+        source_counts_train = [torch.sum(source_train == j).item() for j in range(4)]
+        source_counts_test = [torch.sum(source_test == j).item() for j in range(4)]
+        print(f"Train source distribution: {source_counts_train}")
+        print(f"Test source distribution: {source_counts_test}")
 
         # =============================================================================
         # GP Section 
         # =============================================================================
         print(f"\n--- {title} GP Training ---")
         
-        # Reuse PFN split, convert to torch (unified)
-        X_train = X_train.detach().clone().to(dtype=gp_dtype)
-        X_test = X_test_all.detach().clone().to(dtype=gp_dtype)
-        y_train = y_train.detach().clone().to(dtype=gp_dtype)
-        y_test = y_test_all.detach().clone().to(dtype=gp_dtype)
-        # Determine X scaling type
-        if standardize_X:
-            if x_standardize_method == 0:
-                Xscaler = gpplus.utils.StandardScaler()
-                X_scaling_type = "StandardScaler (Gaussian)"
-            elif x_standardize_method == 1:
-                Xscaler = gpplus.utils.UniformScaler(scale_to_neg_one=False)
-                X_scaling_type = "UniformScaler [0, 1]"
-            elif x_standardize_method == 2:
-                Xscaler = gpplus.utils.UniformScaler(scale_to_neg_one=True)
-                X_scaling_type = "UniformScaler [-1, 1]"
-            else:
-                raise ValueError(f"x_standardize_method must be 0, 1, or 2, got {x_standardize_method}")
-            Xscaler.fit(X_train[:, cont_cols])
-            X_train[:, cont_cols] = Xscaler.transform(X_train[:, cont_cols])
-            X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])
-        else:
-            X_scaling_type = "None"
+        # Use unified X_train/X_test for GP as well
+        X_train_gp = X_train.detach().clone().to(dtype=gp_dtype)
+        X_test_gp = X_test.detach().clone().to(dtype=gp_dtype)
+        y_train_gp = y_train.detach().clone().to(dtype=gp_dtype)
+        y_test_gp = y_test.detach().clone().to(dtype=gp_dtype)
+        # Get high-fidelity mask for standardization
+        
+        X_train_gp, X_test_gp, y_train_normal, y_train_mean, y_train_std = gpplus.utils.standardize_mf_data(
+            X_train_gp,
+            X_test_gp,
+            y_train_gp,
+            cont_cols,
+            source_cols,
+            standardize_X=standardize_X,
+            standardize_y=standardize_y,
+            standardization_method=standardization_method,
+            x_standardize_method=x_standardize_method,
+        )
 
-        # Normalize the GP data
-        Yscaler = gpplus.utils.StandardScaler()
-        Yscaler.fit(y_train)
-        y_train_mean = Yscaler.mean 
-        y_train_std = Yscaler.std
-        y_train_normal = Yscaler.transform(y_train)
-
-        # Create GP model (default kernel like SF wing)
+        # cat_cols was returned by the encoder; CombinedKernel expects only cat indices
+        kernel = defaults.MF_kernel(
+            cont_cols=cont_cols, 
+            cat_cols=cat_cols, 
+            source_cols=source_cols,
+        )
+        
         model = gpplus.models.GPR(
-            X_train,
-            y_train_normal if standardize_y else y_train,
-            kernel_module=defaults.SF_kernel,
-            mean_module=defaults.SF_mean,
-            likelihood=defaults.SF_likelihood,
+            X_train_gp,
+            y_train_normal if standardize_y else y_train_gp,
+            kernel_module=kernel,
+            mean_module=defaults.MF_mean(encoded_cols=source_cols),
+            likelihood=defaults.MF_likelihood(encoded_cols=source_cols, training_data=X_train_gp),
         )
         if (i == 0) or (i == num_folds - 1):
-            print(f"X_train: {X_train.shape}")
-            print(f"X_test: {X_test.shape}")
-            print(f"y_test mean: {y_test.mean().item()} / y_test std: {y_test.std().item()}")
+            print(f"X_train: {X_train_gp.shape}")
+            print(f"X_test: {X_test_gp.shape}")
+            print(f"y_test mean: {y_test_gp.mean().item()} / y_test std: {y_test_gp.std().item()}")
             print(model)
 
         # Create trainer
         gp_metric, y_pred_gp, output_std_gp, gp_trainer_info = train_eval_gp(
             model,
-            X_test,
-            y_test,
+            X_test_gp,
+            y_test_gp,
             num_epochs=num_epochs,
             seed=seed_trainer,
             num_runs=num_runs,
@@ -172,9 +192,10 @@ def griewank_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             device=gp_device,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
-            source_cols=source_cols,
+            source_cols=source_cols,  # Source column is at index 10 (single int = not encoded)
             trainer_info=trainer_info,
         )
+        
         GPPlus_metrics.append(gp_metric)
         
         # Accumulate trainer info if available
@@ -186,18 +207,24 @@ def griewank_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
         print(f"\nGP Results (Fold {i+1}/{num_folds})")
         for k, v in gp_metric.items():
-            print(f"  {k}: {v:.4f}")
+            if v is None:
+                print(f"  {k}: None")
+            elif isinstance(v, (int, float)) and not isinstance(v, bool):
+                print(f"  {k}: {v:.4f}")
+            else:
+                print(f"  {k}: {v}")
 
         # =============================================================================
         # TabPFN Section
         # =============================================================================
         print(f"\n--- {title} TabPFN Training ---")
         
+        # Use the same unified inputs for PFN
         tabpfn_metric, y_pred_tabpfn, output_std_tabpfn = train_eval_PFN(
-            X_train,
-            X_test,
-            y_train_normal if standardize_y else y_train,
-            y_test,
+            X_train_gp,
+            X_test_gp,
+            y_train_normal if standardize_y else y_train_gp,
+            y_test_gp,
             amp_device=amp_device,
             amp_dtype=pfn_dtype,
             regressor=regressor,
@@ -205,6 +232,7 @@ def griewank_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
         )
+        
         TabPFN_metrics.append(tabpfn_metric)
 
         # Print results for this fold
@@ -214,26 +242,34 @@ def griewank_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         
         # Collect model info from first fold
         if i == 0:
+            # Calculate y_test mean and std for this fold
             y_test_stats = {
-                "y_test_mean": float(y_test_all.mean().item()),
-                "y_test_std": float(y_test_all.std().item())
+                "y_test_mean": float(y_test_gp.mean().item()),
+                "y_test_std": float(y_test_gp.std().item())
             }
-
+            # For test data, source is in source_cols
+            source_col_idx = source_cols[0] if source_cols else -1
+            source_indices_test = X_test_gp[:, source_col_idx].long()
+            unique_sources = torch.unique(source_indices_test)
+            if len(unique_sources) > 1:
+                # MF: Also calculate per-source stats
+                for source_idx in unique_sources:
+                    source_mask = source_indices_test == source_idx
+                    y_test_source = y_test_gp[source_mask]
+                    y_test_stats[f"y_test_mean_source_{source_idx.item()}"] = float(y_test_source.mean().item())
+                    y_test_stats[f"y_test_std_source_{source_idx.item()}"] = float(y_test_source.std().item())
+            
             gp_model_info = {
                 "model_str": str(model),
                 "cat_cols": cat_cols,
                 "cont_cols": cont_cols,
                 "source_cols": source_cols,
                 "qual_dict": qual_dict,
-                "input_dim": X_train.shape[1],
-                "train_samples": X_train.shape[0],
-                "test_samples": num_test,
-                "y_train_mean": float(y_train_mean.item()),
-                "y_train_std": float(y_train_std.item()),
+                "input_dim": X_train_gp.shape[1],
+                "test_size": test_size,
                 "standardize_X": standardize_X,
                 "standardize_y": standardize_y,
-                "X_scaling_type": X_scaling_type,
-                "x_standardize_method": x_standardize_method,
+                "standardization_method": standardization_method,
                 "dtype": str(gp_dtype),
                 "device": str(gp_device),
                 "num_epochs": num_epochs,
@@ -242,7 +278,6 @@ def griewank_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 "optimizer": optimizer_class.__name__,
                 "convergence_patience": convergence_patience,
                 "initializer": initializer_class.__name__ if initializer_class else None,
-                "x_bounds": x_bounds,
                 **y_test_stats,
                 "num_folds": num_folds,
                 "seed": seed,
@@ -256,6 +291,7 @@ def griewank_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 "random_state": regressor.random_state,
                 "use_autocast": regressor.use_autocast_,
                 "forced_inference_dtype": str(regressor.forced_inference_dtype_) if regressor.forced_inference_dtype_ else None,
+                "encoded_data": encode_data,
             }
         
     # =============================================================================
@@ -323,24 +359,11 @@ def griewank_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 traceback.print_exc()
     print(f"\nTotal experiment time for {num_folds} folds: {time.time() - total_start_time:.2f}s")
     print("="*60)
-    print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\tX_standardize: {standardize_X}\n\tX_scaling_type: {X_scaling_type}\n\ty_standardize: {standardize_y}")
-    print(f"Experiment details: \n\t{len(X_test_all)} test samples, {len(X_train)} train samples\n\tfolds: {num_folds}")
+    print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\tX_standardize: {standardize_X}\n\ty_standardize: {standardize_y}")
+    print(f"Experiment details: \n\ttest_size: {test_size}\n\tfolds: {num_folds}")
 
     return GPPlus_metrics, TabPFN_metrics
 
 
 if __name__ == "__main__":
-    griewank_GPvsPFN(num_folds=1, train_size=10, dimensions=20, num_runs=4, save_path='./results/griewank/temp')
-    # griewank_GPvsPFN(num_folds=1, train_size=20, dimensions=20, num_runs=4, save_path='./results/griewank/temp')
-    # griewank_GPvsPFN(num_folds=1, train_size=10, dimensions=40, num_runs=4, save_path='./results/griewank/temp')
-    # griewank_GPvsPFN(num_folds=1, train_size=20, dimensions=40, num_runs=4, save_path='./results/griewank/temp')
-
-
-
-
-
-
-
-
-
-
+    DNS_ROM_MF_GPvsPFN(num_folds=1, test_size=0.2, num_runs=4, standardization_method=2, num_epochs=10000, save_path="./results/DNS_ROM/temp")
