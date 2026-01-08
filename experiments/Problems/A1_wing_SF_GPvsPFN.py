@@ -162,12 +162,19 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             print(f"y_test mean: {y_test.mean().item()} / y_test std: {y_test.std().item()}")
             print(model)
 
-        # Create trainer
-        # Enable pre-screening: generate N_test = N_initialization * D_x Sobol samples,
-        # evaluate loss for all, and select best N_initialization for optimization
-        # Prescreening is enabled/disabled based on use_recorder parameter
-        enable_prescreening = use_recorder  # Enable prescreening when use_recorder is True
-        input_dim = X_train.shape[1]  # 10 for wing problem
+        # =============================================================================
+        # Prescreening Setup (Optional)
+        # =============================================================================
+        # Prescreening evaluates many candidate initializations (num_test) and selects
+        # the best ones (num_runs) for full optimization. This can improve results when
+        # you have many initializations to choose from.
+        #
+        # To enable prescreening:
+        #   1. Set use_recorder=True
+        #   2. Optionally set num_test (default: num_runs * input_dim)
+        #   3. Optionally adjust prescreening_warmup_epochs and prescreening_warmup_lr
+        #
+        # The recorder will save prescreening data to a JSON file for analysis.
         
         # Create recorder to track pre-screening data (if enabled)
         recorder = None
@@ -176,6 +183,16 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 save_path=os.path.join(save_path, f"prescreening_data_fold_{i+1}_seed_{fold_seed}.json") if save_path else None,
                 verbose=True
             )
+        
+        # Enable pre-screening: generate N_test = N_initialization * D_x Sobol samples,
+        # evaluate loss for all, and select best N_initialization for optimization
+        # Prescreening is enabled/disabled based on use_recorder parameter
+        enable_prescreening = use_recorder  # Enable prescreening when use_recorder is True
+        input_dim = X_train.shape[1]  # 10 for wing problem
+        
+        # Calculate num_test if not explicitly set (default: num_runs * input_dim)
+        # You can override this to use a different number of candidates
+        num_test = None  # Will use default (num_runs * input_dim) if None
         
         gp_metric, y_pred_gp, output_std_gp, gp_trainer_info = train_eval_gp(
             model,
@@ -194,11 +211,12 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             y_train_std=y_train_std if standardize_y else None,
             source_cols=source_cols,  # Source column is at index 10 (single int = not encoded)
             trainer_info=trainer_info,  # Set to True if you want trainer info
-            # enable_prescreening=enable_prescreening,
-            # input_dim=input_dim,  # Pass input dimension for pre-screening
-            # prescreening_warmup_epochs=0,  # Warmup epochs for better loss evaluation
-            # prescreening_warmup_lr=0.01,  # Learning rate for warmup
-            # recorder=recorder,
+            # Prescreening parameters
+            enable_prescreening=enable_prescreening,
+            num_test=num_test,  # Will use default (num_runs * input_dim) if None
+            prescreening_warmup_epochs=0,  # Warmup epochs for better loss evaluation
+            prescreening_warmup_lr=0.01,  # Learning rate for warmup
+            recorder=recorder,
         )
         
         # Save and print recorder summary
@@ -345,5 +363,5 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
 
 if __name__ == "__main__":
-    wing_SF_GPvsPFN(num_folds=2, train_size=10, num_test=5000, noise_train=0.00, noise_test=0.0, num_runs=4, num_epochs=100, save_path="./results/wing/temp", use_recorder=True)
+    wing_SF_GPvsPFN(num_folds=1, train_size=10, num_test=5000, noise_train=0.00, noise_test=0.0, num_runs=4, num_epochs=100, save_path="./results/wing/temp", use_recorder=True)
 

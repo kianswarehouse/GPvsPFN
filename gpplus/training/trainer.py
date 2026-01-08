@@ -13,6 +13,7 @@ from .optimizers import LBFGSScipy
 from .parameter_initializer import DefaultParameterInitializer, ParameterInitializer
 from .stop_conditions import StopCondition
 from .training_single_run import GPTrainerSingleProcess
+from .initialization_prescreener import InitializationPrescreener
 
 
 class GPTrainer:
@@ -53,6 +54,13 @@ class GPTrainer:
         initializer_kwargs: dict = None,
         device: str = "cpu",
         stop_conditions: Optional[List[StopCondition]] = None,
+        # Prescreening parameters
+        enable_prescreening: bool = False,
+        num_test: Optional[int] = None,  # Total candidates to evaluate (default: num_runs * input_dim)
+        prescreening_warmup_epochs: int = 3,
+        prescreening_warmup_lr: float = 0.01,
+        prescreening_optimizer_class=None,  # Optimizer for warmup (default: torch.optim.Adam)
+        recorder=None,  # PrescreeningRecorder instance
     ):
         # -------------------------------------------------------
         # Set up the device (CPU or CUDA)
@@ -137,6 +145,38 @@ class GPTrainer:
             logger.warning("No MLL class passed. Defaulting to ExactMarginalLogLikelihood.")
         else:
             self.mll_class = mll_class
+        
+        # --------------------------------------------------
+        #  PRESCREENING CONFIG
+        # --------------------------------------------------
+        self.enable_prescreening = enable_prescreening
+        self.recorder = recorder
+        self.prescreening_warmup_epochs = prescreening_warmup_epochs
+        self.prescreening_warmup_lr = prescreening_warmup_lr
+        self.prescreening_optimizer_class = prescreening_optimizer_class
+        
+        # Calculate num_test if not provided (default: num_runs * input_dim)
+        if enable_prescreening:
+            if num_test is None:
+                # Try to get input_dim from model
+                if hasattr(model, 'train_inputs') and model.train_inputs is not None and len(model.train_inputs) > 0:
+                    input_dim = model.train_inputs[0].shape[1]
+                elif hasattr(model, 'input_dim'):
+                    input_dim = model.input_dim
+                else:
+                    # Fallback: use a reasonable default multiplier
+                    input_dim = 10
+                    logger.warning(f"Could not determine input_dim from model. Using default multiplier: {input_dim}")
+                self.num_test = num_runs * input_dim
+                logger.info(f"Prescreening: num_test not provided, using default: {num_runs} * {input_dim} = {self.num_test}")
+            else:
+                self.num_test = num_test
+        else:
+            self.num_test = None
+        
+        # Store selected indices from prescreening (will be set during train() if prescreening is enabled)
+        self.selected_indices = None
+        self.prescreen_initializer = None  # Will be set during train() if prescreening is enabled
 
     def train_single_process(self, run_index):
         """
@@ -151,7 +191,11 @@ class GPTrainer:
         base_model = copy.deepcopy(self.model)
 
         # Initialize parameters for the model copy on CPU using the initializer
-        self.initializer.initialize(base_model, run_index)
+        # If prescreening was used, use the prescreen_initializer with the selected index
+        if self.prescreen_initializer is not None:
+            self.prescreen_initializer.initialize(base_model, run_index)
+        else:
+            self.initializer.initialize(base_model, run_index)
 
         # Move model_copy to device
         base_model = base_model.to(self.device)
@@ -186,14 +230,24 @@ class GPTrainer:
 
         return {"run_index": run_index, **train_result}
 
-    def train_multiple_process_parallel(self):
+    def train_multiple_process_parallel(self, run_indices=None):
         """
         Train the model in parallel using different initialization runs.
+
+        Args:
+            run_indices: Optional list of run indices to use. If None, uses range(num_runs).
+                        This is used when prescreening is enabled to train only selected initializations.
 
         Returns:
             list[dict]: A list of dictionaries containing training results
                         for each run (including error info if something fails).
         """
+
+        # Use provided run_indices or default to range(num_runs)
+        if run_indices is None:
+            run_indices = list(range(self.num_runs))
+        
+        num_runs_to_train = len(run_indices)
 
         # defining a small wrapper to handle errors gracefully
         def safe_single_process(run_index, device_override=None):
@@ -226,15 +280,15 @@ class GPTrainer:
         # - CPU: Use 'loky' backend (multiprocessing) - eliminates time.sleep polling, true parallelism
         # - GPU: Use 'threading' backend with verbose=0 - CUDA doesn't work well with multiprocessing
         if self.device.type == "cpu":
-            max_jobs = min(self.num_runs, max(1, (os.cpu_count() or 1) - 2))
+            max_jobs = min(num_runs_to_train, max(1, (os.cpu_count() or 1) - 2))
             logger.info(
-                f"Running {self.num_runs} runs using {max_jobs} parallel processes on CPU "
+                f"Running {num_runs_to_train} runs using {max_jobs} parallel processes on CPU "
                 f"(using joblib 'loky' backend - eliminates time.sleep polling)."
             )
             # Use loky backend (multiprocessing) - eliminates time.sleep polling, provides true parallelism
             # verbose=0 minimizes logging overhead
             results = Parallel(n_jobs=max_jobs, backend="loky", verbose=0)(
-                delayed(safe_single_process)(run_index) for run_index in range(self.num_runs)
+                delayed(safe_single_process)(run_index) for run_index in run_indices
             )
 
         elif str(self.device).startswith("cuda"):
@@ -242,24 +296,95 @@ class GPTrainer:
             num_gpus = torch.cuda.device_count()
             # For GPU tasks, use threading backend (multiprocessing doesn't work well with CUDA)
             # Allow as many parallel jobs as there are GPUs
-            max_jobs = min(self.num_runs, num_gpus)
+            max_jobs = min(num_runs_to_train, num_gpus)
             logger.info(
-                f"Running {self.num_runs} runs distributed across {num_gpus} GPUs "
+                f"Running {num_runs_to_train} runs distributed across {num_gpus} GPUs "
                 f"(using joblib 'threading' backend with verbose=0)."
             )
             # Use threading backend for GPU (CUDA doesn't work with multiprocessing)
             # verbose=0 minimizes logging overhead (time.sleep still present but reduced)
             results = Parallel(n_jobs=max_jobs, backend="threading", verbose=0)(
-                delayed(safe_single_process)(run_index, device_override=torch.device(f"cuda:{run_index % num_gpus}"))
-                for run_index in range(self.num_runs)
+                delayed(safe_single_process)(run_index, device_override=torch.device(f"cuda:{i % num_gpus}"))
+                for i, run_index in enumerate(run_indices)
             )
 
         logger.info("Training completed.")
         return results
 
     def train(self):
+        # ------------------------------------------------------
+        #  PRESCREENING (if enabled)
+        # ------------------------------------------------------
+        if self.enable_prescreening:
+            logger.info("="*60)
+            logger.info("PRESCREENING ENABLED")
+            logger.info("="*60)
+            
+            # Create a temporary initializer for prescreening with num_test samples
+            # We need to create a new initializer with num_runs=num_test
+            # Use the same class and kwargs as the main initializer
+            prescreen_initializer_class = self.initializer.__class__
+            
+            # Try to extract kwargs from the existing initializer if possible
+            prescreen_initializer_kwargs = {}
+            # Most initializers don't need special kwargs, but if they do, they should be passed via initializer_kwargs
+            # For now, we'll just use the class with num_runs and seed
+            
+            prescreen_initializer = prescreen_initializer_class(
+                num_runs=self.num_test,
+                seed=self.seed,
+                **prescreen_initializer_kwargs
+            )
+            prescreen_initializer.setup(self.model)
+            
+            # Create prescreener
+            prescreener = InitializationPrescreener(
+                model=self.model,
+                initializer=prescreen_initializer,
+                num_test=self.num_test,
+                num_runs=self.num_runs,
+                mll_class=self.mll_class,
+                cholesky_jitter=self.cholesky_jitter,
+                device=str(self.device),
+                dtype=self.dtype,
+                num_warmup_epochs=self.prescreening_warmup_epochs,
+                warmup_lr=self.prescreening_warmup_lr,
+                optimizer_class=self.prescreening_optimizer_class,
+                recorder=self.recorder,
+            )
+            
+            # Start recording if recorder is provided
+            if self.recorder is not None:
+                self.recorder.start_recording(self.num_test, self.num_runs)
+            
+            # Run prescreening to get selected indices
+            self.selected_indices = prescreener.prescreen()
+            
+            logger.info(f"Prescreening complete. Selected {len(self.selected_indices)} initializations from {self.num_test} candidates.")
+            logger.info(f"Selected indices (from prescreening): {self.selected_indices}")
+            
+            # Store the prescreen initializer for use during training
+            # We'll use the selected indices with this initializer
+            self.prescreen_initializer = prescreen_initializer
+        else:
+            self.selected_indices = None
+        
+        # ------------------------------------------------------
+        #  TRAINING
+        # ------------------------------------------------------
         # Call the multiple_process() method that trains using different initializations
-        results = self.train_multiple_process_parallel()
+        # If prescreening was enabled, use selected_indices; otherwise use range(num_runs)
+        if self.selected_indices is not None:
+            # Map selected indices to actual run indices
+            # The selected_indices are from the prescreening (0 to num_test-1)
+            # We need to use these indices when calling the initializer
+            # But we also need to track which prescreening index corresponds to which training run
+            run_indices = self.selected_indices
+            logger.info(f"Training with prescreened initializations: {run_indices}")
+        else:
+            run_indices = None  # Will default to range(num_runs)
+        
+        results = self.train_multiple_process_parallel(run_indices=run_indices)
 
         # ------------------------------------------------------
         #  Select the best run by comparing the 'loss' values
@@ -286,6 +411,21 @@ class GPTrainer:
                 f"Best run found: #{best_run['run_index']} with loss={best_loss:.4f}. "
                 "Original model state_dict updated with best weights."
             )
+            
+            # Record final result in recorder if prescreening was enabled
+            if self.enable_prescreening and self.recorder is not None:
+                # Extract final parameters
+                final_parameters = {}
+                for name, param in self.model.named_parameters():
+                    if param.requires_grad:
+                        final_parameters[name] = param.data.detach().cpu().clone()
+                
+                # Record the final result
+                self.recorder.record_final_result(
+                    selected_index=best_run['run_index'],
+                    final_loss=best_loss,
+                    final_parameters=final_parameters,
+                )
         else:
             logger.warning("No valid best run found. Model was not updated.")
 

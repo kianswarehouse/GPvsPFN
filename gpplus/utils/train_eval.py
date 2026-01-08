@@ -130,6 +130,13 @@ def train_eval_gp(
     y_train_min: torch.Tensor | dict | None = None,  # Unused, kept for backward compatibility
     source_cols: int | list[int] | None = None,
     trainer_info: bool = False,
+    # Prescreening parameters
+    enable_prescreening: bool = False,
+    num_test: int | None = None,  # Total candidates to evaluate (default: num_runs * input_dim)
+    prescreening_warmup_epochs: int = 0,
+    prescreening_warmup_lr: float = 0.01,
+    prescreening_optimizer_class=None,  # Optimizer for warmup (default: torch.optim.Adam)
+    recorder=None,  # PrescreeningRecorder instance
 ):
     """
     Train a GP model and evaluate metrics on the provided test set.
@@ -180,6 +187,13 @@ def train_eval_gp(
         optimizer_class=optimizer_class,
         device=device,
         initializer_class=initializer_class,
+        # Prescreening parameters
+        enable_prescreening=enable_prescreening,
+        num_test=num_test,
+        prescreening_warmup_epochs=prescreening_warmup_epochs,
+        prescreening_warmup_lr=prescreening_warmup_lr,
+        prescreening_optimizer_class=prescreening_optimizer_class,
+        recorder=recorder,
     )
 
     # Measure training time
