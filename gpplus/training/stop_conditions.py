@@ -69,12 +69,16 @@ class MinLossChangeStopCondition(StopCondition):
     Args:
         min_loss_change: Minimum absolute loss change required to continue training.
                          If the loss change is below this threshold, training stops.
+                         If None, this condition is disabled.
     """
 
-    def __init__(self, min_loss_change: float):
+    def __init__(self, min_loss_change: Optional[float]):
         self.min_loss_change = min_loss_change
 
     def should_stop(self, context: StopConditionContext) -> tuple[bool, str]:
+        if self.min_loss_change is None:
+            return False, ""
+
         previous_loss = context["previous_loss"]
         if previous_loss is None:
             return False, ""
