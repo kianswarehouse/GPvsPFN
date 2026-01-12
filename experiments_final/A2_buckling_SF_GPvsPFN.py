@@ -38,6 +38,7 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         gp_dtype = defaults.DTYPE_GP,
         pfn_dtype = defaults.DTYPE_PFN,
         trainer_info=True,
+        MF_kernel=True,
     ):
     if title is None:
         title = f"buckling_SF_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
@@ -209,10 +210,19 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             print(f"  Scaled Min: {y_train_normal.min().item():.6f}")
             print(f"  Scaled Max: {y_train_normal.max().item():.6f}")
         
+        if MF_kernel:
+            kenrel = defaults.MF_kernel(
+                cont_cols=cont_cols,
+                cat_cols=cat_cols,
+                source_cols=source_cols,
+            )
+        else:
+            kenrel = defaults.SF_kernel
+
         model = gpplus.models.GPR(
             X_train,
             y_train_normal if standardize_y else y_train,
-            kernel_module=defaults.SF_kernel,
+            kernel_module=kenrel,
             mean_module=defaults.SF_mean,
             likelihood=defaults.SF_likelihood,
         )
@@ -402,6 +412,7 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
 if __name__ == "__main__":
     buckling_SF_GPvsPFN(num_folds=1, train_size=20, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp')
+    buckling_SF_GPvsPFN(num_folds=1, train_size=20, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp', title = "SF_kernel", MF_kernel=False)
     # buckling_GPvsPFN(num_folds=1, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp', standardize_X_gp=False, standardize_y_gp=True)
     # buckling_GPvsPFN(num_folds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=False, standardize_y_gp=True)
     # buckling_GPvsPFN(num_folds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=True)

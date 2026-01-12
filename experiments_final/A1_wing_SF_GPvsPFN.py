@@ -204,9 +204,9 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             amp_device=amp_device,
             amp_dtype=pfn_dtype,
             regressor=regressor,
+            source_cols=source_cols,
             y_train_mean=y_train_mean if standardize_y else None,
             y_train_std=y_train_std if standardize_y else None,
-            source_cols=source_cols,
         )
         
         TabPFN_metrics.append(tabpfn_metric)
