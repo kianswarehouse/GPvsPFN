@@ -1,9 +1,6 @@
 from A1_wing_SF_GPvsPFN import wing_SF_GPvsPFN
-# from A1_wing_MF_GPvsPFN import wing_GPvsPFN
 from A2_buckling_SF_GPvsPFN import buckling_SF_GPvsPFN
-# from A2_buckling_MF_GPvsPFN import buckling_GPvsPFN
 from A3_borehole_SF_GPvsPFN import borehole_SF_GPvsPFN
-# from A3_borehole_MF_GPvsPFN import borehole_GPvsPFN
 from A4_ackley_GPvsPFN import ackley_GPvsPFN
 from A5_rastrigin_GPvsPFN import rastrigin_GPvsPFN
 from A6_rosenbrock_GPvsPFN import rosenbrock_GPvsPFN
@@ -34,16 +31,15 @@ wing_SF_GPvsPFN(train_size=20, save_path=save_path_wing)
 wing_SF_GPvsPFN(train_size=40, save_path=save_path_wing)
 wing_SF_GPvsPFN(train_size=80, save_path=save_path_wing)
 
-wing_SF_GPvsPFN(train_size=10, save_path=save_path_wing, noise_train=0.05, noise_test=0.05)
-wing_SF_GPvsPFN(train_size=20, save_path=save_path_wing, noise_train=0.05, noise_test=0.05)
-wing_SF_GPvsPFN(train_size=40, save_path=save_path_wing, noise_train=0.05, noise_test=0.05)
-wing_SF_GPvsPFN(train_size=80, save_path=save_path_wing, noise_train=0.05, noise_test=0.05)
-
 wing_SF_GPvsPFN(train_size=10, save_path=save_path_wing, noise_train=0.005, noise_test=0.005)
 wing_SF_GPvsPFN(train_size=20, save_path=save_path_wing, noise_train=0.005, noise_test=0.005)
 wing_SF_GPvsPFN(train_size=40, save_path=save_path_wing, noise_train=0.005, noise_test=0.005)
 wing_SF_GPvsPFN(train_size=80, save_path=save_path_wing, noise_train=0.005, noise_test=0.005)
 
+wing_SF_GPvsPFN(train_size=10, save_path=save_path_wing, noise_train=0.05, noise_test=0.05)
+wing_SF_GPvsPFN(train_size=20, save_path=save_path_wing, noise_train=0.05, noise_test=0.05)
+wing_SF_GPvsPFN(train_size=40, save_path=save_path_wing, noise_train=0.05, noise_test=0.05)
+wing_SF_GPvsPFN(train_size=80, save_path=save_path_wing, noise_train=0.05, noise_test=0.05)
 
 # # %% Buckling ------------------------------------------------------------------------------------------------
 buckling_SF_GPvsPFN(train_size=10, save_path=save_path_buckling)
@@ -51,30 +47,30 @@ buckling_SF_GPvsPFN(train_size=20, save_path=save_path_buckling)
 buckling_SF_GPvsPFN(train_size=40, save_path=save_path_buckling)
 buckling_SF_GPvsPFN(train_size=80, save_path=save_path_buckling)
 
-buckling_SF_GPvsPFN(train_size=10, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
-buckling_SF_GPvsPFN(train_size=20, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
-buckling_SF_GPvsPFN(train_size=40, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
-buckling_SF_GPvsPFN(train_size=80, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
-
 buckling_SF_GPvsPFN(train_size=10, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005)
 buckling_SF_GPvsPFN(train_size=20, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005)
 buckling_SF_GPvsPFN(train_size=40, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005)
 buckling_SF_GPvsPFN(train_size=80, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005)
+
+buckling_SF_GPvsPFN(train_size=10, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
+buckling_SF_GPvsPFN(train_size=20, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
+buckling_SF_GPvsPFN(train_size=40, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
+buckling_SF_GPvsPFN(train_size=80, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
 
 buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=10, save_path=save_path_buckling)
 buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=20, save_path=save_path_buckling)
 buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=40, save_path=save_path_buckling)
 buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=80, save_path=save_path_buckling)
 
-buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=10, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
-buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=20, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
-buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=40, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
-buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=80, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
-
 buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=10, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005)
 buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=20, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005)
 buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=40, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005)
 buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=80, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005)
+
+buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=10, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
+buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=20, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
+buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=40, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
+buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=80, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
 
 # %% Borehole ------------------------------------------------------------------------------------------------
 borehole_SF_GPvsPFN(train_size=10, save_path=save_path_borehole)
@@ -82,15 +78,15 @@ borehole_SF_GPvsPFN(train_size=20, save_path=save_path_borehole)
 borehole_SF_GPvsPFN(train_size=40, save_path=save_path_borehole)
 borehole_SF_GPvsPFN(train_size=80, save_path=save_path_borehole)
 
-borehole_SF_GPvsPFN(train_size=10, save_path=save_path_borehole, noise_train=0.05, noise_test=0.05)
-borehole_SF_GPvsPFN(train_size=20, save_path=save_path_borehole, noise_train=0.05, noise_test=0.05)
-borehole_SF_GPvsPFN(train_size=40, save_path=save_path_borehole, noise_train=0.05, noise_test=0.05)
-borehole_SF_GPvsPFN(train_size=80, save_path=save_path_borehole, noise_train=0.05, noise_test=0.05)
-
 borehole_SF_GPvsPFN(train_size=10, save_path=save_path_borehole, noise_train=0.005, noise_test=0.005)
 borehole_SF_GPvsPFN(train_size=20, save_path=save_path_borehole, noise_train=0.005, noise_test=0.005)
 borehole_SF_GPvsPFN(train_size=40, save_path=save_path_borehole, noise_train=0.005, noise_test=0.005)
 borehole_SF_GPvsPFN(train_size=80, save_path=save_path_borehole, noise_train=0.005, noise_test=0.005)
+
+borehole_SF_GPvsPFN(train_size=10, save_path=save_path_borehole, noise_train=0.05, noise_test=0.05)
+borehole_SF_GPvsPFN(train_size=20, save_path=save_path_borehole, noise_train=0.05, noise_test=0.05)
+borehole_SF_GPvsPFN(train_size=40, save_path=save_path_borehole, noise_train=0.05, noise_test=0.05)
+borehole_SF_GPvsPFN(train_size=80, save_path=save_path_borehole, noise_train=0.05, noise_test=0.05)
 
 # %% 5Dx Problems ------------------------------------------------------------------------------------------------
 # # %% Ackley ------------------------------------------------------------------------------------------------
@@ -108,6 +104,7 @@ ackley_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_ackley, noise_tr
 ackley_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
 ackley_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
 ackley_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
+
 # # %% Ackley V2 ------------------------------------------------------------------------------------------------
 ackley_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_ackley, V2=True) 
 ackley_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_ackley, V2=True)
