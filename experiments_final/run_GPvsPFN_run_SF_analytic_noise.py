@@ -13,7 +13,7 @@ from A9_dixon_price_GPvsPFN import dixon_price_GPvsPFN
 
 
 
-folder = "results"
+folder = "results_final"
 date = "1_11"
 
 save_path_wing = f"./{folder}/{date}/wing/"
