@@ -332,7 +332,9 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
 
 if __name__ == "__main__":
-    wing_SF_GPvsPFN(trainer_info=False, num_folds=1, train_size=10, num_test=5000, noise_train=0, noise_test=0, num_runs=4, num_epochs=100, save_path="./results/wing/temp")
+    wing_SF_GPvsPFN(num_folds=4, train_size=10, num_test=5000, noise_train=0, noise_test=0, num_runs=4, num_epochs=100, save_path="./results/wing/temp")
+
+    # wing_SF_GPvsPFN(num_folds=1, train_size=10, num_test=5000, noise_train=0, noise_test=0, num_runs=4, num_epochs=100, save_path="./results/wing/temp")
     # wing_SF_GPvsPFN(trainer_info=False, num_folds=1, train_size=10, num_test=5000, noise_train=0, noise_test=0, num_runs=1, num_epochs=1, save_path="./results/wing/temp")
     # wing_SF_GPvsPFN(num_folds=1, train_size=10, num_test=5000, noise_train=0.05, noise_test=0.05, num_runs=4, num_epochs=10000, save_path="./results/wing/temp")
     # wing_SF_GPvsPFN(num_folds=5, train_size=80, num_test=5000, noise_train=0.05, noise_test=0.05, num_runs=4, num_epochs=10000, save_path="./results/wing/temp")

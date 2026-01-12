@@ -174,7 +174,7 @@ def train_eval_gp(
     # else:
     #     optimizer_kwargs = {"lr": lr}
 
-    callbacks = [FinalParameterStorageCallback(save_file="gp_parameters.json", verbose=False)]
+    callbacks = [FinalParameterStorageCallback(save_file=None, verbose=False)]
 
     trainer = GPTrainer(
         model=model,

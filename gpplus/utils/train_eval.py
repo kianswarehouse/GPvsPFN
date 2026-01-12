@@ -2,7 +2,6 @@ import time
 
 import numpy as np
 import torch
-from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
 from gpplus.training import GPTrainer
 from gpplus.training.callbacks import FinalParameterStorageCallback
 # from gpplus.training.eval import evaluate_gp_model
@@ -709,12 +708,14 @@ def train_eval_PFN(
     """
     Train/evaluate TabPFN on provided split and return metrics, preds, std.
 
-    Expects regressor with forward/predict_mean/predict_variance API.
+    Supports both TabPFNRegressor (sklearn-like API) and VanillaDirectTabPFNRegressor (custom API).
 
     If source_cols is provided, per-source metrics will be computed and added to the
     main metrics dictionary with source-specific prefixes.
 
     Args:
+        regressor: TabPFNRegressor or VanillaDirectTabPFNRegressor instance. 
+                  If None, creates a new VanillaDirectTabPFNRegressor.
         source_cols: Column index(es) for source identification. If provided, per-source
                     metrics will be computed and added to the main metrics.
                     - If int: single source column (data not encoded)
@@ -801,7 +802,7 @@ def train_eval_PFN(
         y_pred_test = y_pred_tabpfn
         output_std_test = np.sqrt(y_var_tabpfn)
     else:
-        # Wrapper API - use custom forward/predict_mean/predict_variance API
+        # Wrapper API (VanillaDirectTabPFNRegressor) - use custom forward/predict_mean/predict_variance API
         X_all = np.concatenate([X_train, X_test], axis=0)
         Y_all = np.concatenate([y_train, np.zeros_like(y_test)], axis=0)
 
