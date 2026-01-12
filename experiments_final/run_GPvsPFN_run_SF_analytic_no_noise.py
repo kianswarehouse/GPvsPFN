@@ -62,10 +62,10 @@ ackley_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_ackley, V2=True)
 ackley_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_ackley, V2=True)
 
 # %% Rastrigin ------------------------------------------------------------------------------------------------
-rastrigin_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_rosenbrock)
-rastrigin_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_rosenbrock)
-rastrigin_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_rosenbrock)
-rastrigin_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_rosenbrock)
+rastrigin_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_rastrigin)
+rastrigin_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_rastrigin)
+rastrigin_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_rastrigin)
+rastrigin_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_rastrigin)
 
 # %% Rosenbrock ------------------------------------------------------------------------------------------------
 rosenbrock_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_rosenbrock)

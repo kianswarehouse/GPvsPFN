@@ -122,20 +122,20 @@ ackley_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_ackley, V2=True,
 ackley_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_ackley, V2=True, noise_train=0.05, noise_test=0.05)
 
 # %% Rastrigin ------------------------------------------------------------------------------------------------
-rastrigin_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_rosenbrock)
-rastrigin_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_rosenbrock)
-rastrigin_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_rosenbrock)
-rastrigin_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_rosenbrock)
+rastrigin_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_rastrigin)
+rastrigin_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_rastrigin)
+rastrigin_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_rastrigin)
+rastrigin_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_rastrigin)
 
-rastrigin_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
-rastrigin_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
-rastrigin_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
-rastrigin_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
+rastrigin_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
+rastrigin_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
+rastrigin_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
+rastrigin_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
 
-rastrigin_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
-rastrigin_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
-rastrigin_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
-rastrigin_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
+rastrigin_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
+rastrigin_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
+rastrigin_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
+rastrigin_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
 
 # %% Rosenbrock ------------------------------------------------------------------------------------------------
 rosenbrock_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_rosenbrock)

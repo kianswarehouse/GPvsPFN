@@ -28,7 +28,7 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         title=None,
         standardize_X=True,
         standardize_y=True,
-        x_standardize_method=0,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
+        x_standardize_method=defaults.X_STANDARDIZE_METHOD,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
         standardize_y_log_scale=True,
         noise_train=0.0,
         noise_test=0.0,

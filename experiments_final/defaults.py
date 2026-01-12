@@ -1,6 +1,8 @@
 import gpplus
 import torch
 
+X_STANDARDIZE_METHOD = 2 # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
+
 SF_kernel = None
 SF_mean = None
 SF_likelihood = None
