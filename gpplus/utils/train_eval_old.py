@@ -174,18 +174,20 @@ def train_eval_gp(
     # else:
     #     optimizer_kwargs = {"lr": lr}
 
-    callbacks = [FinalParameterStorageCallback(save_file=None, verbose=False)]
+    callbacks = [FinalParameterStorageCallback(save_file="gp_parameters.json", verbose=False)]
 
     trainer = GPTrainer(
         model=model,
         num_epochs=num_epochs,
         seed=seed,
         num_runs=num_runs,
+        # optimizer_kwargs=optimizer_kwargs,
         stop_conditions=[ConvergencePatienceStopCondition(patience=convergence_patience), MinLossChangeStopCondition(min_loss_change=min_loss_change)],
         callbacks=callbacks,
         optimizer_class=optimizer_class,
         device=device,
         initializer_class=initializer_class,
+        # Prescreening parameters
         enable_prescreening=enable_prescreening,
         num_test=num_test,
         prescreening_warmup_epochs=prescreening_warmup_epochs,
@@ -732,96 +734,26 @@ def train_eval_PFN(
     if regressor is None:
         regressor = VanillaDirectTabPFNRegressor(device=amp_device)
 
-    # Check if regressor is standard TabPFNRegressor (sklearn-like API) or wrapper (custom API)
-    try:
-        from tabpfn import TabPFNRegressor as StandardTabPFNRegressor
-        is_standard_tabpfn = isinstance(regressor, StandardTabPFNRegressor)
-    except ImportError:
-        is_standard_tabpfn = False
-    
-    if is_standard_tabpfn:
-        # Standard TabPFN library - use sklearn-like API
-        # Convert to numpy arrays
-        X_train_np = X_train.detach().cpu().numpy() if isinstance(X_train, torch.Tensor) else X_train
-        X_test_np = X_test.detach().cpu().numpy() if isinstance(X_test, torch.Tensor) else X_test
-        y_train_np = y_train.detach().cpu().numpy() if isinstance(y_train, torch.Tensor) else y_train
-        y_test_np = y_test.detach().cpu().numpy() if isinstance(y_test, torch.Tensor) else y_test
-        
-        # Ensure 1D arrays for y
-        if y_train_np.ndim > 1:
-            y_train_np = y_train_np.ravel()
-        if y_test_np.ndim > 1:
-            y_test_np = y_test_np.ravel()
-        
-        # Fit if not already fitted
-        if not hasattr(regressor, 'feature_names_in_'):
-            regressor.fit(X_train_np, y_train_np)
-        
-        t_start = time.time()
-        # Predict using "main" to get both mean and variance in a dict
-        predictions = regressor.predict(X_test_np, output_type="main")
-        
-        # Extract mean and variance from the dict
-        y_pred_tabpfn = predictions.get("mean", predictions.get("median"))
-        y_var_tabpfn = predictions.get("variance")
-        
-        # If variance not available, try to get it separately or compute from quantiles
-        if y_var_tabpfn is None:
-            # Try to get variance directly (might not be supported in all versions)
-            try:
-                y_var_tabpfn = regressor.predict(X_test_np, output_type="variance")
-            except (ValueError, KeyError):
-                # Fallback: estimate variance from quantiles if available
-                if "quantiles" in predictions:
-                    quantiles = predictions["quantiles"]
-                    if isinstance(quantiles, list) and len(quantiles) >= 2:
-                        # Use interquartile range as proxy for std: IQR/1.35 ≈ std for normal dist
-                        q75_idx = len(quantiles) - 1
-                        q25_idx = 0
-                        iqr = quantiles[q75_idx] - quantiles[q25_idx]
-                        y_var_tabpfn = (iqr / 1.35) ** 2
-                    else:
-                        # Last resort: use a small default variance
-                        y_var_tabpfn = np.ones_like(y_pred_tabpfn) * 0.01
-                else:
-                    y_var_tabpfn = np.ones_like(y_pred_tabpfn) * 0.01
-        
-        # Convert to numpy if needed
-        if isinstance(y_pred_tabpfn, torch.Tensor):
-            y_pred_tabpfn = y_pred_tabpfn.detach().cpu().numpy()
-        if isinstance(y_var_tabpfn, torch.Tensor):
-            y_var_tabpfn = y_var_tabpfn.detach().cpu().numpy()
-        if y_pred_tabpfn.ndim > 1:
-            y_pred_tabpfn = y_pred_tabpfn.ravel()
-        if isinstance(y_var_tabpfn, np.ndarray) and y_var_tabpfn.ndim > 1:
-            y_var_tabpfn = y_var_tabpfn.ravel()
-        elif not isinstance(y_var_tabpfn, np.ndarray):
-            y_var_tabpfn = np.array(y_var_tabpfn)
-        
-        y_pred_test = y_pred_tabpfn
-        output_std_test = np.sqrt(y_var_tabpfn)
-    else:
-        # Wrapper API - use custom forward/predict_mean/predict_variance API
-        X_all = np.concatenate([X_train, X_test], axis=0)
-        Y_all = np.concatenate([y_train, np.zeros_like(y_test)], axis=0)
+    X_all = np.concatenate([X_train, X_test], axis=0)
+    Y_all = np.concatenate([y_train, np.zeros_like(y_test)], axis=0)
 
-        X_all = torch.tensor(X_all, dtype=torch.float32).unsqueeze(1)
-        Y_all = torch.tensor(Y_all, dtype=torch.float32).reshape(-1, 1, 1)
+    X_all = torch.tensor(X_all, dtype=torch.float32).unsqueeze(1)
+    Y_all = torch.tensor(Y_all, dtype=torch.float32).reshape(-1, 1, 1)
 
-        single_eval_pos = len(X_train)
-        t_start = time.time()
-        with torch.amp.autocast(device_type=amp_device, dtype=amp_dtype):
-            out = regressor.forward(X_all, Y_all, single_eval_pos)
-            logits = out["standard"]
-            y_mean = regressor.predict_mean(logits)
-            y_var = regressor.predict_variance(logits)
+    single_eval_pos = len(X_train)
+    t_start = time.time()
+    with torch.amp.autocast(device_type=amp_device, dtype=amp_dtype):
+        out = regressor.forward(X_all, Y_all, single_eval_pos)
+        logits = out["standard"]
+        y_mean = regressor.predict_mean(logits)
+        y_var = regressor.predict_variance(logits)
 
-        y_pred = y_mean.detach().cpu().numpy().reshape(-1)
-        output_std = (y_var.detach().cpu().numpy().reshape(-1)) ** 0.5
+    y_pred = y_mean.detach().cpu().numpy().reshape(-1)
+    output_std = (y_var.detach().cpu().numpy().reshape(-1)) ** 0.5
 
-        # Metrics only on the test segment
-        y_pred_test = y_pred[-len(y_test) :]
-        output_std_test = output_std[-len(y_test) :]
+    # Metrics only on the test segment
+    y_pred_test = y_pred[-len(y_test) :]
+    output_std_test = output_std[-len(y_test) :]
 
     # If train mean/std are provided (e.g., standardized training targets),
     # denormalize predictions and std before computing metrics to compare on original scale
