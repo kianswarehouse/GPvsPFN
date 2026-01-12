@@ -731,7 +731,8 @@ def train_eval_PFN(
     import torch
 
     if regressor is None:
-        regressor = VanillaDirectTabPFNRegressor(device=amp_device)
+        from tabpfn import TabPFNRegressor
+        regressor = TabPFNRegressor(device=amp_device)
 
     # Check if regressor is standard TabPFNRegressor (sklearn-like API) or wrapper (custom API)
     try:
