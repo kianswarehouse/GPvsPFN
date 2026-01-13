@@ -456,16 +456,16 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
         raise ValueError("test_noise must be length-2 (one scalar per source)")
     
     sources = ['s0', 's1']  # Two sources
-    total_n = sum(train_samples_per_source) + sum(test_samples_per_source)
     
-    # Categorical index values (0-based) and positive physical mappings
+    # Categorical index values (0-based) and actual physical values
     # Use strictly positive physical values to avoid 0/0 or division-by-zero in buckling formula
     E_values = torch.tensor([0.0, 1.0], dtype=torch.float64)  # indices
     K_values = torch.tensor([0.0, 1.0, 2.0, 3.0], dtype=torch.float64)  # indices
     I_values = torch.tensor([0.0, 1.0, 2.0], dtype=torch.float64)  # indices
-    E_phys = torch.tensor([1.0, 2.0], dtype=torch.float64)
-    K_phys = torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.float64)
-    I_phys = torch.tensor([1.0, 2.0, 3.0], dtype=torch.float64)
+    # Actual physical values for buckling problem
+    E_phys = torch.tensor([73.1, 200.0], dtype=torch.float64)  # Young's modulus values
+    K_phys = torch.tensor([0.5, 0.7, 1.0, 2.0], dtype=torch.float64)  # Shear modulus values
+    I_phys = torch.tensor([9.49, 12.1, 29.5], dtype=torch.float64)  # Moment of inertia values
     
     # Generate test data first (one block per source)
     X_test_list = []
@@ -875,162 +875,6 @@ def generate_mf_buckling_data(train_samples_per_source: list[int], test_samples_
             X_src_col_all[cursor + n_test:cursor + n_total, 0] = float(idx)
 
         cursor += n_total
-
-    # Split per source into test then train; get test std after split and add noise scaled by it
-    X_train_list: list[torch.Tensor] = []
-    y_train_list: list[torch.Tensor] = []
-    X_test_list: list[torch.Tensor] = []
-    y_test_list: list[torch.Tensor] = []
-
-    cursor = 0
-    for idx, (src, n_total, n_test, n_train) in enumerate(
-        zip(sources, total_per_source, test_samples_per_source, train_samples_per_source)
-    ):
-        if n_total == 0:
-            continue
-        x_block = X_raw_all[cursor:cursor + n_total]
-        y_block = y_clean_all[cursor:cursor + n_total]
-        src_block = X_src_col_all[cursor:cursor + n_total]
-
-        # Split: first n_test -> test, remaining -> train
-        x_test_block = x_block[:n_test] if n_test > 0 else torch.empty((0, 4), dtype=torch.float64)
-        y_test_block = y_block[:n_test] if n_test > 0 else torch.empty((0,), dtype=torch.float64)
-        src_test_block = src_block[:n_test] if n_test > 0 else torch.empty((0, 1), dtype=torch.float64)
-        x_train_block = x_block[n_test:] if n_train > 0 else torch.empty((0, 4), dtype=torch.float64)
-        y_train_block = y_block[n_test:] if n_train > 0 else torch.empty((0,), dtype=torch.float64)
-        src_train_block = src_block[n_test:] if n_train > 0 else torch.empty((0, 1), dtype=torch.float64)
-
-        # Test std after split (per source)
-        if y_test_block.numel() > 1:
-            test_std_value = float(y_test_block.std().item())
-        else:
-            test_std_value = 0.0
-
-        # Apply noise scaled by test std
-        if n_train > 0 and train_noise[idx] > 0 and test_std_value > 0.0:
-            if noise_type == 'gaussian':
-                noise = torch.randn_like(y_train_block) * (train_noise[idx] * test_std_value)
-            elif noise_type == 'uniform':
-                noise = (torch.rand_like(y_train_block) - 0.5) * 2 * (train_noise[idx] * test_std_value)
-            else:
-                raise ValueError(f"Unknown noise_type: {noise_type}")
-            y_train_block = y_train_block + noise
-
-        if n_test > 0 and test_noise[idx] > 0 and test_std_value > 0.0:
-            if noise_type == 'gaussian':
-                noise = torch.randn_like(y_test_block) * (test_noise[idx] * test_std_value)
-            elif noise_type == 'uniform':
-                noise = (torch.rand_like(y_test_block) - 0.5) * 2 * (test_noise[idx] * test_std_value)
-            else:
-                raise ValueError(f"Unknown noise_type: {noise_type}")
-            y_test_block = y_test_block + noise
-
-        # Append source column and collect
-        X_test_list.append(torch.cat([x_test_block, src_test_block], dim=1))
-        y_test_list.append(y_test_block)
-        X_train_list.append(torch.cat([x_train_block, src_train_block], dim=1))
-        y_train_list.append(y_train_block)
-
-        cursor += n_total
-
-    X_train = torch.cat(X_train_list, dim=0) if X_train_list else torch.empty((0, 5), dtype=torch.float64)
-    y_train = torch.cat(y_train_list, dim=0) if y_train_list else torch.empty((0,), dtype=torch.float64)
-    X_test = torch.cat(X_test_list, dim=0) if X_test_list else torch.empty((0, 5), dtype=torch.float64)
-    y_test = torch.cat(y_test_list, dim=0) if y_test_list else torch.empty((0,), dtype=torch.float64)
-
-    return X_train, y_train, X_test, y_test
-
-
-def generate_mf_buckling_data_v2(train_samples_per_source: list[int], test_samples_per_source: list[int], 
-                              seed: int = None, train_noise: list[float] = None, test_noise: list[float] = None, 
-                              noise_type: str = 'gaussian', return_categorical: bool = True) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    Generate multi-fidelity Buckling data in the same way as wing MF:
-      - Draw a single Sobol batch per source (no repeats globally)
-      - Split into test then train per source
-      - Compute per-source test std after the split
-      - Scale both train and test additive noise by that test std
-
-    Returns:
-      - X_train, y_train: Training data with 5 features (4 continuous + 1 source class column in {0,1})
-        Where columns are [L (cont), E, K, I (categorical or values per return_categorical), source]
-      - X_test, y_test: Test data with 5 features (same schema as X_train)
-    """
-    if seed is not None:
-        torch.manual_seed(seed)
-    # else:
-    #     seed = 42
-    #     torch.manual_seed(seed)
-
-    # Defaults and validation for per-source noise (2 sources)
-    if train_noise is None:
-        train_noise = [0.0, 0.0]
-    if test_noise is None:
-        test_noise = [0.0, 0.0]
-    if isinstance(train_noise, (int, float)):
-        train_noise = [float(train_noise)] * 2
-    if isinstance(test_noise, (int, float)):
-        test_noise = [float(test_noise)] * 2
-    if len(train_noise) != 2 or len(test_noise) != 2:
-        raise ValueError("train_noise and test_noise must be length-2 (one scalar per source)")
-
-    sources = ["s0", "s1"]
-
-    # Bounds for the 4 continuous features (L, E, K, I)
-    l_bound = torch.tensor([0.5, 73.1, 0.5, 9.49], dtype=torch.float64)
-    u_bound = torch.tensor([1.5, 200.0, 2.0, 29.5], dtype=torch.float64)
-
-    # Total samples per source and overall
-    total_per_source = [tr + te for tr, te in zip(train_samples_per_source, test_samples_per_source)]
-    total_n = sum(total_per_source)
-
-    # Draw all Sobol samples at once and scale to bounds
-    sobol = torch.quasirandom.SobolEngine(dimension=4, scramble=True, seed=seed)
-    X_raw_all = sobol.draw(total_n).to(dtype=torch.float64)
-    X_raw_all = X_raw_all * (u_bound - l_bound) + l_bound
-
-    # Discrete value sets for categorical variables: E (col 1), K (col 2), I (col 3)
-    E_values = torch.tensor([73.1, 200.0], dtype=torch.float64)
-    K_values = torch.tensor([0.5, 0.7, 1.0, 2.0], dtype=torch.float64)
-    I_values = torch.tensor([9.49, 12.1, 29.5], dtype=torch.float64)
-
-    # Compute clean targets once per source in contiguous blocks
-    y_clean_all = torch.empty(total_n, dtype=torch.float64)
-    X_src_col_all = torch.empty((total_n, 1), dtype=torch.float64)
-    cursor = 0
-    for idx, (src, n) in enumerate(zip(sources, total_per_source)):
-        if n == 0:
-            continue
-        x_block = X_raw_all[cursor:cursor + n]
-
-        # Find nearest categorical indices for E, K, I
-        diffs = (x_block[:, 1:2] - E_values.unsqueeze(0))**2
-        nearest_idx_E = diffs.argmin(dim=1)
-        diffs = (x_block[:, 2:3] - K_values.unsqueeze(0))**2
-        nearest_idx_K = diffs.argmin(dim=1)
-        diffs = (x_block[:, 3:4] - I_values.unsqueeze(0))**2
-        nearest_idx_I = diffs.argmin(dim=1)
-
-        # Build a values-based view for computing y
-        x_vals = x_block.clone()
-        x_vals[:, 1] = E_values[nearest_idx_E]
-        x_vals[:, 2] = K_values[nearest_idx_K]
-        x_vals[:, 3] = I_values[nearest_idx_I]
-
-        # Compute targets using physical values, not indices
-        y_clean_all[cursor:cursor + n] = buckling_mixed_variables(x_vals, source=src)
-
-        # Store either indices or values in the master block according to flag
-        if return_categorical:
-            x_block[:, 1] = nearest_idx_E.to(torch.float64)
-            x_block[:, 2] = nearest_idx_K.to(torch.float64)
-            x_block[:, 3] = nearest_idx_I.to(torch.float64)
-        else:
-            x_block[:, 1] = x_vals[:, 1]
-            x_block[:, 2] = x_vals[:, 2]
-            x_block[:, 3] = x_vals[:, 3]
-        X_src_col_all[cursor:cursor + n, 0] = float(idx)
-        cursor += n
 
     # Split per source into test then train; get test std after split and add noise scaled by it
     X_train_list: list[torch.Tensor] = []

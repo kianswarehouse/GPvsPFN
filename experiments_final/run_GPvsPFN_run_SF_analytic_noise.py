@@ -23,7 +23,6 @@ save_path_rastrigin = f"./{folder}/{date}/rastrigin/"
 save_path_zakharov = f"./{folder}/{date}/zakharov/"
 save_path_griewank = f"./{folder}/{date}/griewank/"
 save_path_dixon_price = f"./{folder}/{date}/dixon_price/"
-save_path_styblinski = f"./{folder}/{date}/styblinski/"
 
 # %% Wing ------------------------------------------------------------------------------------------------
 wing_SF_GPvsPFN(train_size=10, save_path=save_path_wing, noise_train=0.005, noise_test=0.005)
@@ -81,15 +80,15 @@ ackley_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_ackley, noise_tr
 ackley_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
 
 # # %% Ackley V2 ------------------------------------------------------------------------------------------------
-ackley_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_ackley, V2=True, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_ackley, V2=True, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_ackley, V2=True, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_ackley, V2=True, noise_train=0.005, noise_test=0.005)
+ackley_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
+ackley_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
+ackley_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
+ackley_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
 
-ackley_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_ackley, V2=True, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_ackley, V2=True, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_ackley, V2=True, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_ackley, V2=True, noise_train=0.05, noise_test=0.05)
+ackley_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
+ackley_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
+ackley_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
+ackley_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
 
 # %% Rastrigin ------------------------------------------------------------------------------------------------
 rastrigin_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
@@ -211,7 +210,7 @@ griewank_GPvsPFN(train_size=80, dimensions=10, save_path=save_path_griewank, noi
 griewank_GPvsPFN(train_size=10, dimensions=10, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
 griewank_GPvsPFN(train_size=20, dimensions=10, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
 griewank_GPvsPFN(train_size=40, dimensions=10, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
-griewank_GPvsPFN(train_size=80, dimensions=10, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
+griewank_GPvsPFN(train_size=80, dimensions=10, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05) 
 
 # %% Dixon Price -------------------------------------------------------------  
 dixon_price_GPvsPFN(train_size=10, dimensions=10, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005)
@@ -245,7 +244,7 @@ ackley_GPvsPFN(train_size=80, dimensions=20, save_path=save_path_ackley_V2, V2=T
 ackley_GPvsPFN(train_size=10, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
 ackley_GPvsPFN(train_size=20, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
 ackley_GPvsPFN(train_size=40, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=80, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
+ackley_GPvsPFN(train_size=80, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05) 
 
 # %% Rastrigin --------------------------------------------------------------
 rastrigin_GPvsPFN(train_size=10, dimensions=20, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)

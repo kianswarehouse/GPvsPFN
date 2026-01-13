@@ -8,10 +8,8 @@ from A7_zakharov_GPvsPFN import zakharov_GPvsPFN
 from A8_griewank_GPvsPFN import griewank_GPvsPFN
 from A9_dixon_price_GPvsPFN import dixon_price_GPvsPFN
 
-
-
 folder = "results_final"
-date = "1_11"
+date = "1_12"
 
 save_path_wing = f"./{folder}/{date}/wing/"
 save_path_buckling = f"./{folder}/{date}/buckling/"
@@ -23,7 +21,6 @@ save_path_rastrigin = f"./{folder}/{date}/rastrigin/"
 save_path_zakharov = f"./{folder}/{date}/zakharov/"
 save_path_griewank = f"./{folder}/{date}/griewank/"
 save_path_dixon_price = f"./{folder}/{date}/dixon_price/"
-save_path_styblinski = f"./{folder}/{date}/styblinski/"
 
 # %% Wing ------------------------------------------------------------------------------------------------
 wing_SF_GPvsPFN(train_size=10, save_path=save_path_wing)
