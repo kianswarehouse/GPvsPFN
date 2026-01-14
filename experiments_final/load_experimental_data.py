@@ -479,7 +479,7 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
         # Generate continuous variables using Sobol
         sobol_seed = (seed + src_idx * 1000) if seed is not None else None
         sobol = torch.quasirandom.SobolEngine(1, scramble=True, seed=sobol_seed)
-        L_vals = sobol.draw(n_test).squeeze() * 0.4 + 0.6  # L in [0.6, 1.0]
+        L_vals = sobol.draw(n_test).squeeze() + 0.5  # L in [0.5, 1.5]
         
         # Create test block
         x_test_block = torch.zeros((n_test, 4), dtype=torch.float64)
@@ -649,7 +649,7 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
             # Generate Sobol samples for continuous L variable
             sobol_seed = (seed + src_idx * 2000 + fold * 100) if seed is not None else None
             sobol = torch.quasirandom.SobolEngine(1, scramble=True, seed=sobol_seed)
-            L_vals = sobol.draw(fold_target).squeeze() * 0.4 + 0.6
+            L_vals = sobol.draw(fold_target).squeeze() + 0.5
             
             # Create samples - ALWAYS use physical values for buckling computation
             samples_X = []
