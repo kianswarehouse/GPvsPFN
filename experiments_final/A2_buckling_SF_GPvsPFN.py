@@ -29,7 +29,7 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         standardize_X=True,
         standardize_y=True,
         x_standardize_method=defaults.X_STANDARDIZE_METHOD,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
-        standardize_y_log_scale=True,
+        standardize_y_log_scale=False,
         noise_train=0.0,
         noise_test=0.0,
         noise_type='gaussian',
@@ -72,8 +72,7 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         noise_type=noise_type,
         seed=seed,
     )
-    # y_test_all = y_test_all+2
-    # y_train_folds = [y_train_fold+2 for y_train_fold in y_train_folds]
+
     # Drop the 5th (source) column since SF uses only s0
     for i in range(len(X_train_folds)):
         if X_train_folds[i].shape[1] == 5:
@@ -411,8 +410,9 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
 
 if __name__ == "__main__":
+    # buckling_SF_GPvsPFN(num_folds=5, train_size=20, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp')
     buckling_SF_GPvsPFN(num_folds=1, train_size=20, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp')
-    buckling_SF_GPvsPFN(num_folds=1, train_size=20, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp', title = "SF_kernel", MF_kernel=False)
+    # buckling_SF_GPvsPFN(num_folds=1, train_size=20, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp', title = "SF_kernel", MF_kernel=False)
     # buckling_GPvsPFN(num_folds=1, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp', standardize_X_gp=False, standardize_y_gp=True)
     # buckling_GPvsPFN(num_folds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=False, standardize_y_gp=True)
     # buckling_GPvsPFN(num_folds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=True)
