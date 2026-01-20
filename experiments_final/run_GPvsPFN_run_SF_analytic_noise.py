@@ -8,10 +8,8 @@ from A7_zakharov_GPvsPFN import zakharov_GPvsPFN
 from A8_griewank_GPvsPFN import griewank_GPvsPFN
 from A9_dixon_price_GPvsPFN import dixon_price_GPvsPFN
 
-
-
 folder = "results_final"
-date = "1_11"
+date = "pfnv2_5"
 
 save_path_wing = f"./{folder}/{date}/wing/"
 save_path_buckling = f"./{folder}/{date}/buckling/"
@@ -24,393 +22,402 @@ save_path_zakharov = f"./{folder}/{date}/zakharov/"
 save_path_griewank = f"./{folder}/{date}/griewank/"
 save_path_dixon_price = f"./{folder}/{date}/dixon_price/"
 
-# %% Wing ------------------------------------------------------------------------------------------------
-wing_SF_GPvsPFN(train_size=10, save_path=save_path_wing, noise_train=0.005, noise_test=0.005)
-wing_SF_GPvsPFN(train_size=20, save_path=save_path_wing, noise_train=0.005, noise_test=0.005)
-wing_SF_GPvsPFN(train_size=40, save_path=save_path_wing, noise_train=0.005, noise_test=0.005)
-wing_SF_GPvsPFN(train_size=80, save_path=save_path_wing, noise_train=0.005, noise_test=0.005)
+num_test = 5000
+run_models = 'pfn'
+# title = "100_test2"
+title = None
 
-wing_SF_GPvsPFN(train_size=10, save_path=save_path_wing, noise_train=0.05, noise_test=0.05)
-wing_SF_GPvsPFN(train_size=20, save_path=save_path_wing, noise_train=0.05, noise_test=0.05)
-wing_SF_GPvsPFN(train_size=40, save_path=save_path_wing, noise_train=0.05, noise_test=0.05)
-wing_SF_GPvsPFN(train_size=80, save_path=save_path_wing, noise_train=0.05, noise_test=0.05)
+# %% Wing ------------------------------------------------------------------------------------------------
+wing_SF_GPvsPFN(title=title, train_size=10, save_path=save_path_wing, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+wing_SF_GPvsPFN(title=title, train_size=20, save_path=save_path_wing, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+wing_SF_GPvsPFN(title=title, train_size=40, save_path=save_path_wing, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+wing_SF_GPvsPFN(title=title, train_size=80, save_path=save_path_wing, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+
+wing_SF_GPvsPFN(title=title, train_size=10, save_path=save_path_wing, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+wing_SF_GPvsPFN(title=title, train_size=20, save_path=save_path_wing, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+wing_SF_GPvsPFN(title=title, train_size=40, save_path=save_path_wing, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+wing_SF_GPvsPFN(title=title, train_size=80, save_path=save_path_wing, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
 # # %% Buckling ------------------------------------------------------------------------------------------------
-buckling_SF_GPvsPFN(train_size=10, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005)
-buckling_SF_GPvsPFN(train_size=20, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005)
-buckling_SF_GPvsPFN(train_size=40, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005)
-buckling_SF_GPvsPFN(train_size=80, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005)
+buckling_SF_GPvsPFN(title=title, train_size=10, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+buckling_SF_GPvsPFN(title=title, train_size=20, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+buckling_SF_GPvsPFN(title=title, train_size=40, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+buckling_SF_GPvsPFN(title=title, train_size=80, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# buckling_SF_GPvsPFN(title=title, title="2", train_size=80, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# buckling_SF_GPvsPFN(title=title, title="GP_only", train_size=80, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005, run_pfn=False, num_test=num_test, run_models=run_models)
 
-buckling_SF_GPvsPFN(train_size=10, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
-buckling_SF_GPvsPFN(train_size=20, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
-buckling_SF_GPvsPFN(train_size=40, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
-buckling_SF_GPvsPFN(train_size=80, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
+buckling_SF_GPvsPFN(title=title, train_size=10, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+buckling_SF_GPvsPFN(title=title, train_size=20, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+buckling_SF_GPvsPFN(title=title, train_size=40, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+buckling_SF_GPvsPFN(title=title, train_size=80, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# buckling_SF_GPvsPFN(title=title, title="GP_only", train_size=80, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05, run_pfn=False, num_test=num_test, run_models=run_models)
 
-buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=10, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005)
-buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=20, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005)
-buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=40, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005)
-buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=80, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005)
 
-buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=10, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
-buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=20, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
-buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=40, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
-buckling_SF_GPvsPFN(title="SF", MF_kernel=False, train_size=80, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05)
+# buckling_SF_GPvsPFN(title=title, title="SF", MF_kernel=False, train_size=10, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005, run_pfn=False, num_test=num_test, run_models=run_models)
+# buckling_SF_GPvsPFN(title=title, title="SF", MF_kernel=False, train_size=20, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005, run_pfn=False, num_test=num_test, run_models=run_models)
+# buckling_SF_GPvsPFN(title=title, title="SF", MF_kernel=False, train_size=40, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005, run_pfn=False, num_test=num_test, run_models=run_models)
+# buckling_SF_GPvsPFN(title=title, title="SF", MF_kernel=False, train_size=80, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005, run_pfn=False, num_test=num_test, run_models=run_models)
+
+# buckling_SF_GPvsPFN(title=title, title="SF", MF_kernel=False, train_size=10, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05, run_pfn=False, num_test=num_test, run_models=run_models)
+# buckling_SF_GPvsPFN(title=title, title="SF", MF_kernel=False, train_size=20, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05, run_pfn=False, num_test=num_test, run_models=run_models)
+# buckling_SF_GPvsPFN(title=title, title="SF", MF_kernel=False, train_size=40, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05, run_pfn=False, num_test=num_test, run_models=run_models)
+# buckling_SF_GPvsPFN(title=title, title="SF", MF_kernel=False, train_size=80, save_path=save_path_buckling, noise_train=0.05, noise_test=0.05, run_pfn=False, num_test=num_test, run_models=run_models)
 
 # %% Borehole ------------------------------------------------------------------------------------------------
-borehole_SF_GPvsPFN(train_size=10, save_path=save_path_borehole, noise_train=0.005, noise_test=0.005)
-borehole_SF_GPvsPFN(train_size=20, save_path=save_path_borehole, noise_train=0.005, noise_test=0.005)
-borehole_SF_GPvsPFN(train_size=40, save_path=save_path_borehole, noise_train=0.005, noise_test=0.005)
-borehole_SF_GPvsPFN(train_size=80, save_path=save_path_borehole, noise_train=0.005, noise_test=0.005)
+borehole_SF_GPvsPFN(title=title, train_size=10, save_path=save_path_borehole, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+borehole_SF_GPvsPFN(title=title, train_size=20, save_path=save_path_borehole, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+borehole_SF_GPvsPFN(title=title, train_size=40, save_path=save_path_borehole, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+borehole_SF_GPvsPFN(title=title, train_size=80, save_path=save_path_borehole, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-borehole_SF_GPvsPFN(train_size=10, save_path=save_path_borehole, noise_train=0.05, noise_test=0.05)
-borehole_SF_GPvsPFN(train_size=20, save_path=save_path_borehole, noise_train=0.05, noise_test=0.05)
-borehole_SF_GPvsPFN(train_size=40, save_path=save_path_borehole, noise_train=0.05, noise_test=0.05)
-borehole_SF_GPvsPFN(train_size=80, save_path=save_path_borehole, noise_train=0.05, noise_test=0.05)
+borehole_SF_GPvsPFN(title=title, train_size=10, save_path=save_path_borehole, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+borehole_SF_GPvsPFN(title=title, train_size=20, save_path=save_path_borehole, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+borehole_SF_GPvsPFN(title=title, train_size=40, save_path=save_path_borehole, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+borehole_SF_GPvsPFN(title=title, train_size=80, save_path=save_path_borehole, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
 # %% 5Dx Problems ------------------------------------------------------------------------------------------------
-# # %% Ackley ------------------------------------------------------------------------------------------------
-ackley_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005)
+# # # %% Ackley ------------------------------------------------------------------------------------------------
+# ackley_GPvsPFN(title=title, train_size=10, dimensions=5, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=20, dimensions=5, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=40, dimensions=5, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=80, dimensions=5, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-ackley_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
+# ackley_GPvsPFN(title=title, train_size=10, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=20, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=40, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=80, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# # %% Ackley V2 ------------------------------------------------------------------------------------------------
-ackley_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
+# # # # %% Ackley V2 ------------------------------------------------------------------------------------------------
+# # ackley_GPvsPFN(title=title, train_size=10, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# # ackley_GPvsPFN(title=title, train_size=20, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# # ackley_GPvsPFN(title=title, train_size=40, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# # ackley_GPvsPFN(title=title, train_size=80, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-ackley_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
+# # ackley_GPvsPFN(title=title, train_size=10, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# # ackley_GPvsPFN(title=title, train_size=20, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# # ackley_GPvsPFN(title=title, train_size=40, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# # ackley_GPvsPFN(title=title, train_size=80, dimensions=5, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Rastrigin ------------------------------------------------------------------------------------------------
-rastrigin_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
-rastrigin_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
-rastrigin_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
-rastrigin_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
+# # %% Rastrigin ------------------------------------------------------------------------------------------------
+# rastrigin_GPvsPFN(title=title, train_size=10, dimensions=5, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=20, dimensions=5, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=40, dimensions=5, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=80, dimensions=5, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-rastrigin_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
-rastrigin_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
-rastrigin_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
-rastrigin_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
+# rastrigin_GPvsPFN(title=title, train_size=10, dimensions=5, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=20, dimensions=5, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=40, dimensions=5, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=80, dimensions=5, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Rosenbrock ------------------------------------------------------------------------------------------------
-rosenbrock_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
-rosenbrock_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
-rosenbrock_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
-rosenbrock_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
+# # %% Rosenbrock ------------------------------------------------------------------------------------------------
+# rosenbrock_GPvsPFN(title=title, train_size=10, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=20, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=40, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=80, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-rosenbrock_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
-rosenbrock_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
-rosenbrock_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
-rosenbrock_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
+# rosenbrock_GPvsPFN(title=title, train_size=10, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=20, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=40, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=80, dimensions=5, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# # # %% Zakharov ------------------------------------------------------------------------------------------------
-zakharov_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005)
-zakharov_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005)
-zakharov_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005)
-zakharov_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005)
+# # # # %% Zakharov ------------------------------------------------------------------------------------------------
+# zakharov_GPvsPFN(title=title, train_size=10, dimensions=5, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=20, dimensions=5, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=40, dimensions=5, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=80, dimensions=5, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-zakharov_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05)
-zakharov_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05)
-zakharov_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05)
-zakharov_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05)
+# zakharov_GPvsPFN(title=title, train_size=10, dimensions=5, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=20, dimensions=5, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=40, dimensions=5, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=80, dimensions=5, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Griewank ------------------------------------------------------------------------------------------------
-griewank_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005)
-griewank_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005)
-griewank_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005)
-griewank_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005)
+# # %% Griewank ------------------------------------------------------------------------------------------------
+# griewank_GPvsPFN(title=title, train_size=10, dimensions=5, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=20, dimensions=5, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=40, dimensions=5, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=80, dimensions=5, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-griewank_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
-griewank_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
-griewank_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
-griewank_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
+# griewank_GPvsPFN(title=title, train_size=10, dimensions=5, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=20, dimensions=5, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=40, dimensions=5, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=80, dimensions=5, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Dixon Price ------------------------------------------------------------------------------------------------
-dixon_price_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005)
-dixon_price_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005)
-dixon_price_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005)
-dixon_price_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005)
+# # %% Dixon Price ------------------------------------------------------------------------------------------------
+# dixon_price_GPvsPFN(title=title, train_size=10, dimensions=5, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=20, dimensions=5, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=40, dimensions=5, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=80, dimensions=5, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-dixon_price_GPvsPFN(train_size=10, dimensions=5, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05)
-dixon_price_GPvsPFN(train_size=20, dimensions=5, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05)
-dixon_price_GPvsPFN(train_size=40, dimensions=5, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05)
-dixon_price_GPvsPFN(train_size=80, dimensions=5, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05)
+# dixon_price_GPvsPFN(title=title, train_size=10, dimensions=5, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=20, dimensions=5, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=40, dimensions=5, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=80, dimensions=5, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% 10 Dx Problems ------------------------------------------------------------------------------------------------
-# %% Ackley -------------------------------------------------------------
-ackley_GPvsPFN(train_size=10, dimensions=10, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=20, dimensions=10, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=40, dimensions=10, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=80, dimensions=10, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005)
+# # %% 10 Dx Problems ------------------------------------------------------------------------------------------------
+# # %% Ackley -------------------------------------------------------------
+# ackley_GPvsPFN(title=title, train_size=10, dimensions=10, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=20, dimensions=10, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=40, dimensions=10, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=80, dimensions=10, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-ackley_GPvsPFN(train_size=10, dimensions=10, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=20, dimensions=10, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=40, dimensions=10, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=80, dimensions=10, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
+# ackley_GPvsPFN(title=title, train_size=10, dimensions=10, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=20, dimensions=10, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=40, dimensions=10, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=80, dimensions=10, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% AckleyV2 -------------------------------------------------------------
-ackley_GPvsPFN(train_size=10, dimensions=10, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=20, dimensions=10, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=40, dimensions=10, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=80, dimensions=10, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
+# # # %% AckleyV2 -------------------------------------------------------------
+# # ackley_GPvsPFN(title=title, train_size=10, dimensions=10, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# # ackley_GPvsPFN(title=title, train_size=20, dimensions=10, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# # ackley_GPvsPFN(title=title, train_size=40, dimensions=10, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# # ackley_GPvsPFN(title=title, train_size=80, dimensions=10, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-ackley_GPvsPFN(train_size=10, dimensions=10, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=20, dimensions=10, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=40, dimensions=10, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=80, dimensions=10, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
+# # ackley_GPvsPFN(title=title, train_size=10, dimensions=10, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# # ackley_GPvsPFN(title=title, train_size=20, dimensions=10, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# # ackley_GPvsPFN(title=title, train_size=40, dimensions=10, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# # ackley_GPvsPFN(title=title, train_size=80, dimensions=10, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Rastrigin --------------------------------------------------------------
-rastrigin_GPvsPFN(train_size=10, dimensions=10, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
-rastrigin_GPvsPFN(train_size=20, dimensions=10, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
-rastrigin_GPvsPFN(train_size=40, dimensions=10, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
-rastrigin_GPvsPFN(train_size=80, dimensions=10, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
+# # %% Rastrigin --------------------------------------------------------------
+# rastrigin_GPvsPFN(title=title, train_size=10, dimensions=10, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=20, dimensions=10, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=40, dimensions=10, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=80, dimensions=10, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-rastrigin_GPvsPFN(train_size=10, dimensions=10, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
-rastrigin_GPvsPFN(train_size=20, dimensions=10, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
-rastrigin_GPvsPFN(train_size=40, dimensions=10, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
-rastrigin_GPvsPFN(train_size=80, dimensions=10, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
+# rastrigin_GPvsPFN(title=title, train_size=10, dimensions=10, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=20, dimensions=10, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=40, dimensions=10, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=80, dimensions=10, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Rosenbrock -------------------------------------------------------------
-rosenbrock_GPvsPFN(train_size=10, dimensions=10, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
-rosenbrock_GPvsPFN(train_size=20, dimensions=10, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
-rosenbrock_GPvsPFN(train_size=40, dimensions=10, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
-rosenbrock_GPvsPFN(train_size=80, dimensions=10, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
+# # %% Rosenbrock -------------------------------------------------------------
+# rosenbrock_GPvsPFN(title=title, train_size=10, dimensions=10, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=20, dimensions=10, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=40, dimensions=10, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=80, dimensions=10, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-rosenbrock_GPvsPFN(train_size=10, dimensions=10, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
-rosenbrock_GPvsPFN(train_size=20, dimensions=10, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
-rosenbrock_GPvsPFN(train_size=40, dimensions=10, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
-rosenbrock_GPvsPFN(train_size=80, dimensions=10, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
+# rosenbrock_GPvsPFN(title=title, train_size=10, dimensions=10, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=20, dimensions=10, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=40, dimensions=10, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=80, dimensions=10, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Zakharov -------------------------------------------------------------
-zakharov_GPvsPFN(train_size=10, dimensions=10, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005)
-zakharov_GPvsPFN(train_size=20, dimensions=10, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005)
-zakharov_GPvsPFN(train_size=40, dimensions=10, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005)
-zakharov_GPvsPFN(train_size=80, dimensions=10, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005)
+# # %% Zakharov -------------------------------------------------------------
+# zakharov_GPvsPFN(title=title, train_size=10, dimensions=10, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=20, dimensions=10, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=40, dimensions=10, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=80, dimensions=10, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-zakharov_GPvsPFN(train_size=10, dimensions=10, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05)
-zakharov_GPvsPFN(train_size=20, dimensions=10, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05)
-zakharov_GPvsPFN(train_size=40, dimensions=10, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05)
-zakharov_GPvsPFN(train_size=80, dimensions=10, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05)
+# zakharov_GPvsPFN(title=title, train_size=10, dimensions=10, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=20, dimensions=10, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=40, dimensions=10, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=80, dimensions=10, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Griewank -------------------------------------------------------------
-griewank_GPvsPFN(train_size=10, dimensions=10, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005)
-griewank_GPvsPFN(train_size=20, dimensions=10, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005)
-griewank_GPvsPFN(train_size=40, dimensions=10, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005)
-griewank_GPvsPFN(train_size=80, dimensions=10, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005)
+# # %% Griewank -------------------------------------------------------------
+# griewank_GPvsPFN(title=title, train_size=10, dimensions=10, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=20, dimensions=10, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=40, dimensions=10, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=80, dimensions=10, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-griewank_GPvsPFN(train_size=10, dimensions=10, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
-griewank_GPvsPFN(train_size=20, dimensions=10, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
-griewank_GPvsPFN(train_size=40, dimensions=10, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
-griewank_GPvsPFN(train_size=80, dimensions=10, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05) 
+# griewank_GPvsPFN(title=title, train_size=10, dimensions=10, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=20, dimensions=10, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=40, dimensions=10, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=80, dimensions=10, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models) # Where to restart 1_11 results
 
-# %% Dixon Price -------------------------------------------------------------  
-dixon_price_GPvsPFN(train_size=10, dimensions=10, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005)
-dixon_price_GPvsPFN(train_size=20, dimensions=10, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005)
-dixon_price_GPvsPFN(train_size=40, dimensions=10, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005)
-dixon_price_GPvsPFN(train_size=80, dimensions=10, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005)
+# # %% Dixon Price -------------------------------------------------------------  
+# dixon_price_GPvsPFN(title=title, train_size=10, dimensions=10, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=20, dimensions=10, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=40, dimensions=10, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=80, dimensions=10, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-dixon_price_GPvsPFN(train_size=10, dimensions=10, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05)
-dixon_price_GPvsPFN(train_size=20, dimensions=10, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05)
-dixon_price_GPvsPFN(train_size=40, dimensions=10, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05)
-dixon_price_GPvsPFN(train_size=80, dimensions=10, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05)
+# dixon_price_GPvsPFN(title=title, train_size=10, dimensions=10, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=20, dimensions=10, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=40, dimensions=10, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=80, dimensions=10, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
 # %% 20 Dx Problems ------------------------------------------------------------------------------------------------
-# %% Ackley -------------------------------------------------------------
-ackley_GPvsPFN(train_size=10, dimensions=20, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=20, dimensions=20, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=40, dimensions=20, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=80, dimensions=20, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005)
+# # %% Ackley -------------------------------------------------------------
+# ackley_GPvsPFN(title=title, train_size=10, dimensions=20, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=20, dimensions=20, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=40, dimensions=20, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=80, dimensions=20, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-ackley_GPvsPFN(train_size=10, dimensions=20, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=20, dimensions=20, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=40, dimensions=20, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=80, dimensions=20, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
+# ackley_GPvsPFN(title=title, train_size=10, dimensions=20, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=20, dimensions=20, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=40, dimensions=20, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=80, dimensions=20, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% AckleyV2 -------------------------------------------------------------
-ackley_GPvsPFN(train_size=10, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=20, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=40, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=80, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
+# # %% AckleyV2 -------------------------------------------------------------
+# ackley_GPvsPFN(title=title, train_size=10, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=20, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=40, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=80, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-ackley_GPvsPFN(train_size=10, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=20, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=40, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=80, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05) 
+# ackley_GPvsPFN(title=title, train_size=10, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=20, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=40, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=80, dimensions=20, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models) #here
 
-# %% Rastrigin --------------------------------------------------------------
-rastrigin_GPvsPFN(train_size=10, dimensions=20, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
-rastrigin_GPvsPFN(train_size=20, dimensions=20, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
-rastrigin_GPvsPFN(train_size=40, dimensions=20, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
-rastrigin_GPvsPFN(train_size=80, dimensions=20, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
+# # %% Rastrigin --------------------------------------------------------------
+# rastrigin_GPvsPFN(title=title, train_size=10, dimensions=20, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=20, dimensions=20, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=40, dimensions=20, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=80, dimensions=20, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-rastrigin_GPvsPFN(train_size=10, dimensions=20, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
-rastrigin_GPvsPFN(train_size=20, dimensions=20, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
-rastrigin_GPvsPFN(train_size=40, dimensions=20, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
-rastrigin_GPvsPFN(train_size=80, dimensions=20, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
+# rastrigin_GPvsPFN(title=title, train_size=10, dimensions=20, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=20, dimensions=20, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=40, dimensions=20, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=80, dimensions=20, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Rosenbrock -------------------------------------------------------------
-rosenbrock_GPvsPFN(train_size=10, dimensions=20, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
-rosenbrock_GPvsPFN(train_size=20, dimensions=20, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
-rosenbrock_GPvsPFN(train_size=40, dimensions=20, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
-rosenbrock_GPvsPFN(train_size=80, dimensions=20, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
+# # %% Rosenbrock -------------------------------------------------------------
+# rosenbrock_GPvsPFN(title=title, train_size=10, dimensions=20, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=20, dimensions=20, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=40, dimensions=20, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=80, dimensions=20, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-rosenbrock_GPvsPFN(train_size=10, dimensions=20, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
-rosenbrock_GPvsPFN(train_size=20, dimensions=20, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
-rosenbrock_GPvsPFN(train_size=40, dimensions=20, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
-rosenbrock_GPvsPFN(train_size=80, dimensions=20, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
+# rosenbrock_GPvsPFN(title=title, train_size=10, dimensions=20, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=20, dimensions=20, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=40, dimensions=20, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=80, dimensions=20, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Zakharov -------------------------------------------------------------
-zakharov_GPvsPFN(train_size=10, dimensions=20, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005)
-zakharov_GPvsPFN(train_size=20, dimensions=20, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005)
-zakharov_GPvsPFN(train_size=40, dimensions=20, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005)
-zakharov_GPvsPFN(train_size=80, dimensions=20, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005)
+# # %% Zakharov -------------------------------------------------------------
+# zakharov_GPvsPFN(title=title, train_size=10, dimensions=20, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=20, dimensions=20, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=40, dimensions=20, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=80, dimensions=20, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-zakharov_GPvsPFN(train_size=10, dimensions=20, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05)
-zakharov_GPvsPFN(train_size=20, dimensions=20, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05)
-zakharov_GPvsPFN(train_size=40, dimensions=20, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05)
-zakharov_GPvsPFN(train_size=80, dimensions=20, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05)
+# zakharov_GPvsPFN(title=title, train_size=10, dimensions=20, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=20, dimensions=20, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=40, dimensions=20, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=80, dimensions=20, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Griewank -------------------------------------------------------------
-griewank_GPvsPFN(train_size=10, dimensions=20, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005)
-griewank_GPvsPFN(train_size=20, dimensions=20, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005)
-griewank_GPvsPFN(train_size=40, dimensions=20, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005)
-griewank_GPvsPFN(train_size=80, dimensions=20, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005)
+# # %% Griewank -------------------------------------------------------------
+# griewank_GPvsPFN(title=title, train_size=10, dimensions=20, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=20, dimensions=20, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=40, dimensions=20, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=80, dimensions=20, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-griewank_GPvsPFN(train_size=10, dimensions=20, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
-griewank_GPvsPFN(train_size=20, dimensions=20, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
-griewank_GPvsPFN(train_size=40, dimensions=20, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
-griewank_GPvsPFN(train_size=80, dimensions=20, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
+# griewank_GPvsPFN(title=title, train_size=10, dimensions=20, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=20, dimensions=20, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=40, dimensions=20, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=80, dimensions=20, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Dixon Price -------------------------------------------------------------  
-dixon_price_GPvsPFN(train_size=10, dimensions=20, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005)
-dixon_price_GPvsPFN(train_size=20, dimensions=20, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005)
-dixon_price_GPvsPFN(train_size=40, dimensions=20, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005)
-dixon_price_GPvsPFN(train_size=80, dimensions=20, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005)
+# # %% Dixon Price -------------------------------------------------------------  
+# dixon_price_GPvsPFN(title=title, train_size=10, dimensions=20, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=20, dimensions=20, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=40, dimensions=20, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=80, dimensions=20, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-dixon_price_GPvsPFN(train_size=10, dimensions=20, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05)
-dixon_price_GPvsPFN(train_size=20, dimensions=20, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05)
-dixon_price_GPvsPFN(train_size=40, dimensions=20, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05)
-dixon_price_GPvsPFN(train_size=80, dimensions=20, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05)
+# dixon_price_GPvsPFN(title=title, train_size=10, dimensions=20, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=20, dimensions=20, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=40, dimensions=20, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=80, dimensions=20, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% 40 Dx Problems ------------------------------------------------------------------------------------------------
-# %% Ackley -------------------------------------------------------------
-ackley_GPvsPFN(train_size=10, dimensions=40, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=20, dimensions=40, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=40, dimensions=40, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005)
+# # %% 40 Dx Problems ------------------------------------------------------------------------------------------------
+# # %% Ackley -------------------------------------------------------------
+# ackley_GPvsPFN(title=title, train_size=10, dimensions=40, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=20, dimensions=40, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=40, dimensions=40, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-ackley_GPvsPFN(train_size=10, dimensions=40, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=20, dimensions=40, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=40, dimensions=40, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
+# ackley_GPvsPFN(title=title, train_size=10, dimensions=40, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=20, dimensions=40, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=40, dimensions=40, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% AckleyV2 -------------------------------------------------------------
-ackley_GPvsPFN(train_size=10, dimensions=40, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=20, dimensions=40, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=40, dimensions=40, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
+# # %% AckleyV2 -------------------------------------------------------------
+# # ackley_GPvsPFN(title=title, train_size=10, dimensions=40, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# # ackley_GPvsPFN(title=title, train_size=20, dimensions=40, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# # ackley_GPvsPFN(title=title, train_size=40, dimensions=40, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-ackley_GPvsPFN(train_size=10, dimensions=40, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=20, dimensions=40, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=40, dimensions=40, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
+# # ackley_GPvsPFN(title=title, train_size=10, dimensions=40, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# # ackley_GPvsPFN(title=title, train_size=20, dimensions=40, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# # ackley_GPvsPFN(title=title, train_size=40, dimensions=40, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Rastrigin --------------------------------------------------------------
-rastrigin_GPvsPFN(train_size=10, dimensions=40, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
-rastrigin_GPvsPFN(train_size=20, dimensions=40, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
-rastrigin_GPvsPFN(train_size=40, dimensions=40, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
+# # %% Rastrigin --------------------------------------------------------------
+# rastrigin_GPvsPFN(title=title, train_size=10, dimensions=40, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=20, dimensions=40, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=40, dimensions=40, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-rastrigin_GPvsPFN(train_size=10, dimensions=40, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
-rastrigin_GPvsPFN(train_size=20, dimensions=40, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
-rastrigin_GPvsPFN(train_size=40, dimensions=40, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
+# rastrigin_GPvsPFN(title=title, train_size=10, dimensions=40, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=20, dimensions=40, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=40, dimensions=40, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Rosenbrock -------------------------------------------------------------
-rosenbrock_GPvsPFN(train_size=10, dimensions=40, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
-rosenbrock_GPvsPFN(train_size=20, dimensions=40, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
-rosenbrock_GPvsPFN(train_size=40, dimensions=40, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
+# # %% Rosenbrock -------------------------------------------------------------
+# rosenbrock_GPvsPFN(title=title, train_size=10, dimensions=40, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=20, dimensions=40, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=40, dimensions=40, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-rosenbrock_GPvsPFN(train_size=10, dimensions=40, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
-rosenbrock_GPvsPFN(train_size=20, dimensions=40, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
-rosenbrock_GPvsPFN(train_size=40, dimensions=40, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
+# rosenbrock_GPvsPFN(title=title, train_size=10, dimensions=40, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=20, dimensions=40, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=40, dimensions=40, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Zakharov -------------------------------------------------------------
-zakharov_GPvsPFN(train_size=10, dimensions=40, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005)
-zakharov_GPvsPFN(train_size=20, dimensions=40, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005)
-zakharov_GPvsPFN(train_size=40, dimensions=40, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005)
+# # %% Zakharov -------------------------------------------------------------
+# zakharov_GPvsPFN(title=title, train_size=10, dimensions=40, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=20, dimensions=40, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=40, dimensions=40, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-zakharov_GPvsPFN(train_size=10, dimensions=40, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05)
-zakharov_GPvsPFN(train_size=20, dimensions=40, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05)
-zakharov_GPvsPFN(train_size=40, dimensions=40, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05)
+# zakharov_GPvsPFN(title=title, train_size=10, dimensions=40, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=20, dimensions=40, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=40, dimensions=40, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Griewank -------------------------------------------------------------
-griewank_GPvsPFN(train_size=10, dimensions=40, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005)
-griewank_GPvsPFN(train_size=20, dimensions=40, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005)
-griewank_GPvsPFN(train_size=40, dimensions=40, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005)
+# # %% Griewank -------------------------------------------------------------
+# griewank_GPvsPFN(title=title, train_size=10, dimensions=40, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=20, dimensions=40, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=40, dimensions=40, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-griewank_GPvsPFN(train_size=10, dimensions=40, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
-griewank_GPvsPFN(train_size=20, dimensions=40, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
-griewank_GPvsPFN(train_size=40, dimensions=40, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
+# griewank_GPvsPFN(title=title, train_size=10, dimensions=40, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=20, dimensions=40, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=40, dimensions=40, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Dixon Price -------------------------------------------------------------  
-dixon_price_GPvsPFN(train_size=10, dimensions=40, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005)
-dixon_price_GPvsPFN(train_size=20, dimensions=40, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005)
-dixon_price_GPvsPFN(train_size=40, dimensions=40, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005)
+# # %% Dixon Price -------------------------------------------------------------  
+# dixon_price_GPvsPFN(title=title, train_size=10, dimensions=40, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=20, dimensions=40, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=40, dimensions=40, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-dixon_price_GPvsPFN(train_size=10, dimensions=40, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05)
-dixon_price_GPvsPFN(train_size=20, dimensions=40, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05)
-dixon_price_GPvsPFN(train_size=40, dimensions=40, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05)
+# dixon_price_GPvsPFN(title=title, train_size=10, dimensions=40, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=20, dimensions=40, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=40, dimensions=40, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% 80 Dx Problems ------------------------------------------------------------------------------------------------
-# %% Ackley -------------------------------------------------------------
-ackley_GPvsPFN(train_size=10, dimensions=80, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=20, dimensions=80, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005)
+# # %% 80 Dx Problems ------------------------------------------------------------------------------------------------
+# # %% Ackley -------------------------------------------------------------
+# ackley_GPvsPFN(title=title, train_size=10, dimensions=80, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=20, dimensions=80, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-ackley_GPvsPFN(train_size=10, dimensions=80, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=20, dimensions=80, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05)
+# ackley_GPvsPFN(title=title, train_size=10, dimensions=80, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# ackley_GPvsPFN(title=title, train_size=20, dimensions=80, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% AckleyV2 -------------------------------------------------------------
-ackley_GPvsPFN(train_size=10, dimensions=80, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
-ackley_GPvsPFN(train_size=20, dimensions=80, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005)
+# # %% AckleyV2 -------------------------------------------------------------
+# # ackley_GPvsPFN(title=title, train_size=10, dimensions=80, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# # ackley_GPvsPFN(title=title, train_size=20, dimensions=80, save_path=save_path_ackley_V2, V2=True, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-ackley_GPvsPFN(train_size=10, dimensions=80, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
-ackley_GPvsPFN(train_size=20, dimensions=80, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05)
+# # ackley_GPvsPFN(title=title, train_size=10, dimensions=80, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# # ackley_GPvsPFN(title=title, train_size=20, dimensions=80, save_path=save_path_ackley_V2, V2=True, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Rastrigin --------------------------------------------------------------
-rastrigin_GPvsPFN(train_size=10, dimensions=80, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
-rastrigin_GPvsPFN(train_size=20, dimensions=80, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005)
+# # %% Rastrigin --------------------------------------------------------------
+# rastrigin_GPvsPFN(title=title, train_size=10, dimensions=80, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=20, dimensions=80, save_path=save_path_rastrigin, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-rastrigin_GPvsPFN(train_size=10, dimensions=80, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
-rastrigin_GPvsPFN(train_size=20, dimensions=80, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05)
+# rastrigin_GPvsPFN(title=title, train_size=10, dimensions=80, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rastrigin_GPvsPFN(title=title, train_size=20, dimensions=80, save_path=save_path_rastrigin, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Rosenbrock -------------------------------------------------------------
-rosenbrock_GPvsPFN(train_size=10, dimensions=80, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
-rosenbrock_GPvsPFN(train_size=20, dimensions=80, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005)
+# # %% Rosenbrock -------------------------------------------------------------
+# rosenbrock_GPvsPFN(title=title, train_size=10, dimensions=80, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=20, dimensions=80, save_path=save_path_rosenbrock, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-rosenbrock_GPvsPFN(train_size=10, dimensions=80, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
-rosenbrock_GPvsPFN(train_size=20, dimensions=80, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05)
+# rosenbrock_GPvsPFN(title=title, train_size=10, dimensions=80, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# rosenbrock_GPvsPFN(title=title, train_size=20, dimensions=80, save_path=save_path_rosenbrock, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Zakharov -------------------------------------------------------------
-zakharov_GPvsPFN(train_size=10, dimensions=80, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005)
-zakharov_GPvsPFN(train_size=20, dimensions=80, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005)
+# # %% Zakharov -------------------------------------------------------------
+# zakharov_GPvsPFN(title=title, train_size=10, dimensions=80, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=20, dimensions=80, save_path=save_path_zakharov, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-zakharov_GPvsPFN(train_size=10, dimensions=80, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05)
-zakharov_GPvsPFN(train_size=20, dimensions=80, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05)
+# zakharov_GPvsPFN(title=title, train_size=10, dimensions=80, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# zakharov_GPvsPFN(title=title, train_size=20, dimensions=80, save_path=save_path_zakharov, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Griewank -------------------------------------------------------------
-griewank_GPvsPFN(train_size=10, dimensions=80, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005)
-griewank_GPvsPFN(train_size=20, dimensions=80, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005)
+# # %% Griewank -------------------------------------------------------------
+# griewank_GPvsPFN(title=title, train_size=10, dimensions=80, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=20, dimensions=80, save_path=save_path_griewank, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-griewank_GPvsPFN(train_size=10, dimensions=80, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
-griewank_GPvsPFN(train_size=20, dimensions=80, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05)
+# griewank_GPvsPFN(title=title, train_size=10, dimensions=80, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# griewank_GPvsPFN(title=title, train_size=20, dimensions=80, save_path=save_path_griewank, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-# %% Dixon Price -------------------------------------------------------------  
-dixon_price_GPvsPFN(train_size=10, dimensions=80, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005)
-dixon_price_GPvsPFN(train_size=20, dimensions=80, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005)
+# # %% Dixon Price -------------------------------------------------------------  
+# dixon_price_GPvsPFN(title=title, train_size=10, dimensions=80, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=20, dimensions=80, save_path=save_path_dixon_price, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-dixon_price_GPvsPFN(train_size=10, dimensions=80, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05)
-dixon_price_GPvsPFN(train_size=20, dimensions=80, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05)
+# dixon_price_GPvsPFN(title=title, train_size=10, dimensions=80, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# dixon_price_GPvsPFN(title=title, train_size=20, dimensions=80, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
