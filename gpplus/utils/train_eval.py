@@ -700,10 +700,10 @@ def train_eval_PFN(
     regressor=None,
     y_train_mean=None,
     y_train_std=None,
-    standardize_y_log_scale: bool = False,
-    log_scale_C: float = None,  # C used in log(y + C) transformation. If None, will use LogScaler's C from fit.
-    y_train_min=None,  # Unused, kept for backward compatibility
+    standardize_y_log_scale:bool=False,
+    log_scale_C: float=None,  # C used in log(y + C) transformation. If None, will use LogScaler's C from fit.
     source_cols=None,
+    # use_iqr_std:bool=False,  # If True, use IQR approximation for std; if False, try mean_of_square method
 ):
     """
     Train/evaluate TabPFN on provided split and return metrics, preds, std.
@@ -721,6 +721,8 @@ def train_eval_PFN(
                     - If int: single source column (data not encoded)
                     - If list with 1 element: converted to int (data not encoded)
                     - If list with multiple elements: multiple source columns (one-hot encoded data)
+        use_iqr_std: If True (default), use IQR/1.35 approximation for uncertainty.
+                    If False, attempt to use mean_of_square method from full output.
 
     Returns:
         metrics: dict of computed metrics and per-source metrics if source_cols is provided
@@ -730,9 +732,9 @@ def train_eval_PFN(
     import numpy as np
     import torch
 
-    if regressor is None:
-        from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
-        regressor = VanillaDirectTabPFNRegressor(device=amp_device)
+    # if regressor is None:
+    #     from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
+    #     regressor = VanillaDirectTabPFNRegressor(device=amp_device)
 
     # Check if regressor is standard TabPFNRegressor (sklearn-like API) or wrapper (custom API)
     try:
@@ -755,39 +757,92 @@ def train_eval_PFN(
         if y_test_np.ndim > 1:
             y_test_np = y_test_np.ravel()
         
+        # Measure fitting time (training time)
+        t_fit_start = time.time()
         # Fit if not already fitted
         if not hasattr(regressor, 'feature_names_in_'):
             regressor.fit(X_train_np, y_train_np)
+        training_time = time.time() - t_fit_start
         
-        t_start = time.time()
-        # Predict using "main" to get both mean and variance in a dict
-        predictions = regressor.predict(X_test_np, output_type="main")
+        # Measure prediction time
+        t_pred_start = time.time()
+        y_var_tabpfn = None
+        lower_95_test = None
+        upper_95_test = None
         
-        # Extract mean and variance from the dict
-        y_pred_tabpfn = predictions.get("mean", predictions.get("median"))
-        y_var_tabpfn = predictions.get("variance")
+        # Choose variance estimation method based on use_iqr_std
+        # if use_iqr_std:
+        #     # Use "main" output for IQR approximation
+        #     # Also request both:
+        #     #   - IQR quantiles (25%, 75%) for std via IQR/1.35
+        #     #   - 95% central interval bounds (2.5%, 97.5%)
+        #     # in the same call (no extra model forward pass).
+        #     predictions = regressor.predict(
+        #         X_test_np,
+        #         output_type="main",
+        #         quantiles=[0.025, 0.25, 0.75, 0.975],
+        #     )
+        #     t_predict_call = time.time() - t_pred_start
+        #     print(f"[TIMER] predict(output_type='main') took: {t_predict_call:.4f}s")
+            
+        #     y_pred_tabpfn = predictions.get("mean", predictions.get("median"))
+            
+        #     # IQR approximation method (default, better calibration in practice)
+        #     t_variance_start = time.time()
+        #     if "quantiles" in predictions:
+        #         quantiles = predictions["quantiles"]
+        #         if isinstance(quantiles, list) and len(quantiles) >= 4:
+        #             # Order we requested: [0.025, 0.25, 0.75, 0.975]
+        #             q025, q25, q75, q975 = quantiles
+        #             # Use interquartile range as proxy for std: IQR/1.35 ≈ std for normal dist
+        #             iqr = q75 - q25
+        #             y_var_tabpfn = (iqr / 1.35) ** 2
+        #     t_variance_iqr = time.time() - t_variance_start
+        #     print(f"[TIMER] IQR variance calculation took: {t_variance_iqr:.4f}s")
+        #     # Extract 95% bounds (2.5% and 97.5%) from the same call
+        #     if "quantiles" in predictions:
+        #         quantiles = predictions["quantiles"]
+        #         if isinstance(quantiles, list) and len(quantiles) >= 4:
+        #             q025, _, _, q975 = quantiles
+        #             lower_95_test, upper_95_test = q025, q975
+        # else:
+        # Use "full" output for exact variance from logits.
+        # Also request 95% central interval bounds (2.5%, 97.5%) in the same call
+        # (no extra model forward pass).
+        full_predictions = regressor.predict(
+            X_test_np,
+            output_type="full",
+            quantiles=[0.025, 0.975],
+        )
+        t_predict_call = time.time() - t_pred_start
+        print(f"[TIMER] predict(output_type='full') took: {t_predict_call:.4f}s")
         
-        # If variance not available, try to get it separately or compute from quantiles
-        if y_var_tabpfn is None:
-            # Try to get variance directly (might not be supported in all versions)
-            try:
-                y_var_tabpfn = regressor.predict(X_test_np, output_type="variance")
-            except (ValueError, KeyError):
-                # Fallback: estimate variance from quantiles if available
-                if "quantiles" in predictions:
-                    quantiles = predictions["quantiles"]
-                    if isinstance(quantiles, list) and len(quantiles) >= 2:
-                        # Use interquartile range as proxy for std: IQR/1.35 ≈ std for normal dist
-                        q75_idx = len(quantiles) - 1
-                        q25_idx = 0
-                        iqr = quantiles[q75_idx] - quantiles[q25_idx]
-                        y_var_tabpfn = (iqr / 1.35) ** 2
-                    else:
-                        # Last resort: use a small default variance
-                        y_var_tabpfn = np.ones_like(y_pred_tabpfn) * 0.01
-                else:
-                    y_var_tabpfn = np.ones_like(y_pred_tabpfn) * 0.01
-        
+        if "logits" in full_predictions and "criterion" in full_predictions:
+            logits = full_predictions["logits"]
+            criterion = full_predictions["criterion"]
+            # Use criterion's variance method directly
+            if hasattr(criterion, 'variance'):
+                t_var_calc_start = time.time()
+                if isinstance(logits, np.ndarray):
+                    logits = torch.tensor(logits)
+                variance = criterion.variance(logits)
+                y_var_tabpfn = variance.detach().cpu().numpy()
+                t_var_calc = time.time() - t_var_calc_start
+                print(f"[TIMER] criterion.variance(logits) calculation took: {t_var_calc:.4f}s")
+                # Use mean from full_predictions (already computed and denormalized)
+                y_pred_tabpfn = full_predictions.get("mean")
+                
+                # Store logits and bar_dist for EXACT CRPS
+                tabpfn_logits_for_crps = logits.detach().cpu()
+                tabpfn_bar_dist_for_crps = criterion
+                print(f"[CRPS] Storing logits shape: {logits.shape} for CRPS")
+        # Extract 95% bounds (2.5% and 97.5%) from the same call
+        if "quantiles" in full_predictions:
+            q_95 = full_predictions["quantiles"]
+            if isinstance(q_95, list) and len(q_95) >= 2:
+                # Order we requested: [0.025, 0.975]
+                lower_95_test, upper_95_test = q_95[0], q_95[1]
+                        
         # Convert to numpy if needed
         if isinstance(y_pred_tabpfn, torch.Tensor):
             y_pred_tabpfn = y_pred_tabpfn.detach().cpu().numpy()
@@ -799,32 +854,66 @@ def train_eval_PFN(
             y_var_tabpfn = y_var_tabpfn.ravel()
         elif not isinstance(y_var_tabpfn, np.ndarray):
             y_var_tabpfn = np.array(y_var_tabpfn)
+        prediction_time = time.time() - t_pred_start
         
         y_pred_test = y_pred_tabpfn
         output_std_test = np.sqrt(y_var_tabpfn)
+        # Set logits for exact CRPS if available
+        if 'tabpfn_logits_for_crps' in locals():
+            tabpfn_logits_test = tabpfn_logits_for_crps
+            tabpfn_bar_dist_test = tabpfn_bar_dist_for_crps
     else:
         # Wrapper API (VanillaDirectTabPFNRegressor) - use custom forward/predict_mean/predict_variance API
+        # Measure data preparation time (counted as training time)
+        t_fit_start = time.time()
         X_all = np.concatenate([X_train, X_test], axis=0)
         Y_all = np.concatenate([y_train, np.zeros_like(y_test)], axis=0)
 
         X_all = torch.tensor(X_all, dtype=torch.float32).unsqueeze(1)
         Y_all = torch.tensor(Y_all, dtype=torch.float32).reshape(-1, 1, 1)
+        training_time = time.time() - t_fit_start
 
+        # Measure inference time (prediction time)
         single_eval_pos = len(X_train)
-        t_start = time.time()
+        t_pred_start = time.time()
         with torch.amp.autocast(device_type=amp_device, dtype=amp_dtype):
             out = regressor.forward(X_all, Y_all, single_eval_pos)
             logits = out["standard"]
             y_mean = regressor.predict_mean(logits)
             y_var = regressor.predict_variance(logits)
+            
+            # Store logits and bar_dist for EXACT CRPS
+            logits_test = logits[-len(y_test):]
+            tabpfn_logits_for_crps = logits_test.detach().cpu()
+            tabpfn_bar_dist_for_crps = regressor.bardist_
+            print(f"[CRPS] Storing logits shape: {logits_test.shape} for CRPS")
 
         y_pred = y_mean.detach().cpu().numpy().reshape(-1)
         output_std = (y_var.detach().cpu().numpy().reshape(-1)) ** 0.5
+        prediction_time = time.time() - t_pred_start
 
         # Metrics only on the test segment
         y_pred_test = y_pred[-len(y_test) :]
         output_std_test = output_std[-len(y_test) :]
+        # Also compute explicit 95% interval bounds (2.5% and 97.5%) from the bar distribution
+        lower_95_test = None
+        upper_95_test = None
+        try:
+            logits_test_for_q = logits[-len(y_test) :]
+            q025 = regressor.bardist_.icdf(logits_test_for_q, 0.025).detach().cpu().numpy().reshape(-1)
+            q975 = regressor.bardist_.icdf(logits_test_for_q, 0.975).detach().cpu().numpy().reshape(-1)
+            lower_95_test, upper_95_test = q025, q975
+        except Exception:
+            # Bounds are optional; ignore if bardist doesn't support icdf in this context
+            lower_95_test, upper_95_test = None, None
+        # Logits already filtered to test only above
+        if 'tabpfn_logits_for_crps' in locals():
+            tabpfn_logits_test = tabpfn_logits_for_crps
+            tabpfn_bar_dist_test = tabpfn_bar_dist_for_crps
 
+    # Store normalized y_test for CRPS computation (logits are in normalized space)
+    y_test_normalized = y_test.copy() if isinstance(y_test, np.ndarray) else np.array(y_test)
+    
     # If train mean/std are provided (e.g., standardized training targets),
     # denormalize predictions and std before computing metrics to compare on original scale
     if (y_train_mean is not None) and (y_train_std is not None):
@@ -852,6 +941,8 @@ def train_eval_PFN(
                 # Denormalize per source
                 y_pred_test_denorm = y_pred_test.copy()
                 output_std_test_denorm = output_std_test.copy()
+                lower_95_test_denorm = lower_95_test.copy() if lower_95_test is not None else None
+                upper_95_test_denorm = upper_95_test.copy() if upper_95_test is not None else None
                 unique_sources = np.unique(source_indices_test_np)
 
                 for source_idx in unique_sources:
@@ -883,14 +974,28 @@ def train_eval_PFN(
                         y_pred_test_denorm[source_mask] = exp_log_y - log_scale_C
                         # Use delta method: std_original ≈ exp(log_mean) * log_std
                         output_std_test_denorm[source_mask] = exp_log_y * log_y_std
+
+                        if lower_95_test_denorm is not None and upper_95_test_denorm is not None:
+                            log_lower = (lower_95_test[source_mask] * std) + mean
+                            log_upper = (upper_95_test[source_mask] * std) + mean
+                            log_lower = np.clip(log_lower, -max_log_val, max_log_val)
+                            log_upper = np.clip(log_upper, -max_log_val, max_log_val)
+                            lower_95_test_denorm[source_mask] = np.exp(log_lower) - log_scale_C
+                            upper_95_test_denorm[source_mask] = np.exp(log_upper) - log_scale_C
                     else:
                         # Normal unstandardization (not log scale)
                         y_pred_test_denorm[source_mask] = (y_pred_test[source_mask] * std) + mean
                         output_std_test_denorm[source_mask] = output_std_test[source_mask] * std
+                        if lower_95_test_denorm is not None and upper_95_test_denorm is not None:
+                            lower_95_test_denorm[source_mask] = (lower_95_test[source_mask] * std) + mean
+                            upper_95_test_denorm[source_mask] = (upper_95_test[source_mask] * std) + mean
 
                 # Update predictions and std after processing all sources
                 y_pred_test = y_pred_test_denorm
                 output_std_test = output_std_test_denorm
+                if lower_95_test_denorm is not None and upper_95_test_denorm is not None:
+                    lower_95_test = lower_95_test_denorm
+                    upper_95_test = upper_95_test_denorm
             else:
                 # If source_cols not provided but we have dicts, use first available source
                 first_key = list(y_train_mean.keys())[0]
@@ -909,9 +1014,19 @@ def train_eval_PFN(
                     y_pred_test = exp_log_y - log_scale_C
                     # Use delta method: std_original ≈ exp(log_mean) * log_std
                     output_std_test = exp_log_y * log_y_std
+                    if lower_95_test is not None and upper_95_test is not None:
+                        log_lower = (lower_95_test * std) + mean
+                        log_upper = (upper_95_test * std) + mean
+                        log_lower = np.clip(log_lower, -max_log_val, max_log_val)
+                        log_upper = np.clip(log_upper, -max_log_val, max_log_val)
+                        lower_95_test = np.exp(log_lower) - log_scale_C
+                        upper_95_test = np.exp(log_upper) - log_scale_C
                 else:
                     y_pred_test = (y_pred_test * std) + mean
                     output_std_test = output_std_test * std
+                    if lower_95_test is not None and upper_95_test is not None:
+                        lower_95_test = (lower_95_test * std) + mean
+                        upper_95_test = (upper_95_test * std) + mean
         else:
             # Single mean/std for all data (methods 0 and 1)
             if standardize_y_log_scale:
@@ -927,11 +1042,36 @@ def train_eval_PFN(
                 y_pred_test = exp_log_y - log_scale_C
                 # Use delta method: std_original ≈ exp(log_mean) * log_std
                 output_std_test = exp_log_y * log_y_std
+                if lower_95_test is not None and upper_95_test is not None:
+                    log_lower = (lower_95_test * float(y_train_std)) + float(y_train_mean)
+                    log_upper = (upper_95_test * float(y_train_std)) + float(y_train_mean)
+                    log_lower = np.clip(log_lower, -max_log_val, max_log_val)
+                    log_upper = np.clip(log_upper, -max_log_val, max_log_val)
+                    lower_95_test = np.exp(log_lower) - log_scale_C
+                    upper_95_test = np.exp(log_upper) - log_scale_C
             else:
                 y_pred_test = (y_pred_test * float(y_train_std)) + float(y_train_mean)
                 output_std_test = output_std_test * float(y_train_std)
+                if lower_95_test is not None and upper_95_test is not None:
+                    lower_95_test = (lower_95_test * float(y_train_std)) + float(y_train_mean)
+                    upper_95_test = (upper_95_test * float(y_train_std)) + float(y_train_mean)
 
-    metrics = compute_metrics(y_test, y_pred_test, output_std_test, start_time=t_start)
+    # Pass TabPFN logits and bar_dist to compute_metrics for exact CRPS if available
+    tabpfn_logits_for_metrics = tabpfn_logits_test if 'tabpfn_logits_test' in locals() else None
+    tabpfn_bar_dist_for_metrics = tabpfn_bar_dist_test if 'tabpfn_bar_dist_test' in locals() else None
+    y_test_for_crps = y_test_normalized if 'y_test_normalized' in locals() else y_test
+    metrics = compute_metrics(
+        y_test,
+        y_pred_test,
+        output_std_test,
+        training_time=training_time,
+        prediction_time=prediction_time,
+        tabpfn_logits=tabpfn_logits_for_metrics,
+        tabpfn_bar_dist=tabpfn_bar_dist_for_metrics,
+        y_test_normalized=y_test_for_crps,
+        lower_95=lower_95_test,
+        upper_95=upper_95_test,
+    )
 
     # Compute per-source metrics if source_cols is provided
     if isinstance(source_cols, int) or (isinstance(source_cols, (list, tuple)) and len(source_cols) > 0):
