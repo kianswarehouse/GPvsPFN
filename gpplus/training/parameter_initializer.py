@@ -133,7 +133,7 @@ class DefaultParameterInitializer(ParameterInitializer):
             return {
                 "method": "normal",
                 "mean": 0.0,
-                "std": 1.0,
+                "std": 3.0,
                 "description": "Mean constant parameter",
             }
         elif param_type == "weight":
