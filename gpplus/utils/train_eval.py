@@ -29,8 +29,12 @@ def _process_trainer_info(stored_params, train_results, num_epochs):
     best_run_idx = None
     best_loss = float('inf')
     
-    # Process each run
+    # Process each run: pass through full initial/final from callback (incl. raw_constant, constant, encoder_embedding_*)
     for i, record in enumerate(stored_params):
+        initial = record.get("initial") or {}
+        final = record.get("final") or {}
+        initial_parameters = dict(initial)  # full copy: raw_noise, raw_outputscale, raw_constant, encoder_embedding_*, etc.
+        final_parameters = dict(final)
         run_data = {
             "run": record.get("run", i + 1),
             "num_epochs": record.get("num_epochs", num_epochs),
@@ -38,8 +42,8 @@ def _process_trainer_info(stored_params, train_results, num_epochs):
             "epoch": record.get("epoch"),
             "loss": record.get("best_loss"),
             "jitter": record.get("jitter"),
-            "initial_parameters": record.get("initial", {}),
-            "final_parameters": record.get("final", {}),
+            "initial_parameters": initial_parameters,
+            "final_parameters": final_parameters,
         }
         runs_data.append(run_data)
         
@@ -49,18 +53,20 @@ def _process_trainer_info(stored_params, train_results, num_epochs):
             best_loss = loss
             best_run_idx = i
     
-    # Extract best parameters
+    # Extract best parameters (full initial/final incl. raw_constant, encoder_embedding_*)
     best_parameters = None
     if best_run_idx is not None and best_run_idx < len(stored_params):
         best_record = stored_params[best_run_idx]
+        best_initial = best_record.get("initial") or {}
+        best_final = best_record.get("final") or {}
         best_parameters = {
             "run": best_record.get("run", best_run_idx + 1),
             "num_epochs": best_record.get("num_epochs", num_epochs),
             "best_epoch": best_record.get("best_epoch"),
             "loss": best_record.get("best_loss"),
             "jitter": best_record.get("jitter"),
-            "initial_parameters": best_record.get("initial", {}),
-            "final_parameters": best_record.get("final", {}),
+            "initial_parameters": dict(best_initial),
+            "final_parameters": dict(best_final),
         }
     
     # Calculate average final parameters statistics
@@ -72,16 +78,18 @@ def _process_trainer_info(stored_params, train_results, num_epochs):
         for record in stored_params:
             final = record.get("final", {})
             for key, value in final.items():
+                # Skip encoder embeddings (nested lists) and other non-scalar aggregates
+                if key.startswith("encoder_embedding_"):
+                    continue
                 if key not in param_collections:
                     param_collections[key] = []
-                
-                # Handle different types of values
+
                 if value is None:
                     continue
                 elif isinstance(value, (list, tuple)):
-                    # For lists (like lengthscales), collect all values
-                    if key not in param_collections:
-                        param_collections[key] = []
+                    # Nested list (e.g. matrix): skip for avg stats
+                    if value and isinstance(value[0], (list, tuple)):
+                        continue
                     param_collections[key].extend([float(v) for v in value if v is not None])
                 elif isinstance(value, (int, float)):
                     param_collections[key].append(float(value))
@@ -120,6 +128,7 @@ def train_eval_gp(
     min_loss_change: float=1e-7,
     optimizer_class=None,
     initializer_class=None,
+    initializer_kwargs: dict = None,
     device: str = "cpu",
     # dtype: torch.dtype = torch.float64,
     y_train_mean: torch.Tensor | None = None,
@@ -136,6 +145,7 @@ def train_eval_gp(
     prescreening_warmup_lr: float = 0.01,
     prescreening_optimizer_class=None,  # Optimizer for warmup (default: torch.optim.Adam)
     recorder=None,  # PrescreeningRecorder instance
+    cholesky_jitter: float = 1e-6,  # Jitter for Cholesky; use larger (e.g. 1e-5, 1e-4) for large n
 ):
     """
     Train a GP model and evaluate metrics on the provided test set.
@@ -160,7 +170,12 @@ def train_eval_gp(
         output_std: numpy array of predictive std (denormalized if mean/std provided)
     """
     # Set optimizer kwargs based on optimizer type
-    # if optimizer_class == LBFGSScipy or (
+    optimizer_kwargs = None
+    if optimizer_class is torch.optim.Adam or (
+        isinstance(optimizer_class, type) and issubclass(optimizer_class, torch.optim.Adam)
+    ):
+        optimizer_kwargs = {"lr": lr if lr is not None else 0.01}
+    # elif optimizer_class == LBFGSScipy or (
     #     hasattr(optimizer_class, "__name__") and optimizer_class.__name__ == "LBFGSScipy"
     # ):
     #     optimizer_kwargs = {
@@ -170,8 +185,6 @@ def train_eval_gp(
     #         "tolerance_change": 1e-9,
     #         "history_size": 10,
     #     }
-    # else:
-    #     optimizer_kwargs = {"lr": lr}
 
     callbacks = [FinalParameterStorageCallback(save_file=None, verbose=False)]
 
@@ -183,8 +196,11 @@ def train_eval_gp(
         stop_conditions=[ConvergencePatienceStopCondition(patience=convergence_patience), MinLossChangeStopCondition(min_loss_change=min_loss_change)],
         callbacks=callbacks,
         optimizer_class=optimizer_class,
+        optimizer_kwargs=optimizer_kwargs,
         device=device,
         initializer_class=initializer_class,
+        initializer_kwargs=initializer_kwargs,
+        cholesky_jitter=cholesky_jitter,
         enable_prescreening=enable_prescreening,
         num_test=num_test,
         prescreening_warmup_epochs=prescreening_warmup_epochs,

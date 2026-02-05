@@ -254,6 +254,8 @@ class FinalParameterStorageCallback(Callback):
             "raw_lengthscales": final.get("raw_lengthscales"),
             "raw_cat_lengthscales": final.get("raw_cat_lengthscales"),
             "raw_source_lengthscales": final.get("raw_source_lengthscales"),
+            "raw_constant": final.get("raw_constant"),
+            "constant": final.get("constant"),
             "noise": final.get("noise"),  # Transformed
             "outputscale": final.get("outputscale"),  # Transformed
             "lengthscales": final.get("lengthscales"),  # Transformed (from cont_kernel)
@@ -262,6 +264,10 @@ class FinalParameterStorageCallback(Callback):
             "kernel_type": final.get("kernel_type"),
             "input_dim": final.get("input_dim"),
         }
+        # Include any encoder embedding keys from final (encoder_embedding_cat, encoder_embedding_cat_0, ..., encoder_embedding_source)
+        for k, v in final.items():
+            if k.startswith("encoder_embedding_") and v is not None:
+                record["final"][k] = v
 
         if initial is None:
             return record
@@ -272,9 +278,15 @@ class FinalParameterStorageCallback(Callback):
             "raw_lengthscales": initial.get("raw_lengthscales"),
             "raw_cat_lengthscales": initial.get("raw_cat_lengthscales"),
             "raw_source_lengthscales": initial.get("raw_source_lengthscales"),
+            "raw_constant": initial.get("raw_constant"),
+            "constant": initial.get("constant"),
             "kernel_type": initial.get("kernel_type"),
             "input_dim": initial.get("input_dim"),
         }
+        # Include any encoder embedding keys from initial
+        for k, v in initial.items():
+            if k.startswith("encoder_embedding_") and v is not None:
+                record["initial"][k] = v
 
         # Compute deltas (final - initial)
         try:
@@ -320,9 +332,11 @@ class FinalParameterStorageCallback(Callback):
             "raw_noise": None,
             "raw_outputscale": None,
             "raw_lengthscales": None,
+            "raw_constant": None,  # mean_module (e.g. ConstantMean)
             "noise": None,  # Transformed
             "outputscale": None,  # Transformed
             "lengthscales": [],  # Transformed
+            "constant": None,  # mean_module transformed
             "kernel_type": None,
             "input_dim": None,
         }
@@ -442,6 +456,60 @@ class FinalParameterStorageCallback(Callback):
         # Fallback to recursive search results if base_kernel didn't have raw_lengthscale
         if not params.get("raw_lengthscales") and lengthscale_params:
             params["raw_lengthscales"] = lengthscale_params
+
+        # Extract encoder embedding positions from MVMFKernel (cat_encoder, source_encoder)
+        if hasattr(model, "covar_module") and model.covar_module is not None:
+            base = getattr(model.covar_module, "base_kernel", model.covar_module)
+            if base is not None:
+                # Categorical encoders: single cat_encoder or cat_encoder_0, cat_encoder_1, ...
+                cat_enc = getattr(base, "cat_encoder", None)
+                if cat_enc is not None:
+                    encoders_list = (
+                        [cat_enc]
+                        if not isinstance(cat_enc, (list, tuple))
+                        else list(cat_enc)
+                    )
+                    for idx, enc in enumerate(encoders_list):
+                        try:
+                            if hasattr(enc, "projection_matrix") and enc.projection_matrix is not None:
+                                # MatrixEncoder: rows = embedding position per category
+                                mat = enc.projection_matrix.data.detach().cpu()
+                                key = "encoder_embedding_cat" if len(encoders_list) == 1 else f"encoder_embedding_cat_{idx}"
+                                params[key] = mat.tolist()
+                        except Exception:
+                            pass
+                # Source encoder
+                src_enc = getattr(base, "source_encoder", None)
+                if src_enc is not None:
+                    try:
+                        if hasattr(src_enc, "projection_matrix") and src_enc.projection_matrix is not None:
+                            mat = src_enc.projection_matrix.data.detach().cpu()
+                            params["encoder_embedding_source"] = mat.tolist()
+                    except Exception:
+                        pass
+
+        # Extract mean_module parameters (e.g. ConstantMean: raw_constant, constant)
+        if hasattr(model, "mean_module") and model.mean_module is not None:
+            mean_mod = model.mean_module
+            try:
+                if hasattr(mean_mod, "raw_constant") and mean_mod.raw_constant is not None:
+                    raw_c = mean_mod.raw_constant.data
+                    if raw_c.numel() == 1:
+                        params["raw_constant"] = float(raw_c.item())
+                    else:
+                        params["raw_constant"] = raw_c.detach().cpu().flatten().tolist()
+            except Exception:
+                pass
+            try:
+                if hasattr(mean_mod, "constant"):
+                    c = mean_mod.constant
+                    if c is not None and hasattr(c, "numel"):
+                        if c.numel() == 1:
+                            params["constant"] = float(c.item())
+                        else:
+                            params["constant"] = c.detach().cpu().flatten().tolist()
+            except Exception:
+                pass
 
         # Extract transformed parameters
         self._extract_transformed_parameters(model, params)

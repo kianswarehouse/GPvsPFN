@@ -131,12 +131,31 @@ class GPTrainer:
         else:
             self.optimizer_class = optimizer_class
 
-        # Handle optimizer arguments
-        if optimizer_kwargs is None:
-            self.optimizer_kwargs = {"max_iter": 20}  # Default for LBFGSScipy
-            logger.warning("No optimizer arguments passed. Defaulting to max_iter=20")
-        else:
+        # Handle optimizer arguments: set defaults per optimizer type when not provided
+        if optimizer_kwargs is not None:
             self.optimizer_kwargs = optimizer_kwargs
+        else:
+            opt_cls = self.optimizer_class
+            if opt_cls is LBFGSScipy or (
+                hasattr(opt_cls, "__name__") and opt_cls.__name__ == "LBFGSScipy"
+            ):
+                self.optimizer_kwargs = {
+                    "max_iter": 2000,
+                    "max_eval": 5000,
+                    "tolerance_grad": 1e-5,
+                    "tolerance_change": 1e-9,
+                    "history_size": 10,
+                }
+            elif opt_cls is torch.optim.Adam or (
+                isinstance(opt_cls, type) and issubclass(opt_cls, torch.optim.Adam)
+            ):
+                self.optimizer_kwargs = {"lr": 0.01}
+            else:
+                self.optimizer_kwargs = {"max_iter": 20}
+                logger.warning(
+                    "No optimizer arguments passed and no built-in defaults for "
+                    f"{getattr(opt_cls, '__name__', opt_cls)}. Using max_iter=20."
+                )
 
         # Handle MLL class
         if mll_class is None:
@@ -227,6 +246,23 @@ class GPTrainer:
             for (name, param), (_, trained_param) in zip(self.model.named_parameters(), base_model.named_parameters()):
                 if param.requires_grad:
                     param.data.copy_(trained_param.data.to(dtype=param.dtype))
+
+        # Collect callback data from callbacks_copy (they're deep-copied per run)
+        callback_data = {}
+        for cb in callbacks_copy:
+            if hasattr(cb, 'get_stored_parameters'):
+                cb_name = cb.__class__.__name__
+                stored_params = cb.get_stored_parameters()
+                if stored_params:  # Only add if there's data
+                    callback_data[cb_name] = stored_params
+
+        # Merge callback_data from train_result (if any) with callbacks_copy data
+        if "callback_data" in train_result:
+            # Merge dictionaries, with callbacks_copy taking precedence
+            for key, value in train_result["callback_data"].items():
+                if key not in callback_data:
+                    callback_data[key] = value
+        train_result["callback_data"] = callback_data
 
         return {"run_index": run_index, **train_result}
 
@@ -405,7 +441,11 @@ class GPTrainer:
         #  If a valid best run was found, load it into self.model
         # ------------------------------------------------------
         if best_run is not None and best_run["state_dict"] is not None:
-            self.model.load_state_dict(best_run["state_dict"])
+            state = best_run["state_dict"]
+            # Load onto current model device (e.g. CPU); state may come from worker on different device
+            device = next(self.model.parameters()).device
+            state_cpu = {k: v.to(device) if hasattr(v, "to") else v for k, v in state.items()}
+            self.model.load_state_dict(state_cpu)
 
             logger.info(
                 f"Best run found: #{best_run['run_index']} with loss={best_loss:.4f}. "

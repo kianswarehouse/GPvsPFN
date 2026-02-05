@@ -5,6 +5,11 @@ import gpytorch
 import linear_operator
 import torch
 
+try:
+    from linear_operator.utils.errors import NotPSDError
+except ImportError:
+    NotPSDError = Exception  # type: ignore[misc, assignment]
+
 from ..config import logger
 from .callbacks import (
     Callback,
@@ -117,89 +122,122 @@ class GPTrainerSingleProcess:
         for cb in self.callbacks:
             cb.on_train_start(ctx)
 
-        # Set jitter in both gpytorch and linear_operator settings
-        # Set the same jitter for both float32 and float64 to ensure consistent behavior
-        with (
-            gpytorch.settings.cholesky_jitter(self.cholesky_jitter),
-            linear_operator.settings.cholesky_jitter(
-                float_value=self.cholesky_jitter, double_value=self.cholesky_jitter
-            ),
-        ):
-            # Set the model to training mode
-            self.model.train()
+        # Jitter can increase on NotPSDError; track current value for this run
+        run_jitter = float(self.cholesky_jitter)
+        max_jitter = 1e-3
 
-            logger.info(f"Starting training for {self.num_epochs} epochs.")
+        # Set the model to training mode
+        self.model.train()
 
-            for epoch in range(self.num_epochs):
-                # ---------------------------
-                # on_epoch_start
-                # ---------------------------
-                ctx: CallbackOnEpochStartContext = {
-                    "epoch": epoch,
-                    "model": self.model,
-                    "trainer": self,
-                    "device": self.device,
-                }
-                for cb in self.callbacks:
-                    cb.on_epoch_start(ctx)
+        logger.info(f"Starting training for {self.num_epochs} epochs.")
 
-                # Train for a single epoch
-                loss = train_epoch(optimizer, mll)
+        for epoch in range(self.num_epochs):
+            # ---------------------------
+            # on_epoch_start
+            # ---------------------------
+            ctx: CallbackOnEpochStartContext = {
+                "epoch": epoch,
+                "model": self.model,
+                "trainer": self,
+                "device": self.device,
+            }
+            for cb in self.callbacks:
+                cb.on_epoch_start(ctx)
 
-                # ---------------------------
-                # on_epoch_end
-                # ---------------------------
-                ctx: CallbackOnEpochEndContext = {
-                    "epoch": epoch,
-                    "model": self.model,
-                    "trainer": self,
-                    "loss": loss,
-                    "device": self.device,
-                }
-                for cb in self.callbacks:
-                    cb.on_epoch_end(ctx)
+            # Train for a single epoch with retry on NotPSDError (increase jitter)
+            epoch_successful = False
+            while not epoch_successful:
+                with (
+                    gpytorch.settings.cholesky_jitter(run_jitter),
+                    linear_operator.settings.cholesky_jitter(
+                        float_value=run_jitter, double_value=run_jitter
+                    ),
+                ):
+                    try:
+                        loss = train_epoch(optimizer, mll)
+                        epoch_successful = True
+                    except NotPSDError:
+                        if run_jitter < max_jitter:
+                            run_jitter = min(run_jitter * 10.0, max_jitter)
+                            logger.warning(
+                                f"NotPSDError detected. Increasing jitter to {run_jitter:.1e}."
+                            )
+                        else:
+                            logger.warning(
+                                f"NotPSDError persists with jitter={run_jitter:.1e}. Re-raising."
+                            )
+                            raise
+                    except (RuntimeError, ValueError) as e:
+                        err_str = str(e).lower()
+                        if (
+                            "notpsd" in err_str
+                            or "not p.d." in err_str
+                            or "not positive definite" in err_str
+                        ):
+                            if run_jitter < max_jitter:
+                                run_jitter = min(run_jitter * 10.0, max_jitter)
+                                logger.warning(
+                                    f"NotPSD error detected. Increasing jitter to {run_jitter:.1e}."
+                                )
+                            else:
+                                raise
+                        else:
+                            raise
 
-                # Update best-loss and best-state tracking
-                if loss < best_loss:
-                    best_loss = loss
-                    best_state_dict = copy.deepcopy(self.model.state_dict())
-                    no_improvement_epochs = 0
-                else:
-                    no_improvement_epochs += 1
+            # ---------------------------
+            # on_epoch_end
+            # ---------------------------
+            ctx: CallbackOnEpochEndContext = {
+                "epoch": epoch,
+                "model": self.model,
+                "trainer": self,
+                "loss": loss,
+                "device": self.device,
+            }
+            for cb in self.callbacks:
+                cb.on_epoch_end(ctx)
 
-                # Check for early stopping conditions
-                stop_context: StopConditionContext = {
-                    "epoch": epoch,
-                    "model": self.model,
-                    "trainer": self,
-                    "loss": loss,
-                    "previous_loss": previous_loss,
-                    "best_loss": best_loss,
-                    "no_improvement_epochs": no_improvement_epochs,
-                    "device": self.device,
-                }
+            # Update best-loss and best-state tracking
+            if loss < best_loss:
+                best_loss = loss
+                best_state_dict = copy.deepcopy(self.model.state_dict())
+                no_improvement_epochs = 0
+            else:
+                no_improvement_epochs += 1
 
-                early_stop_triggered = False
-                early_stop_reasons = []
+            # Check for early stopping conditions
+            stop_context: StopConditionContext = {
+                "epoch": epoch,
+                "model": self.model,
+                "trainer": self,
+                "loss": loss,
+                "previous_loss": previous_loss,
+                "best_loss": best_loss,
+                "no_improvement_epochs": no_improvement_epochs,
+                "device": self.device,
+            }
 
-                # Check all stop conditions
-                for stop_condition in self.stop_conditions:
-                    should_stop, reason = stop_condition.should_stop(stop_context)
-                    if should_stop:
-                        early_stop_triggered = True
-                        if reason:
-                            early_stop_reasons.append(reason)
+            early_stop_triggered = False
+            early_stop_reasons = []
 
-                if early_stop_triggered:
-                    early_stop_reason = " OR ".join(early_stop_reasons) if early_stop_reasons else "Stop condition met"
-                    logger.info(
-                        f"Early stopping triggered at epoch {epoch + 1}. "
-                        f"Reason: {early_stop_reason}. Best loss: {best_loss:.6f}"
-                    )
-                    break  # Stop training
+            # Check stop conditions only after min_epochs (epoch is 0-indexed)
+            for stop_condition in self.stop_conditions:
+                should_stop, reason = stop_condition.should_stop(stop_context)
+                if should_stop:
+                    early_stop_triggered = True
+                    if reason:
+                        early_stop_reasons.append(reason)
 
-                # Update previous_loss for next iteration
-                previous_loss = loss
+            if early_stop_triggered:
+                early_stop_reason = " OR ".join(early_stop_reasons) if early_stop_reasons else "Stop condition met"
+                logger.info(
+                    f"Early stopping triggered at epoch {epoch + 1}. "
+                    f"Reason: {early_stop_reason}. Best loss: {best_loss:.6f}"
+                )
+                break  # Stop training
+
+            # Update previous_loss for next iteration
+            previous_loss = loss
 
         # Log training completion
         logger.info(f"Training completed. Best loss: {best_loss:.6f}")
@@ -219,7 +257,16 @@ class GPTrainerSingleProcess:
         for cb in self.callbacks:
             cb.on_train_end(ctx)
 
-        return {"loss": best_loss, "state_dict": best_state_dict}
+        # Collect callback data
+        callback_data = {}
+        for cb in self.callbacks:
+            if hasattr(cb, 'get_stored_parameters'):
+                cb_name = cb.__class__.__name__
+                stored_params = cb.get_stored_parameters()
+                if stored_params:  # Only add if there's data
+                    callback_data[cb_name] = stored_params
+
+        return {"loss": best_loss, "state_dict": best_state_dict, "callback_data": callback_data}
 
     def _train_standard_epoch(self, optimizer, mll):
         """
