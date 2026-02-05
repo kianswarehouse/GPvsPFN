@@ -6,7 +6,7 @@ X_STANDARDIZE_METHOD = 2 # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Unifo
 SF_kernel = None
 SF_mean = None
 SF_likelihood = None
-
+NOISE_TYPE = 'gaussian'
 NUM_FOLDS = 20
 TRAINER_LR = None # Using LBFGS
 TRAINER_NUM_EPOCHS = 200 # Increased to 200 just in case high D problems need more epochs
@@ -19,6 +19,8 @@ TRAINER_GP_DEVICE = 'cpu'
 TRAINER_AMP_DEVICE = 'cuda'
 DTYPE_GP = torch.float64
 DTYPE_PFN = torch.float32
+TRAINER_CHOLESKY_JITTER = 1e-6
+
 
 SEED = 42
 SEED_TRAINER = None
