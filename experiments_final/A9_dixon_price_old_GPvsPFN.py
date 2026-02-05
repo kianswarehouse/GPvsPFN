@@ -9,12 +9,6 @@ from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from tabpfn import TabPFNRegressor
 from load_experimental_data import generate_dixon_price_data
 import defaults
-# import logging
-# from gpplus.config import configure_logger
-
-# configure_logger(level=logging.DEBUG)
-# logger = logging.getLogger(__name__)
-# logger.setLevel(logging.DEBUG)
 
 # import warnings
 # warnings.filterwarnings("ignore")
@@ -39,7 +33,7 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         x_standardize_method=defaults.X_STANDARDIZE_METHOD,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
         noise_train=0.0,
         noise_test=0.0,
-        noise_type='gaussian',
+        noise_type=defaults.NOISE_TYPE,
         seed=defaults.SEED,
         seed_trainer=defaults.SEED_TRAINER,
         gp_dtype = defaults.DTYPE_GP,
@@ -148,20 +142,6 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         y_train_mean = Yscaler.mean 
         y_train_std = Yscaler.std
         y_train_normal = Yscaler.transform(y_train)
-        
-        # KERNEL CONFIGURATION
-        # ============================================================================
-        # Choose between 'Gaussian', 'PowerExponential', 'Matern'
-        KERNEL_TYPE = "PowerExponential"  # Options: 'Gaussian', 'PowerExponential', 'Matern'
-        # ============================================================================
-        if KERNEL_TYPE == "PowerExponential":
-            kernel_mod = gpplus.kernels.LogScaleKernel(gpplus.kernels.PowerExponentialKernel(ard_num_dims=dimensions))
-        elif KERNEL_TYPE == "Gaussian":
-            kernel_mod = gpplus.kernels.LogScaleKernel(gpplus.kernels.GaussianKernel(ard_num_dims=dimensions))
-        elif KERNEL_TYPE == "Matern":
-            kernel_mod = gpplus.kernels.LogScaleKernel(gpplus.kernels.MaternKernel(nu=2.5, ard_num_dims=dimensions))
-        else:
-            kernel_mod = defaults.SF_kernel
 
         # =============================================================================
         # GP Section 
@@ -173,7 +153,7 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             model = gpplus.models.GPR(
                 X_train,
                 y_train_normal if standardize_y else y_train,
-                kernel_module=kernel_mod,
+                kernel_module=defaults.SF_kernel,
                 mean_module=defaults.SF_mean,
                 likelihood=defaults.SF_likelihood,
             )
@@ -332,6 +312,10 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                     "metrics": TabPFN_metrics,
                     "pfn_model_info": tabpfn_model_info
                 }
+            # Append defaults.py source at end of JSON for reproducibility
+            _defaults_path = Path(__file__).resolve().parent / "defaults.py"
+            if _defaults_path.is_file():
+                combined_data["defaults_py"] = _defaults_path.read_text(encoding="utf-8")
             (out_dir / f"{file_prefix}_{title}.json").write_text(json.dumps(combined_data, indent=2))
         except Exception:
             pass
@@ -355,6 +339,11 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 trainer_info_file = trainer_analysis_dir / f"gp_{title}_GP_Trainer_Analysis.json"
                 trainer_info_file.write_text(json.dumps(trainer_info_data, indent=2))
                 print(f"\nTrainer info saved to: {trainer_info_file}")
+                try:
+                    from plot_trainer_analysis_hyperparams import plot_trainer_analysis_from_data
+                    plot_trainer_analysis_from_data(trainer_info_data, trainer_analysis_dir / "plots")
+                except Exception as plot_e:
+                    print(f"Trainer analysis plotting skipped: {plot_e}")
                 
             except Exception as e:
                 print(f"Error saving trainer info: {e}")
@@ -369,4 +358,4 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
 
 if __name__ == "__main__":
-    dixon_price_GPvsPFN(num_folds=20, train_size=20, dimensions=80, num_runs=16, noise_train=0.05, noise_test=0.05, save_path='./results/dixon_price/power_exponential/2_1')
+    dixon_price_GPvsPFN(num_folds=20, train_size=20, dimensions=80, num_runs=1, noise_train=0.05, noise_test=0.05, save_path='./results/dixon_price/temp')
