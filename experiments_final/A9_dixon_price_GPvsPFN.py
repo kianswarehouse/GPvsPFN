@@ -39,7 +39,7 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         x_standardize_method=defaults.X_STANDARDIZE_METHOD,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
         noise_train=0.0,
         noise_test=0.0,
-        noise_type='gaussian',
+        noise_type=defaults.NOISE_TYPE,
         seed=defaults.SEED,
         seed_trainer=defaults.SEED_TRAINER,
         gp_dtype = defaults.DTYPE_GP,
@@ -193,6 +193,7 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 num_runs=num_runs,
                 lr=lr,
                 convergence_patience=convergence_patience,
+                min_epochs=min_epochs,
                 min_loss_change=min_loss_change,
                 optimizer_class=optimizer_class,
                 initializer_class=initializer_class,
@@ -332,6 +333,10 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                     "metrics": TabPFN_metrics,
                     "pfn_model_info": tabpfn_model_info
                 }
+            # Append defaults.py source at end of JSON for reproducibility
+            _defaults_path = Path(__file__).resolve().parent / "defaults.py"
+            if _defaults_path.is_file():
+                combined_data["defaults_py"] = _defaults_path.read_text(encoding="utf-8")
             (out_dir / f"{file_prefix}_{title}.json").write_text(json.dumps(combined_data, indent=2))
         except Exception:
             pass
@@ -355,6 +360,11 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 trainer_info_file = trainer_analysis_dir / f"gp_{title}_GP_Trainer_Analysis.json"
                 trainer_info_file.write_text(json.dumps(trainer_info_data, indent=2))
                 print(f"\nTrainer info saved to: {trainer_info_file}")
+                try:
+                    from plot_trainer_analysis_hyperparams import plot_trainer_analysis_from_data
+                    plot_trainer_analysis_from_data(trainer_info_data, trainer_analysis_dir / "plots")
+                except Exception as plot_e:
+                    print(f"Trainer analysis plotting skipped: {plot_e}")
                 
             except Exception as e:
                 print(f"Error saving trainer info: {e}")
@@ -369,4 +379,7 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
 
 if __name__ == "__main__":
-    dixon_price_GPvsPFN(num_folds=20, train_size=20, dimensions=80, num_runs=16, noise_train=0.05, noise_test=0.05, save_path='./results/dixon_price/power_exponential/2_1')
+    dixon_price_GPvsPFN(num_folds=20, train_size=20, dimensions=5, num_runs=16, save_path='./results/dixon_price/temp', noise_train=0.05, noise_test=0.05, run_models='pfn')
+    # dixon_price_GPvsPFN(num_folds=1, train_size=20, dimensions=20, num_runs=4, save_path='./results/dixon_price/temp')
+    # dixon_price_GPvsPFN(num_folds=1, train_size=10, dimensions=40, num_runs=4, save_path='./results/dixon_price/temp')
+    # dixon_price_GPvsPFN(num_folds=1, train_size=20, dimensions=40, num_runs=4, save_path='./results/dixon_price/temp')
