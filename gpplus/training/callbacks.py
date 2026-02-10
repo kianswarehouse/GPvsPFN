@@ -848,6 +848,24 @@ class FinalParameterStorageCallback(Callback):
                 except:
                     pass
 
+            # Extract transformed power (e.g., for PowerExponentialKernel)
+            # This handles simple kernel layouts where the kernel is wrapped (e.g., LogScaleKernel(PowerExponentialKernel))
+            if hasattr(obj, "power") and params.get("power") is None:
+                try:
+                    p = obj.power
+                    # Tensors: prefer scalar, otherwise flatten
+                    if hasattr(p, "numel"):
+                        if p.numel() == 1:
+                            params["power"] = float(p.item())
+                        else:
+                            params["power"] = p.detach().cpu().numpy().flatten().tolist()
+                    else:
+                        # Fallback for non-tensor values
+                        params["power"] = float(p)
+                except Exception:
+                    # If extraction fails for this object, just skip
+                    pass
+
             # Extract transformed lengthscales
             # Skip lengthscale extraction here - we'll get it directly from base_kernel in the fallback
             # This avoids picking up lengthscales from the wrong kernel components
