@@ -125,8 +125,10 @@ def train_eval_gp(
     num_runs: int,
     lr: float,
     convergence_patience: int=10,
+    min_epochs: int=0,
     min_loss_change: float=1e-7,
     optimizer_class=None,
+    optimizer_kwargs: dict = None,
     initializer_class=None,
     initializer_kwargs: dict = None,
     device: str = "cpu",
@@ -170,7 +172,7 @@ def train_eval_gp(
         output_std: numpy array of predictive std (denormalized if mean/std provided)
     """
     # Set optimizer kwargs based on optimizer type
-    optimizer_kwargs = None
+    # optimizer_kwargs = None
     if optimizer_class is torch.optim.Adam or (
         isinstance(optimizer_class, type) and issubclass(optimizer_class, torch.optim.Adam)
     ):
@@ -194,6 +196,7 @@ def train_eval_gp(
         seed=seed,
         num_runs=num_runs,
         stop_conditions=[ConvergencePatienceStopCondition(patience=convergence_patience), MinLossChangeStopCondition(min_loss_change=min_loss_change)],
+        min_epochs=min_epochs,
         callbacks=callbacks,
         optimizer_class=optimizer_class,
         optimizer_kwargs=optimizer_kwargs,

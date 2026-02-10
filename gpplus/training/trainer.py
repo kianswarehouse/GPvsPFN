@@ -54,6 +54,7 @@ class GPTrainer:
         initializer_kwargs: dict = None,
         device: str = "cpu",
         stop_conditions: Optional[List[StopCondition]] = None,
+        min_epochs: int = 0,
         # Prescreening parameters
         enable_prescreening: bool = False,
         num_test: Optional[int] = None,  # Total candidates to evaluate (default: num_runs * input_dim)
@@ -86,6 +87,7 @@ class GPTrainer:
         self.cholesky_jitter = cholesky_jitter
         self.scheduler_class = scheduler_class
         self.scheduler_kwargs = scheduler_kwargs
+        self.min_epochs = min_epochs
 
         # Set default stop conditions if none provided
         if stop_conditions is None:
@@ -237,6 +239,7 @@ class GPTrainer:
             scheduler_class=self.scheduler_class,
             scheduler_kwargs=self.scheduler_kwargs,
             stop_conditions=stop_conditions_copy,
+            min_epochs=self.min_epochs,
         )
         train_result = run.train()
 

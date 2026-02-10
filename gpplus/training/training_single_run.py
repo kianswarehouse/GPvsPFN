@@ -41,6 +41,7 @@ class GPTrainerSingleProcess:
         scheduler_class: torch.optim.lr_scheduler.LRScheduler = None,
         scheduler_kwargs: dict = None,
         stop_conditions: Optional[List[StopCondition]] = None,
+        min_epochs: int = 0,
     ):
         self.model = model
         self.optimizer_class = optimizer_class
@@ -48,6 +49,7 @@ class GPTrainerSingleProcess:
         self.mll_class = mll_class
         self.num_epochs = num_epochs
         self.cholesky_jitter = cholesky_jitter
+        self.min_epochs = min_epochs
         self.callbacks = callbacks or []
         self.device = device
 
@@ -220,13 +222,14 @@ class GPTrainerSingleProcess:
             early_stop_triggered = False
             early_stop_reasons = []
 
-            # Check stop conditions only after min_epochs (epoch is 0-indexed)
-            for stop_condition in self.stop_conditions:
-                should_stop, reason = stop_condition.should_stop(stop_context)
-                if should_stop:
-                    early_stop_triggered = True
-                    if reason:
-                        early_stop_reasons.append(reason)
+            # Check stop conditions only after min_epochs (epoch is 0-indexed; epoch+1 = completed epoch count)
+            if (epoch + 1) >= self.min_epochs:
+                for stop_condition in self.stop_conditions:
+                    should_stop, reason = stop_condition.should_stop(stop_context)
+                    if should_stop:
+                        early_stop_triggered = True
+                        if reason:
+                            early_stop_reasons.append(reason)
 
             if early_stop_triggered:
                 early_stop_reason = " OR ".join(early_stop_reasons) if early_stop_reasons else "Stop condition met"
