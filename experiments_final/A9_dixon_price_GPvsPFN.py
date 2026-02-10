@@ -369,4 +369,4 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
 
 if __name__ == "__main__":
-    dixon_price_GPvsPFN(num_folds=20, train_size=20, dimensions=80, num_runs=16, noise_train=0.05, noise_test=0.05, save_path='./results/dixon_price/power_exponential/2_1')
+    dixon_price_GPvsPFN(num_folds=20, train_size=40, dimensions=20, num_runs=16, noise_train=0.05, noise_test=0.05, save_path='./results/dixon_price/power_exponential/2_1')
