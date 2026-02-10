@@ -264,6 +264,11 @@ class FinalParameterStorageCallback(Callback):
             "kernel_type": final.get("kernel_type"),
             "input_dim": final.get("input_dim"),
         }
+
+        # Only include power-specific parameters when using the PowerExponential kernel
+        if isinstance(final.get("kernel_type"), str) and "PowerExponential" in final.get("kernel_type"):
+            record["final"]["raw_power"] = final.get("raw_power")
+            record["final"]["power"] = final.get("power")
         # Include any encoder embedding keys from final (encoder_embedding_cat, encoder_embedding_cat_0, ..., encoder_embedding_source)
         for k, v in final.items():
             if k.startswith("encoder_embedding_") and v is not None:
@@ -283,6 +288,10 @@ class FinalParameterStorageCallback(Callback):
             "kernel_type": initial.get("kernel_type"),
             "input_dim": initial.get("input_dim"),
         }
+
+        if isinstance(initial.get("kernel_type"), str) and "PowerExponential" in initial.get("kernel_type"):
+            record["initial"]["raw_power"] = initial.get("raw_power")
+            record["initial"]["power"] = initial.get("power")
         # Include any encoder embedding keys from initial
         for k, v in initial.items():
             if k.startswith("encoder_embedding_") and v is not None:
@@ -333,10 +342,12 @@ class FinalParameterStorageCallback(Callback):
             "raw_outputscale": None,
             "raw_lengthscales": None,
             "raw_constant": None,  # mean_module (e.g. ConstantMean)
+            "raw_power": None,  # PowerExponentialKernel exponent (raw)
             "noise": None,  # Transformed
             "outputscale": None,  # Transformed
             "lengthscales": [],  # Transformed
             "constant": None,  # mean_module transformed
+            "power": None,  # PowerExponentialKernel exponent (transformed)
             "kernel_type": None,
             "input_dim": None,
         }
@@ -350,8 +361,9 @@ class FinalParameterStorageCallback(Callback):
         noise_params = []
         outputscale_params = []
         lengthscale_params = []
+        power_params = []
 
-        self._recursive_parameter_search(model, noise_params, outputscale_params, lengthscale_params)
+        self._recursive_parameter_search(model, noise_params, outputscale_params, lengthscale_params, power_params)
 
         # Extract the first found parameter of each type (raw)
         if noise_params:
@@ -453,6 +465,10 @@ class FinalParameterStorageCallback(Callback):
                 except Exception:
                     pass
 
+        # Extract raw power (for PowerExponentialKernel) if found
+        if power_params:
+            params["raw_power"] = power_params[0]
+
         # Fallback to recursive search results if base_kernel didn't have raw_lengthscale
         if not params.get("raw_lengthscales") and lengthscale_params:
             params["raw_lengthscales"] = lengthscale_params
@@ -537,7 +553,7 @@ class FinalParameterStorageCallback(Callback):
         except Exception:
             pass
 
-        # Recursively extract transformed outputscale and lengthscales
+        # Recursively extract transformed outputscale, lengthscales, and power
         self._recursive_extract_transformed_kernel_params(model, params)
 
         # ALWAYS check base_kernel directly for ARD lengthscales and override any previous results
@@ -679,6 +695,29 @@ class FinalParameterStorageCallback(Callback):
                             import logging
 
                             logging.debug(f"Error extracting lengthscales from source_kernel: {e}")
+
+                # Also try to extract transformed power from any PowerExponentialKernel inside cont_kernel
+                try:
+                    possible_kernels = []
+                    if hasattr(combined_kernel, "cont_kernel") and combined_kernel.cont_kernel is not None:
+                        possible_kernels.append(combined_kernel.cont_kernel)
+                    if hasattr(combined_kernel, "base_kernel") and combined_kernel.base_kernel is not None:
+                        possible_kernels.append(combined_kernel.base_kernel)
+
+                    for k_obj in possible_kernels:
+                        if hasattr(k_obj, "power"):
+                            p = k_obj.power
+                            if hasattr(p, "item") and p.numel() == 1:
+                                params["power"] = float(p.item())
+                            else:
+                                params["power"] = (
+                                    p.detach().cpu().numpy().flatten().tolist()
+                                    if hasattr(p, "detach")
+                                    else float(p)
+                                )
+                            break
+                except Exception:
+                    pass
 
                 # Special handling for CombinedKernel_MultCatKs - extract from all cat_kernel_* modules
                 # Check if this is CombinedKernel_MultCatKs by looking for multiple cat_kernel modules
@@ -867,7 +906,7 @@ class FinalParameterStorageCallback(Callback):
             pass
 
     def _recursive_parameter_search(
-        self, obj, noise_params, outputscale_params, lengthscale_params, visited=None, depth=0
+        self, obj, noise_params, outputscale_params, lengthscale_params, power_params, visited=None, depth=0
     ):
         """Recursively search through model components for raw parameters."""
         if visited is None:
@@ -905,6 +944,16 @@ class FinalParameterStorageCallback(Callback):
                 except:
                     pass
 
+            # Raw power parameter (PowerExponentialKernel)
+            if hasattr(obj, "raw_power"):
+                try:
+                    if hasattr(obj.raw_power, "data") and obj.raw_power.data is not None:
+                        # raw_power is constrained to [1,2], but we store the raw tensor value here
+                        power_val = obj.raw_power.data.item()
+                        power_params.append(power_val)
+                except:
+                    pass
+
             # Recursively search through specific attributes that are likely to contain kernels/parameters
             search_attrs = [
                 "covar_module",
@@ -926,7 +975,13 @@ class FinalParameterStorageCallback(Callback):
                         attr = getattr(obj, attr_name)
                         if attr is not None:
                             self._recursive_parameter_search(
-                                attr, noise_params, outputscale_params, lengthscale_params, visited, depth + 1
+                                attr,
+                                noise_params,
+                                outputscale_params,
+                                lengthscale_params,
+                                power_params,
+                                visited,
+                                depth + 1,
                             )
                     except:
                         continue
@@ -936,34 +991,57 @@ class FinalParameterStorageCallback(Callback):
                 for module_name, module in obj._modules.items():
                     if module is not None:
                         self._recursive_parameter_search(
-                            module, noise_params, outputscale_params, lengthscale_params, visited, depth + 1
+                            module,
+                            noise_params,
+                            outputscale_params,
+                            lengthscale_params,
+                            power_params,
+                            visited,
+                            depth + 1,
                         )
 
         except Exception:
             pass
 
     def _determine_kernel_type(self, model):
-        """Determine the kernel type by examining the covar_module structure."""
+        """Determine the kernel type by examining the covar_module structure.
+
+        Preference order:
+        - If there is a base_kernel (e.g. PowerExponentialKernel, GaussianKernel, MaternKernel),
+          report its type (optionally wrapped as Combined(...)).
+        - Otherwise fall back to the covar_module wrapper type.
+        """
         try:
             if hasattr(model, "covar_module"):
                 covar_module = model.covar_module
                 module_type = type(covar_module).__name__
 
-                # Check for specific kernel types
+                # If there is a base_kernel, use its concrete type name
+                if hasattr(covar_module, "base_kernel") and covar_module.base_kernel is not None:
+                    base = covar_module.base_kernel
+                    base_type = type(base).__name__
+
+                    # If this base kernel itself is a combined kernel, label clearly
+                    if any(
+                        hasattr(base, attr) and getattr(base, attr) is not None
+                        for attr in ("cont_kernel", "cat_kernel", "source_kernel")
+                    ):
+                        return f"Combined({base_type})"
+                    return base_type
+
+                # Fallbacks for other structures on the covar_module itself
                 if (
                     hasattr(covar_module, "cat_kernel")
                     or hasattr(covar_module, "cont_kernel")
                     or hasattr(covar_module, "source_kernel")
                 ):
                     return "CombinedKernel"
-                elif hasattr(covar_module, "base_kernel"):
-                    return "ScaleKernel"
-                elif hasattr(covar_module, "kernels"):
+                if hasattr(covar_module, "kernels"):
                     return "MultiKernel"
-                else:
-                    return module_type
+                return module_type
+
             return "Unknown"
-        except:
+        except Exception:
             return "Unknown"
 
     def _save_parameters(self):

@@ -187,7 +187,7 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 num_runs=num_runs,
                 lr=lr,
                 convergence_patience=convergence_patience,
-                min_epochs=min_epochs,
+                # min_epochs=min_epochs,
                 min_loss_change=min_loss_change,
                 optimizer_class=optimizer_class,
                 initializer_class=initializer_class,
@@ -373,6 +373,11 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
 
 if __name__ == "__main__":
-    rosenbrock_GPvsPFN(num_folds=20, train_size=40, dimensions=40, num_runs=16, noise_test=0.005, noise_train=0.005, save_path='./results/rosenbrock/power_exponential', run_models='gp')
-    rosenbrock_GPvsPFN(num_folds=20, train_size=40, dimensions=40, num_runs=16, noise_test=0.05, noise_train=0.05, save_path='./results/rosenbrock/power_exponential', run_models='gp')
 
+    rosenbrock_GPvsPFN(title='WARMUP', num_folds=1, train_size=2, dimensions=10, num_runs=2, noise_test=0.005, noise_train=0.005, save_path=None, run_models='gp')
+    rosenbrock_GPvsPFN(title='test_analysis', num_folds=1, train_size=10, dimensions=40, num_runs=16, noise_test=0.005, noise_train=0.005, save_path='./results/rosenbrock/power_exponential', run_models='gp')
+    # rosenbrock_GPvsPFN(title='check1_5folds', num_folds=5, train_size=10, dimensions=40, num_runs=16, noise_test=0.005, noise_train=0.005, save_path='./results/rosenbrock/power_exponential', run_models='gp')
+    # rosenbrock_GPvsPFN(title='check1_5folds', num_folds=5, train_size=10, dimensions=40, num_runs=16, noise_test=0.05, noise_train=0.05, save_path='./results/rosenbrock/power_exponential', run_models='gp')
+
+    # rosenbrock_GPvsPFN(num_folds=2, train_size=40, dimensions=40, num_runs=4, noise_test=0.005, noise_train=0.005, save_path='./results/rosenbrock/power_exponential', run_models='gp')
+    # rosenbrock_GPvsPFN(num_folds=2, train_size=40, dimensions=40, num_runs=4, noise_test=0.05, noise_train=0.05, save_path='./results/rosenbrock/power_exponential', run_models='gp')
