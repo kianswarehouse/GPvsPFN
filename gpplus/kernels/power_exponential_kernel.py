@@ -1,5 +1,5 @@
 import torch
-from gpytorch.constraints import Interval
+from gpplus.constraints import SoftClamp
 
 # from gpytorch.kernels import Kernel
 from .unconstrained_kernel import UnconstrainedKernel
@@ -44,7 +44,7 @@ class PowerExponentialKernel(UnconstrainedKernel):
         )
 
         # Constrain raw_power to be in the interval [1, 2]
-        self.register_constraint("raw_power", Interval(1.0, 2.0))
+        self.register_constraint("raw_power", SoftClamp(lower_bound=1.0, upper_bound=2.0, margin=1e-2))
 
     @property
     def power(self):
