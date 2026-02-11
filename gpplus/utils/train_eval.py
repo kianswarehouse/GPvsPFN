@@ -503,6 +503,8 @@ def train_eval_gp(
                 "jitter": extracted_params.get("jitter"),
                 "raw_noise": extracted_params.get("raw_noise"),
                 "outputscale": extracted_params.get("outputscale"),
+                "raw_power": extracted_params.get("raw_power"),
+                "power": extracted_params.get("power"),
                 "lengthscales": lengthscales_extracted,
                 "cat_lengthscales": cat_lengthscales_extracted,
                 "source_lengthscales": source_lengthscales_extracted,
@@ -538,6 +540,14 @@ def train_eval_gp(
         add_metric("noise", noise_std)
         add_metric("noise_std", noise_std_original_scale)
         gp_metric["outputscale"] = best_model_metrics.get("outputscale")
+        
+        # Add power parameters (for PowerExponentialKernel)
+        raw_power = best_model_metrics.get("raw_power")
+        power = best_model_metrics.get("power")
+        if raw_power is not None:
+            gp_metric["raw_power"] = float(raw_power) if isinstance(raw_power, (int, float)) else float(raw_power.item() if hasattr(raw_power, "item") else raw_power)
+        if power is not None:
+            gp_metric["power"] = float(power) if isinstance(power, (int, float)) else float(power.item() if hasattr(power, "item") else power)
 
         # Add other metrics
         gp_metric.update(
