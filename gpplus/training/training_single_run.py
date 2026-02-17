@@ -246,6 +246,9 @@ class GPTrainerSingleProcess:
         logger.info(f"Training completed. Best loss: {best_loss:.6f}")
         logger.info(f"Total epochs trained: {epoch + 1}")
 
+        # Persist the actual jitter used (may have been increased on NotPSDError) so callbacks save it
+        self.cholesky_jitter = run_jitter
+
         # ---------------------------
         # on_train_end
         # ---------------------------

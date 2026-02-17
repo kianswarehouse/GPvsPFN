@@ -2,8 +2,7 @@ import torch
 import os
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import train_test_split
+from math import sqrt
 import torch.nn.functional as F
 
 
@@ -111,7 +110,7 @@ def generate_hartmann_data(n_samples=10000, noise_level=0.0, noise_type='gaussia
         if noise_type == 'gaussian':
             noise = torch.randn_like(y) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         
@@ -317,7 +316,7 @@ def generate_mf_wing_data(train_samples_per_source: list[int], test_samples_per_
             if noise_type == 'gaussian':
                 noise = torch.randn_like(y_train_block) * (train_noise[idx] * test_std_value)
             elif noise_type == 'uniform':
-                noise = (torch.rand_like(y_train_block) - 0.5) * 2 * (train_noise[idx] * test_std_value)
+                noise = (torch.rand_like(y_train_block) - 0.5) * 2 * (train_noise[idx] * test_std_value) * sqrt(3)
             else:
                 raise ValueError(f"Unknown noise_type: {noise_type}")
             y_train_block = y_train_block + noise
@@ -326,7 +325,7 @@ def generate_mf_wing_data(train_samples_per_source: list[int], test_samples_per_
             if noise_type == 'gaussian':
                 noise = torch.randn_like(y_test_block) * (test_noise[idx] * test_std_value)
             elif noise_type == 'uniform':
-                noise = (torch.rand_like(y_test_block) - 0.5) * 2 * (test_noise[idx] * test_std_value)
+                noise = (torch.rand_like(y_test_block) - 0.5) * 2 * (test_noise[idx] * test_std_value) * sqrt(3)
             else:
                 raise ValueError(f"Unknown noise_type: {noise_type}")
             y_test_block = y_test_block + noise
@@ -459,9 +458,9 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
     
     # Categorical index values (0-based) and actual physical values
     # Use strictly positive physical values to avoid 0/0 or division-by-zero in buckling formula
-    E_values = torch.tensor([0.0, 1.0], dtype=torch.float64)  # indices
-    K_values = torch.tensor([0.0, 1.0, 2.0, 3.0], dtype=torch.float64)  # indices
-    I_values = torch.tensor([0.0, 1.0, 2.0], dtype=torch.float64)  # indices
+    E_values = torch.tensor([0, 1], dtype=torch.long)  # category indices
+    K_values = torch.tensor([0, 1, 2, 3], dtype=torch.long)  # category indices
+    I_values = torch.tensor([0, 1, 2], dtype=torch.long)  # category indices
     # Actual physical values for buckling problem
     E_phys = torch.tensor([73.1, 200.0], dtype=torch.float64)  # Young's modulus values
     K_phys = torch.tensor([0.5, 0.7, 1.0, 2.0], dtype=torch.float64)  # Shear modulus values
@@ -641,7 +640,7 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
                 if noise_type == 'gaussian':
                     noise = torch.randn_like(y_test_block) * (test_noise[src_idx] * test_std_value)
                 elif noise_type == 'uniform':
-                    noise = (torch.rand_like(y_test_block) - 0.5) * 2 * (test_noise[src_idx] * test_std_value)
+                    noise = (torch.rand_like(y_test_block) - 0.5) * 2 * (test_noise[src_idx] * test_std_value) * sqrt(3)
                 else:
                     raise ValueError(f"Unknown noise_type: {noise_type}")
                 y_test_block = y_test_block + noise
@@ -660,7 +659,7 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
                 if noise_type == 'gaussian':
                     noise = torch.randn_like(y_train_all) * (train_noise[src_idx] * test_std_value)
                 elif noise_type == 'uniform':
-                    noise = (torch.rand_like(y_train_all) - 0.5) * 2 * (train_noise[src_idx] * test_std_value)
+                    noise = (torch.rand_like(y_train_all) - 0.5) * 2 * (train_noise[src_idx] * test_std_value) * sqrt(3)
                 else:
                     raise ValueError(f"Unknown noise_type: {noise_type}")
                 y_train_all = y_train_all + noise
@@ -900,7 +899,7 @@ def generate_mf_buckling_data(train_samples_per_source: list[int], test_samples_
             if noise_type == 'gaussian':
                 noise = torch.randn_like(y_train_block) * (train_noise[idx] * test_std_value)
             elif noise_type == 'uniform':
-                noise = (torch.rand_like(y_train_block) - 0.5) * 2 * (train_noise[idx] * test_std_value)
+                noise = (torch.rand_like(y_train_block) - 0.5) * 2 * (train_noise[idx] * test_std_value) * sqrt(3)
             else:
                 raise ValueError(f"Unknown noise_type: {noise_type}")
             y_train_block = y_train_block + noise
@@ -909,7 +908,7 @@ def generate_mf_buckling_data(train_samples_per_source: list[int], test_samples_
             if noise_type == 'gaussian':
                 noise = torch.randn_like(y_test_block) * (test_noise[idx] * test_std_value)
             elif noise_type == 'uniform':
-                noise = (torch.rand_like(y_test_block) - 0.5) * 2 * (test_noise[idx] * test_std_value)
+                noise = (torch.rand_like(y_test_block) - 0.5) * 2 * (test_noise[idx] * test_std_value) * sqrt(3)
             else:
                 raise ValueError(f"Unknown noise_type: {noise_type}")
             y_test_block = y_test_block + noise
@@ -1082,7 +1081,7 @@ def generate_mf_borehole_data(
             if noise_type == 'gaussian':
                 noise = torch.randn_like(y_train_block) * (train_noise[idx] * test_std_value)
             elif noise_type == 'uniform':
-                noise = (torch.rand_like(y_train_block) - 0.5) * 2 * (train_noise[idx] * test_std_value)
+                noise = (torch.rand_like(y_train_block) - 0.5) * 2 * (train_noise[idx] * test_std_value) * sqrt(3)
             else:
                 raise ValueError(f"Unknown noise_type: {noise_type}")
             y_train_block = y_train_block + noise
@@ -1091,7 +1090,7 @@ def generate_mf_borehole_data(
             if noise_type == 'gaussian':
                 noise = torch.randn_like(y_test_block) * (test_noise[idx] * test_std_value)
             elif noise_type == 'uniform':
-                noise = (torch.rand_like(y_test_block) - 0.5) * 2 * (test_noise[idx] * test_std_value)
+                noise = (torch.rand_like(y_test_block) - 0.5) * 2 * (test_noise[idx] * test_std_value) * sqrt(3)
             else:
                 raise ValueError(f"Unknown noise_type: {noise_type}")
             y_test_block = y_test_block + noise
@@ -1202,7 +1201,7 @@ def generate_ackley_data(n_train: int, n_test: int, dimensions: int = 2, x_bound
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_train) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_train = y_train + noise
@@ -1212,7 +1211,7 @@ def generate_ackley_data(n_train: int, n_test: int, dimensions: int = 2, x_bound
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_test) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_test = y_test + noise
@@ -1333,7 +1332,7 @@ def generate_rastrigin_data(n_train: int, n_test: int, dimensions: int = 2, x_bo
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_train) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_train = y_train + noise
@@ -1343,7 +1342,7 @@ def generate_rastrigin_data(n_train: int, n_test: int, dimensions: int = 2, x_bo
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_test) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_test = y_test + noise
@@ -1430,7 +1429,7 @@ def generate_rosenbrock_data(n_train: int, n_test: int, dimensions: int = 2, x_b
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_train) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_train = y_train + noise
@@ -1440,7 +1439,7 @@ def generate_rosenbrock_data(n_train: int, n_test: int, dimensions: int = 2, x_b
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_test) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_test = y_test + noise
@@ -1536,7 +1535,7 @@ def generate_zakharov_data(n_train: int, n_test: int, dimensions: int = 2, x_bou
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_train) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_train = y_train + noise
@@ -1546,7 +1545,7 @@ def generate_zakharov_data(n_train: int, n_test: int, dimensions: int = 2, x_bou
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_test) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_test = y_test + noise
@@ -1641,7 +1640,7 @@ def generate_michalewicz_data(n_train: int, n_test: int, dimensions: int = 2, x_
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_train) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_train = y_train + noise
@@ -1651,7 +1650,7 @@ def generate_michalewicz_data(n_train: int, n_test: int, dimensions: int = 2, x_
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_test) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_test = y_test + noise
@@ -1763,7 +1762,7 @@ def generate_keane_bump_data(n_train: int, n_test: int, dimensions: int = 30, x_
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_train) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_train = y_train + noise
@@ -1773,7 +1772,7 @@ def generate_keane_bump_data(n_train: int, n_test: int, dimensions: int = 30, x_
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_test) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_test = y_test + noise
@@ -1961,7 +1960,7 @@ def generate_rover_trajectory_data(n_train: int, n_test: int, dimensions: int = 
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_train) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_train = y_train + noise
@@ -1971,7 +1970,7 @@ def generate_rover_trajectory_data(n_train: int, n_test: int, dimensions: int = 
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_test) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_test = y_test + noise
@@ -2088,7 +2087,7 @@ def generate_powell_data(n_train: int, n_test: int, dimensions: int = 4, x_bound
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_train) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_train = y_train + noise
@@ -2098,7 +2097,7 @@ def generate_powell_data(n_train: int, n_test: int, dimensions: int = 4, x_bound
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_test) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_test = y_test + noise
@@ -2197,7 +2196,7 @@ def generate_griewank_data(n_train: int, n_test: int, dimensions: int = 2, x_bou
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_train) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_train = y_train + noise
@@ -2207,7 +2206,7 @@ def generate_griewank_data(n_train: int, n_test: int, dimensions: int = 2, x_bou
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_test) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_test = y_test + noise
@@ -2312,7 +2311,7 @@ def generate_dixon_price_data(n_train: int, n_test: int, dimensions: int = 2, x_
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_train) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_train = y_train + noise
@@ -2322,7 +2321,7 @@ def generate_dixon_price_data(n_train: int, n_test: int, dimensions: int = 2, x_
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_test) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_test = y_test + noise
@@ -2415,7 +2414,7 @@ def generate_styblinski_tang_data(n_train: int, n_test: int, dimensions: int = 2
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_train) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_train) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_train = y_train + noise
@@ -2425,7 +2424,7 @@ def generate_styblinski_tang_data(n_train: int, n_test: int, dimensions: int = 2
         if noise_type == 'gaussian':
             noise = torch.randn_like(y_test) * noise_scale
         elif noise_type == 'uniform':
-            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale
+            noise = (torch.rand_like(y_test) - 0.5) * 2 * noise_scale * sqrt(3)
         else:
             raise ValueError(f"Unknown noise_type: {noise_type}. Use 'gaussian' or 'uniform'")
         y_test = y_test + noise

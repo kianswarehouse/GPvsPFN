@@ -21,6 +21,7 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         num_epochs=defaults.TRAINER_NUM_EPOCHS, 
         lr=defaults.TRAINER_LR, 
         convergence_patience=defaults.TRAINER_CONVERGENCE_PATIENCE,
+        cholesky_jitter=defaults.TRAINER_CHOLESKY_JITTER,
         min_loss_change=defaults.TRAINER_MIN_LOSS_CHANGE,
         optimizer_class=defaults.TRAINER_OPTIMIZER_CLASS,
         initializer_class=defaults.TRAINER_INITIALIZER_CLASS,
@@ -196,6 +197,7 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 y_train_std=y_train_std if standardize_y else None,
                 source_cols=source_cols,
                 trainer_info=trainer_info,
+                cholesky_jitter=cholesky_jitter,
             )
             GPPlus_metrics.append(gp_metric)
             
@@ -374,10 +376,31 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
 if __name__ == "__main__":
 
+    kernel = "power_exponential"
+    title = "check1_4fold_1e-12j_Interval[0,2]"
     rosenbrock_GPvsPFN(title='WARMUP', num_folds=1, train_size=2, dimensions=10, num_runs=2, noise_test=0.005, noise_train=0.005, save_path=None, run_models='gp')
-    rosenbrock_GPvsPFN(title='test_analysis', num_folds=1, train_size=10, dimensions=40, num_runs=16, noise_test=0.005, noise_train=0.005, save_path='./results/rosenbrock/power_exponential', run_models='gp')
-    # rosenbrock_GPvsPFN(title='check1_5folds', num_folds=5, train_size=10, dimensions=40, num_runs=16, noise_test=0.005, noise_train=0.005, save_path='./results/rosenbrock/power_exponential', run_models='gp')
-    # rosenbrock_GPvsPFN(title='check1_5folds', num_folds=5, train_size=10, dimensions=40, num_runs=16, noise_test=0.05, noise_train=0.05, save_path='./results/rosenbrock/power_exponential', run_models='gp')
+    # rosenbrock_GPvsPFN(title='test_analysis_1_1e-12jitter', num_folds=1, train_size=10, dimensions=40, num_runs=16, noise_test=0.005, noise_train=0.005, save_path=f'./results/rosenbrock/{kernel}', run_models='gp')
+    # rosenbrock_GPvsPFN(title=title, num_folds=20, train_size=10, num_test=10000, dimensions=40, num_runs=4, noise_test=0.005, noise_train=0.005, save_path='./results/rosenbrock/power_exponential', run_models='gp')
+    # rosenbrock_GPvsPFN(title=title, num_folds=20, train_size=10, dimensions=10, num_runs=4, noise_test=0.005, noise_train=0.005, save_path='./results/rosenbrock/power_exponential', run_models='gp')
+    # rosenbrock_GPvsPFN(title=title, num_folds=20, train_size=10, dimensions=10, num_runs=4, noise_test=0.05, noise_train=0.05, save_path='./results/rosenbrock/power_exponential', run_models='gp')
+    rosenbrock_GPvsPFN(title=title, num_folds=20, train_size=10, dimensions=10, num_runs=16, noise_test=0.005, noise_train=0.005, save_path='./results/rosenbrock/power_exponential', run_models='gp')
+    rosenbrock_GPvsPFN(title=title, num_folds=20, train_size=10, dimensions=10, num_runs=16, noise_test=0.05, noise_train=0.05, save_path='./results/rosenbrock/power_exponential', run_models='gp')
 
-    # rosenbrock_GPvsPFN(num_folds=2, train_size=40, dimensions=40, num_runs=4, noise_test=0.005, noise_train=0.005, save_path='./results/rosenbrock/power_exponential', run_models='gp')
-    # rosenbrock_GPvsPFN(num_folds=2, train_size=40, dimensions=40, num_runs=4, noise_test=0.05, noise_train=0.05, save_path='./results/rosenbrock/power_exponential', run_models='gp')
+    # rosenbrock_GPvsPFN(title=title, num_folds=20, train_size=40, dimensions=5, num_runs=4, noise_test=0.005, noise_train=0.005, save_path=f'./results/rosenbrock/{kernel}', run_models='gp')
+    # rosenbrock_GPvsPFN(title=title, num_folds=20, train_size=40, dimensions=10, num_runs=4, noise_test=0.005, noise_train=0.005, save_path=f'./results/rosenbrock/{kernel}', run_models='gp')
+    # rosenbrock_GPvsPFN(title=title, num_folds=20, train_size=40, dimensions=10, num_runs=4, noise_test=0.05, noise_train=0.05, save_path=f'./results/rosenbrock/{kernel}', run_models='gp')
+    rosenbrock_GPvsPFN(title=title, num_folds=20, train_size=40, dimensions=10, num_runs=16, noise_test=0.005, noise_train=0.005, save_path=f'./results/rosenbrock/{kernel}', run_models='gp')
+    rosenbrock_GPvsPFN(title=title, num_folds=20, train_size=40, dimensions=10, num_runs=16, noise_test=0.05, noise_train=0.05, save_path=f'./results/rosenbrock/{kernel}', run_models='gp')
+    
+    # rosenbrock_GPvsPFN(title='test_analysis_1_1e-12jitter', num_folds=1, train_size=10, dimensions=40, num_runs=16, noise_test=0.005, noise_train=0.005, save_path=f'./results/rosenbrock/{kernel}', run_models='gp')
+    # rosenbrock_GPvsPFN(title=title, num_folds=1, train_size=10, num_test=10000, dimensions=40, num_runs=4, noise_test=0.005, noise_train=0.005, save_path='./results/rosenbrock/power_exponential', run_models='gp')
+    # rosenbrock_GPvsPFN(title=title, num_folds=1, train_size=10, dimensions=40, num_runs=4, noise_test=0.005, noise_train=0.005, save_path='./results/rosenbrock/power_exponential', run_models='gp')
+    # rosenbrock_GPvsPFN(title=title, num_folds=1, train_size=10, dimensions=40, num_runs=4, noise_test=0.05, noise_train=0.05, save_path='./results/rosenbrock/power_exponential', run_models='gp')
+    # rosenbrock_GPvsPFN(title=title, num_folds=1, train_size=10, dimensions=40, num_runs=16, noise_test=0.005, noise_train=0.005, save_path='./results/rosenbrock/power_exponential', run_models='gp')
+    # rosenbrock_GPvsPFN(title=title, num_folds=1, train_size=10, dimensions=40, num_runs=16, noise_test=0.05, noise_train=0.05, save_path='./results/rosenbrock/power_exponential', run_models='gp')
+
+    # rosenbrock_GPvsPFN(title=title, num_folds=1, train_size=40, dimensions=5, num_runs=4, noise_test=0.005, noise_train=0.005, save_path=f'./results/rosenbrock/{kernel}', run_models='gp')
+    # rosenbrock_GPvsPFN(title=title, num_folds=4, train_size=40, dimensions=40, num_runs=4, noise_test=0.005, noise_train=0.005, save_path=f'./results/rosenbrock/{kernel}', run_models='gp')
+    # rosenbrock_GPvsPFN(title=title, num_folds=4, train_size=40, dimensions=40, num_runs=4, noise_test=0.05, noise_train=0.05, save_path=f'./results/rosenbrock/{kernel}', run_models='gp')
+    # rosenbrock_GPvsPFN(title=title, num_folds=4, train_size=40, dimensions=40, num_runs=16, noise_test=0.005, noise_train=0.005, save_path=f'./results/rosenbrock/{kernel}', run_models='gp')
+    # rosenbrock_GPvsPFN(title=title, num_folds=4, train_size=40, dimensions=40, num_runs=16, noise_test=0.05, noise_train=0.05, save_path=f'./results/rosenbrock/{kernel}', run_models='gp')

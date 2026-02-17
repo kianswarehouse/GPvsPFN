@@ -6,6 +6,9 @@ import gpplus
 import time
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
+from gpplus.likelihoods import LogGaussianLikelihood
+from gpytorch.priors import NormalPrior
+# from gpytorch.means import ZeroMean
 from tabpfn import TabPFNRegressor
 from load_experimental_data import generate_mf_buckling_data_with_folds
 import defaults
@@ -26,28 +29,23 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         amp_device=defaults.TRAINER_AMP_DEVICE,
         save_path='./results/buckling',
         title=None,
-        standardize_X=True,
-        standardize_y=True,
+        standardize_X=defaults.STANDARDIZE_X,
+        standardize_y=defaults.STANDARDIZE_Y,
         x_standardize_method=defaults.X_STANDARDIZE_METHOD,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
         standardize_y_log_scale=False,
         noise_train=0.0,
         noise_test=0.0,
-        noise_type='gaussian',
+        noise_type=defaults.NOISE_TYPE,
         seed=defaults.SEED,
         seed_trainer=defaults.SEED_TRAINER,
-        gp_dtype = defaults.DTYPE_GP,
-        pfn_dtype = defaults.DTYPE_PFN,
+        gp_dtype=defaults.DTYPE_GP,
+        pfn_dtype=defaults.DTYPE_PFN,
         trainer_info=True,
         MF_kernel=True,
-        run_pfn: bool = True,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
     ):
     if run_models == 'pfn':
         num_runs = 0
-        run_pfn = True
-    elif run_models == 'gp':
-        run_pfn = False
-    # else run_models is None, keep run_pfn as passed
     
     if title is None:
         title = f"buckling_SF_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
@@ -59,7 +57,7 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
-    regressor = TabPFNRegressor(device=amp_device) if run_pfn else None
+    regressor = TabPFNRegressor(device=amp_device) if run_models in [None, 'pfn'] else None
     if save_path is not None:
         plot_save_path = f"{save_path}/plots"
     else:
@@ -136,6 +134,14 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         for i in range(4):
             count = (fold_data[:, 2] == i).sum().item()
             print(f"  K={i}: {count} samples")
+        
+        # Print actual samples (E, K, I) for verification
+        E_col, K_col, I_col = 1, 2, 3
+        samples_eki = [
+            (int(fold_data[j, E_col].item()), int(fold_data[j, K_col].item()), int(fold_data[j, I_col].item()))
+            for j in range(fold_data.shape[0])
+        ]
+        print(f"  Samples (E, K, I): {samples_eki}")
     
     print(f"{'='*60}")
         
@@ -223,19 +229,38 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             print(f"\n--- {title} GP Training ---")
             
             if MF_kernel:
-                kenrel = defaults.MF_kernel(
+            #     kernel = defaults.MF_kernel(
+            #         cont_cols=cont_cols,
+            #         cat_cols=cat_cols,
+            #         source_cols=source_cols,
+            #     )
+                grouped_cat = [x for sub in cat_cols for x in sub]
+                kernel = gpplus.kernels.LogScaleKernel(
+                    gpplus.kernels.MVMFKernel(
                     cont_cols=cont_cols,
-                    cat_cols=cat_cols,
-                    source_cols=source_cols,
+                    # cat_cols=cat_cols,
+                    cat_cols=grouped_cat,
+                    # cat_encoder='nn',
+                    # z_dim=3,
+                    # source_cols=source_cols,
+                    # fix_lengthscale_cat=True,
+                    )  
                 )
-            else:
-                kenrel = defaults.SF_kernel
 
+            else:
+                kernel = defaults.SF_kernel
+
+            # Prior on log-scale noise (raw_noise in [-7, -1], same scale as init)
+            # buckling_likelihood = LogGaussianLikelihood(
+            #     noise_prior=NormalPrior(loc=-3.5, scale=0.5),  # mass in [-7, -1]; -2.5 for 0.05 noise, -4.5 for 0.005
+            # )
             model = gpplus.models.GPR(
                 X_train,
                 y_train_normal if standardize_y else y_train,
-                kernel_module=kenrel,
+                kernel_module=kernel,
                 mean_module=defaults.SF_mean,
+                # mean_module=ZeroMean(),
+                # likelihood=buckling_likelihood,
                 likelihood=defaults.SF_likelihood,
             )
             if (i == 0) or (i == num_folds - 1):
@@ -256,6 +281,7 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 num_runs=num_runs,
                 lr=lr,
                 convergence_patience=convergence_patience,
+                min_epochs=min_epochs,
                 min_loss_change=min_loss_change,
                 optimizer_class=optimizer_class,
                 initializer_class=initializer_class,
@@ -278,12 +304,12 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
             print(f"\nGP Results (Fold {i+1}/{num_folds})")
             for k, v in gp_metric.items():
-                print(f"  {k}: {v:.4f}")
+                print(f"  {k}: {v:.4f}" if v is not None and isinstance(v, (int, float)) else f"  {k}: {v}")
 
         # =============================================================================
         # TabPFN Section
         # =============================================================================
-        if run_pfn and run_models in [None, 'pfn']:
+        if run_models in [None, 'pfn']:
             print(f"\n--- {title} TabPFN Training ---")
             
             tabpfn_metric, y_pred_tabpfn, output_std_tabpfn = train_eval_PFN(
@@ -305,7 +331,7 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             # Print results for this fold
             print(f"\nTabPFN Results (Fold {i+1}/{num_folds})")
             for k, v in tabpfn_metric.items():
-                print(f"  {k}: {v:.4f}")
+                print(f"  {k}: {v:.4f}" if v is not None and isinstance(v, (int, float)) else f"  {k}: {v}")
         
         # Collect model info from first fold
         if i == 0:
@@ -344,7 +370,7 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                     "seed_trainer": seed_trainer,
                 }
             tabpfn_model_info = None
-            if run_pfn and run_models in [None, 'pfn']:
+            if run_models in [None, 'pfn']:
                 tabpfn_model_info = {
                     "model_path": regressor.model_path,
                     "fit_mode": regressor.fit_mode,
@@ -364,14 +390,12 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
     # Summaries via analyze_metrics
     GPPlus_summary = analyze_metrics(GPPlus_metrics, print_summary=True, label="GP", title=title) if run_models in [None, 'gp'] else None
-    TabPFN_summary = None
-    if run_pfn and run_models in [None, 'pfn']:
-        TabPFN_summary = analyze_metrics(TabPFN_metrics, print_summary=True, label="TabPFN", title=title)
+    TabPFN_summary = analyze_metrics(TabPFN_metrics, print_summary=True, label="TabPFN", title=title) if run_models in [None,'pfn'] else None
     
     # Add model info to GP summary if available
     
     if save_path is not None:
-        if run_pfn and run_models is None:
+        if run_models is None:
             plot_metrics(TabPFN_metrics, GPPlus_metrics, labels=["TabPFN", "GP"], title=title, save_path=plot_save_path)
         # Save raw metrics and summaries
         out_dir = Path(save_path)
@@ -393,12 +417,16 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                     "metrics": GPPlus_metrics,
                     "gp_model_info": gp_model_info
                 }
-            if run_pfn and run_models in [None, 'pfn']:
+            if run_models in [None, 'pfn']:
                 combined_data["tabpfn_data"] = {
                     "summary": TabPFN_summary,
                     "metrics": TabPFN_metrics,
                     "pfn_model_info": tabpfn_model_info,
                 }
+            # Append defaults.py source at end of JSON for reproducibility
+            _defaults_path = Path(__file__).resolve().parent / "defaults.py"
+            if _defaults_path.is_file():
+                combined_data["defaults_py"] = _defaults_path.read_text(encoding="utf-8")
             (out_dir / f"{file_prefix}_{title}.json").write_text(json.dumps(combined_data, indent=2))
         except Exception:
             pass
@@ -422,6 +450,13 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 trainer_info_file = trainer_analysis_dir / f"gpVpfn_{title}_GP_Trainer_Analysis.json"
                 trainer_info_file.write_text(json.dumps(trainer_info_data, indent=2))
                 print(f"\nTrainer info saved to: {trainer_info_file}")
+                # Generate hyperparameter plots in trainer_analysis/plots
+                try:
+                    from plot_trainer_analysis_hyperparams import plot_trainer_analysis_from_data
+                    plots_dir = trainer_analysis_dir / "plots"
+                    plot_trainer_analysis_from_data(trainer_info_data, plots_dir)
+                except Exception as plot_e:
+                    print(f"Trainer analysis plotting skipped: {plot_e}")
                 
             except Exception as e:
                 print(f"Error saving trainer info: {e}")
@@ -437,7 +472,7 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
 if __name__ == "__main__":
     # buckling_SF_GPvsPFN(num_folds=5, train_size=20, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp')
-    buckling_SF_GPvsPFN(num_folds=1, train_size=20, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp', run_pfn=False)
+    buckling_SF_GPvsPFN(num_folds=1, train_size=20, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp')
     # buckling_SF_GPvsPFN(num_folds=1, train_size=20, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp', title = "SF_kernel", MF_kernel=False)
     # buckling_GPvsPFN(num_folds=1, num_runs=2, num_epochs=10000, save_path='./results/buckling/temp', standardize_X_gp=False, standardize_y_gp=True)
     # buckling_GPvsPFN(num_folds=1, num_runs=2, num_epochs=10000, save_path=None, standardize_X_gp=False, standardize_y_gp=True)
