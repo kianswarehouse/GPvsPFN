@@ -17,6 +17,7 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         train_size=10, # total training size is train_size * number of X input dimensions
         num_runs=defaults.TRAINER_NUM_RUNS, 
         num_epochs=defaults.TRAINER_NUM_EPOCHS, 
+        min_epochs=defaults.TRAINER_MIN_EPOCHS,
         lr=defaults.TRAINER_LR, 
         convergence_patience=defaults.TRAINER_CONVERGENCE_PATIENCE,
         min_loss_change=defaults.TRAINER_MIN_LOSS_CHANGE,
@@ -44,9 +45,9 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         num_runs = 0
     
     if title is None:
-        title = f"borehole_SF_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"borehole_SF_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_folds}"
     else: 
-        title = f"borehole_SF_{title}_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"borehole_SF_{title}_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_folds}"
     
     
     print(f" GP Device: {gp_device}")

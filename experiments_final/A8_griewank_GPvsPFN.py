@@ -92,7 +92,7 @@ def griewank_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     qual_dict = learn_encodings(X)
     print(qual_dict)
     _, cont_cols, cat_cols, source_cols = encode_qual_data(X_train_all, qual_dict=qual_dict, source_col=None)
-    _, _, _, _ = encode_qual_data(X_test_all, qual_dict=qual_dict, source_col=None)
+    # _, _, _, _ = encode_qual_data(X_test_all, qual_dict=qual_dict, source_col=None)
     # print(cat_cols)
     TabPFN_metrics = []
     GPPlus_metrics = []

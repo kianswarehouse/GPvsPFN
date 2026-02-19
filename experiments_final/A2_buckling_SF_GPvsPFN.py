@@ -48,9 +48,9 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         num_runs = 0
     
     if title is None:
-        title = f"buckling_SF_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"buckling_SF_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_folds}"
     else: 
-        title = f"buckling_SF_{title}_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"buckling_SF_{title}_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_folds}"
     
     # Generate data
     set_seed(seed)

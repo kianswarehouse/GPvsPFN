@@ -45,9 +45,9 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         num_runs = 0
     
     if title is None:
-        title = f"wing_SF_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"wing_SF_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_folds}"
     else: 
-        title = f"wing_SF_{title}_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"wing_SF_{title}_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_folds}"
 
     # Generate data
     set_seed(seed)
@@ -198,6 +198,7 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             print(f"\nGP Results (Fold {i+1}/{num_folds})")
             for k, v in gp_metric.items():
                 print(f"  {k}: {v:.4f}")
+
 
         # =============================================================================
         # TabPFN Section

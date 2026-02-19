@@ -1,4 +1,4 @@
-import gpplus
+﻿import gpplus
 import torch
 
 X_STANDARDIZE_METHOD = 2 # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
@@ -15,14 +15,12 @@ TRAINER_NUM_EPOCHS = 200
 TRAINER_NUM_RUNS = 16
 TRAINER_CONVERGENCE_PATIENCE = 10
 # TRAINER_CHOLESKY_JITTER = 0
-# TRAINER_CHOLESKY_JITTER = 1e-12
 TRAINER_CHOLESKY_JITTER = 1e-6
 TRAINER_MIN_LOSS_CHANGE = 1e-7
 # TRAINER_OPTIMIZER_CLASS = torch.optim.Adam
 TRAINER_OPTIMIZER_CLASS = gpplus.training.optimizers.LBFGSScipy
-# TRAINER_OPTIMIZER_KWARGS = {"max_iter": 2000, "max_eval": 5000, "tolerance_grad": 1e-5, "tolerance_change": 1e-9, "history_size": 10} #1
-TRAINER_OPTIMIZER_KWARGS = {"max_iter": 20}   # 0 
-# TRAINER_OPTIMIZER_KWARGS = None
+TRAINER_OPTIMIZER_KWARGS = {"max_iter": 2000, "max_eval": 5000, "tolerance_grad": 1e-5, "tolerance_change": 1e-9, "history_size": 10} #1
+# TRAINER_OPTIMIZER_KWARGS = {"max_iter": 20}   # 0 
 TRAINER_INITIALIZER_CLASS = gpplus.training.parameter_initializer.DefaultParameterInitializer
 TRAINER_GP_DEVICE = 'cpu'
 TRAINER_AMP_DEVICE = 'cuda'

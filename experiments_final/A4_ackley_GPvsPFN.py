@@ -10,6 +10,7 @@ from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from tabpfn import TabPFNRegressor
 from load_experimental_data import generate_ackley_data
 import defaults
+import gpytorch
 
 # import warnings
 # warnings.filterwarnings("ignore")
@@ -50,9 +51,9 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
     v2 = "V2" if V2 else ""
     if title is None:
-        title = f"Ackley{v2}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"Ackley{v2}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_folds}"
     else: 
-        title = f"Ackley{v2}_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"Ackley{v2}_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_folds}"
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")

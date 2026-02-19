@@ -25,6 +25,7 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         x_bounds=[-10, 10],
         num_runs=defaults.TRAINER_NUM_RUNS, 
         num_epochs=defaults.TRAINER_NUM_EPOCHS, 
+        min_epochs=defaults.TRAINER_MIN_EPOCHS,
         lr=defaults.TRAINER_LR, 
         convergence_patience=defaults.TRAINER_CONVERGENCE_PATIENCE,
         min_loss_change=defaults.TRAINER_MIN_LOSS_CHANGE,
@@ -52,9 +53,9 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         num_runs = 0
 
     if title is None:
-        title = f"DixonPrice_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"DixonPrice_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_folds}"
     else: 
-        title = f"DixonPrice_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"DixonPrice_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_folds}"
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
@@ -152,7 +153,7 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         # KERNEL CONFIGURATION
         # ============================================================================
         # Choose between 'Gaussian', 'PowerExponential', 'Matern'
-        KERNEL_TYPE = "PowerExponential"  # Options: 'Gaussian', 'PowerExponential', 'Matern'
+        KERNEL_TYPE = None  # Options: 'Gaussian', 'PowerExponential', 'Matern'
         # ============================================================================
         if KERNEL_TYPE == "PowerExponential":
             kernel_mod = gpplus.kernels.LogScaleKernel(gpplus.kernels.PowerExponentialKernel(ard_num_dims=dimensions))
