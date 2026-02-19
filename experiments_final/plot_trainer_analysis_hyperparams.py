@@ -34,7 +34,7 @@ def _scalar_from_param(value: Any) -> float | None:
 
 
 def _get_hyperparameter_value(params: dict, key: str) -> float | None:
-    """Get scalar value for a hyperparameter key (scalar keys or raw_lengthscale_i, raw_cat_lengthscale_i)."""
+    """Get scalar value for a hyperparameter key (scalar keys or raw_lengthscale_i, raw_cat_lengthscale_i, mean_weight_i)."""
     if key.startswith("raw_lengthscale_"):
         try:
             idx = int(key.split("_")[-1])
@@ -54,6 +54,16 @@ def _get_hyperparameter_value(params: dict, key: str) -> float | None:
         if not raw or not isinstance(raw, (list, tuple)) or len(raw) <= idx:
             return None
         val = raw[idx]
+        return float(val) if val is not None and (isinstance(val, (int, float)) or hasattr(val, "item")) else None
+    if key.startswith("mean_weight_"):
+        try:
+            idx = int(key.split("_")[-1])
+        except ValueError:
+            return None
+        mw = params.get("mean_weights")
+        if not mw or not isinstance(mw, (list, tuple)) or len(mw) <= idx:
+            return None
+        val = mw[idx]
         return float(val) if val is not None and (isinstance(val, (int, float)) or hasattr(val, "item")) else None
     return _scalar_from_param(params.get(key))
 
@@ -95,9 +105,11 @@ def _embedding_matrix_from_params(params: dict, key: str) -> np.ndarray | None:
 
 def _infer_hyperparameter_keys(all_runs: list[dict]) -> list[str]:
     """Infer which raw hyperparameter keys exist; one key per scalar, one per lengthscale dimension.
-    Includes raw_power for PowerExponentialKernel."""
+    Includes raw_power for PowerExponentialKernel; mean_weight_i and mean_bias for LinearMean."""
     has_noise = has_outputscale = has_constant = has_raw_power = False
     max_cont, max_cat = 0, 0
+    max_mean_weights = 0
+    has_mean_bias = False
     for r in all_runs:
         init = r.get("initial_parameters") or {}
         if "raw_noise" in init:
@@ -108,6 +120,11 @@ def _infer_hyperparameter_keys(all_runs: list[dict]) -> list[str]:
             has_constant = True
         if "raw_power" in init:
             has_raw_power = True
+        mw = init.get("mean_weights")
+        if mw is not None and isinstance(mw, (list, tuple)):
+            max_mean_weights = max(max_mean_weights, len(mw))
+        if init.get("mean_bias") is not None:
+            has_mean_bias = True
         raw_ls = init.get("raw_lengthscales")
         if raw_ls is not None and isinstance(raw_ls, (list, tuple)):
             max_cont = max(max_cont, len(raw_ls))
@@ -123,6 +140,9 @@ def _infer_hyperparameter_keys(all_runs: list[dict]) -> list[str]:
         keys.append("raw_constant")
     if has_raw_power:
         keys.append("raw_power")
+    keys.extend(f"mean_weight_{i}" for i in range(max_mean_weights))
+    if has_mean_bias:
+        keys.append("mean_bias")
     keys.extend(f"raw_lengthscale_{i}" for i in range(max_cont))
     keys.extend(f"raw_cat_lengthscale_{i}" for i in range(max_cat))
     return keys
