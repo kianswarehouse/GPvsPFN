@@ -17,6 +17,7 @@ from typing import Any
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 
 
 def _scalar_from_param(value: Any) -> float | None:
@@ -154,9 +155,34 @@ def load_trainer_analysis(path: Path) -> dict:
         return json.load(f)
 
 
+def _trainer_info_fold_iter(data: dict):
+    """Yield (fold_idx_0based, fold_entry) for trainer_info as either list or dict (fold_1, fold_2, ...)."""
+    trainer_info = data.get("trainer_info")
+    if trainer_info is None:
+        return
+    if isinstance(trainer_info, dict):
+        def _fold_sort_key(k):
+            if isinstance(k, str) and k.startswith("fold_"):
+                try:
+                    return int(k.replace("fold_", ""))
+                except ValueError:
+                    return 0
+            return 0
+        for fold_key in sorted(trainer_info.keys(), key=_fold_sort_key):
+            fold_entry = trainer_info[fold_key]
+            try:
+                fold_idx = int(fold_key.replace("fold_", "")) - 1 if (isinstance(fold_key, str) and fold_key.startswith("fold_")) else 0
+            except ValueError:
+                fold_idx = 0
+            yield fold_idx, fold_entry
+    else:
+        for fold_idx, fold_entry in enumerate(trainer_info):
+            yield fold_idx, fold_entry
+
+
 def extract_runs_and_chosen(data: dict) -> tuple[list[dict], list[dict]]:
     """
-    From trainer_info (list of folds), return flat list of runs and list of chosen runs (one per fold).
+    From trainer_info (list of folds or dict fold_1, fold_2, ...), return flat list of runs and list of chosen runs (one per fold).
     Chosen = run with minimum loss in that fold.
     Also marks _best_rrmse on the chosen run from the fold that achieved the best RRMSE over all folds.
     """
@@ -164,7 +190,7 @@ def extract_runs_and_chosen(data: dict) -> tuple[list[dict], list[dict]]:
     chosen_list: list[dict] = []
     fold_rrmse: list[float] = []
 
-    for fold_idx, fold_entry in enumerate(data.get("trainer_info", [])):
+    for fold_idx, fold_entry in _trainer_info_fold_iter(data):
         runs = fold_entry.get("runs", [])
         if not runs:
             continue
@@ -242,8 +268,25 @@ def plot_hyperparameter_epochs(
 ) -> None:
     """
     One subplot per hyperparameter. X = epoch (0 = start, num_epochs = end). Y = hyperparameter value.
-    Each run is a line from (0, initial) to (num_epochs, final). Start points at epoch 0, end at epoch num_epochs.
+    Each run shows 2 or 3 points: start (epoch 0), best epoch (if distinct), and final (num_epochs).
+    Same for gray, green (chosen), and red (best RRMSE) runs.
     """
+    def _run_line_points(epochs_i: float, best_epoch_i: float, init_i: float, final_i: float):
+        """Return (x_list, y_list) for polyline: 2 points if best==start or best==end, else 3 points."""
+        x0, x_end = 0.0, float(epochs_i)
+        be = float(best_epoch_i) if np.isfinite(best_epoch_i) else None
+        if be is not None and 0 < be < x_end:
+            return [x0, be, x_end], [init_i, final_i, final_i]
+        return [x0, x_end], [init_i, final_i]
+
+    def _run_marker_points(epochs_i: float, best_epoch_i: float, init_i: float, final_i: float):
+        """Return (x_array, y_array) for scatter: 2 or 3 points (start, best if distinct, end)."""
+        x0, x_end = 0.0, float(epochs_i)
+        be = float(best_epoch_i) if np.isfinite(best_epoch_i) else None
+        if be is not None and 0 < be < x_end:
+            return np.array([x0, be, x_end]), np.array([init_i, final_i, final_i])
+        return np.array([x0, x_end]), np.array([init_i, final_i])
+
     param_keys = [k for k in arrays_per_param if np.any(np.isfinite(arrays_per_param[k]["initial_value"]))]
     n = len(param_keys)
     if n == 0:
@@ -265,123 +308,72 @@ def plot_hyperparameter_epochs(
         chosen = d["is_chosen"]
         best_rrmse = d.get("is_best_rrmse", np.zeros(len(epochs), dtype=bool))
 
-        # Lines: each run from (0, initial) to (num_epochs, final); label only first of each type for legend
+        # Lines and points: 2 or 3 points per run (start, best epoch if distinct, final)
         labeled_chosen_line = False
         labeled_all_line = False
         labeled_best_rrmse_line = False
+        all_x, all_y = [], []
+        chosen_x, chosen_y = [], []
+        best_x, best_y = [], []
+
         for i in range(len(epochs)):
             if not np.isfinite(init_v[i]) and not np.isfinite(final_v[i]):
                 continue
-            x0, x1 = 0.0, float(epochs[i])
-            y0 = init_v[i] if np.isfinite(init_v[i]) else final_v[i]
-            y1 = final_v[i] if np.isfinite(final_v[i]) else init_v[i]
+            init_i = init_v[i] if np.isfinite(init_v[i]) else final_v[i]
+            final_i = final_v[i] if np.isfinite(final_v[i]) else init_v[i]
+            x_pts, y_pts = _run_line_points(epochs[i], best_epochs[i], init_i, final_i)
+            mx, my = _run_marker_points(epochs[i], best_epochs[i], init_i, final_i)
             if best_rrmse[i]:
-                ax.plot(
-                    [x0, x1], [y0, y1],
-                    c="red", alpha=0.95, linewidth=2.5, zorder=6,
-                    label="Best RRMSE (line)" if not labeled_best_rrmse_line else None,
-                )
+                ax.plot(x_pts, y_pts, c="red", alpha=0.95, linewidth=2.5, zorder=6,
+                        label="Best RRMSE (line)" if not labeled_best_rrmse_line else None)
                 labeled_best_rrmse_line = True
+                best_x.append(mx)
+                best_y.append(my)
             elif chosen[i]:
-                ax.plot(
-                    [x0, x1], [y0, y1],
-                    c="C2", alpha=0.8, linewidth=2, zorder=2,
-                    label="Chosen (line)" if not labeled_chosen_line else None,
-                )
+                ax.plot(x_pts, y_pts, c="C2", alpha=0.8, linewidth=2, zorder=2,
+                        label="Chosen (line)" if not labeled_chosen_line else None)
                 labeled_chosen_line = True
+                chosen_x.append(mx)
+                chosen_y.append(my)
             else:
-                ax.plot(
-                    [x0, x1], [y0, y1],
-                    c="gray", alpha=0.4, linewidth=0.8, zorder=1,
-                    label="All runs (line)" if not labeled_all_line else None,
-                )
+                ax.plot(x_pts, y_pts, c="gray", alpha=0.4, linewidth=0.8, zorder=1,
+                        label="All runs (line)" if not labeled_all_line else None)
                 labeled_all_line = True
+                all_x.append(mx)
+                all_y.append(my)
 
-        # Points at start (x=0) and end (x=num_epochs)
-        # All runs: start and end, small gray (same label so legend shows once)
-        ax.scatter(
-            np.concatenate([np.zeros(np.sum(~chosen)), epochs[~chosen]]),
-            np.concatenate([init_v[~chosen], final_v[~chosen]]),
-            s=20,
-            c="gray",
-            alpha=0.6,
-            label="All runs",
-            zorder=3,
-        )
-        # Chosen: start at epoch 0 – bigger green circle
-        ax.scatter(
-            np.zeros_like(epochs[chosen]),
-            init_v[chosen],
-            s=120,
-            c="C2",
-            alpha=0.9,
-            marker="o",
-            edgecolors="darkgreen",
-            linewidths=1.5,
-            label="Chosen (start)",
-            zorder=4,
-        )
-        # Chosen: end at num_epochs – blue star
-        ax.scatter(
-            epochs[chosen],
-            final_v[chosen],
-            s=180,
-            c="C0",
-            alpha=0.9,
-            marker="*",
-            edgecolors="darkblue",
-            linewidths=1,
-            label="Chosen (end)",
-            zorder=5,
-        )
-        # Best RRMSE overall: red circle at start, red star at run end, red diamond at checkpoint (best_epoch)
-        if np.any(best_rrmse):
+        # Scatter: 2 or 3 points per run — start (circle), best epoch if distinct, end (star)
+        if all_x:
             ax.scatter(
-                np.zeros(np.sum(best_rrmse)),
-                init_v[best_rrmse],
-                s=150,
-                c="red",
-                alpha=0.95,
-                marker="o",
-                edgecolors="darkred",
-                linewidths=2,
-                label="Best RRMSE (start)",
-                zorder=7,
+                np.concatenate(all_x), np.concatenate(all_y),
+                s=20, c="gray", alpha=0.6, label="All runs", zorder=3,
             )
-            ax.scatter(
-                epochs[best_rrmse],
-                final_v[best_rrmse],
-                s=220,
-                c="red",
-                alpha=0.95,
-                marker="*",
-                edgecolors="darkred",
-                linewidths=1.5,
-                label="Best RRMSE (end)",
-                zorder=8,
-            )
-            # Checkpoint we use: epoch when best loss occurred (final_v are from this checkpoint)
-            use_best = best_rrmse & np.isfinite(best_epochs)
-            if np.any(use_best):
-                ax.scatter(
-                    best_epochs[use_best],
-                    final_v[use_best],
-                    s=180,
-                    c="red",
-                    alpha=0.95,
-                    marker="D",
-                    edgecolors="darkred",
-                    linewidths=1.5,
-                    label="Best RRMSE (checkpoint)",
-                    zorder=9,
-                )
+        if chosen_x:
+            starts_x = np.concatenate([a[0:1] for a in chosen_x])
+            starts_y = np.concatenate([a[0:1] for a in chosen_y])
+            ends_x = np.concatenate([a[1:] for a in chosen_x])
+            ends_y = np.concatenate([a[1:] for a in chosen_y])
+            ax.scatter(starts_x, starts_y, s=120, c="C2", alpha=0.9, marker="o",
+                       edgecolors="darkgreen", linewidths=1.5, label="Chosen (start)", zorder=4)
+            ax.scatter(ends_x, ends_y, s=180, c="C0", alpha=0.9, marker="*",
+                       edgecolors="darkblue", linewidths=1, label="Chosen (end)", zorder=5)
+        if best_x:
+            starts_x = np.concatenate([a[0:1] for a in best_x])
+            starts_y = np.concatenate([a[0:1] for a in best_y])
+            ends_x = np.concatenate([a[1:] for a in best_x])
+            ends_y = np.concatenate([a[1:] for a in best_y])
+            ax.scatter(starts_x, starts_y, s=150, c="red", alpha=0.95, marker="o",
+                       edgecolors="darkred", linewidths=2, label="Best RRMSE (start)", zorder=7)
+            ax.scatter(ends_x, ends_y, s=220, c="red", alpha=0.95, marker="*",
+                       edgecolors="darkred", linewidths=1.5, label="Best RRMSE (end)", zorder=8)
 
-        ax.set_xlabel("Epoch (0 = start, value = when run ended; diamond = checkpoint used)")
+        ax.set_xlabel("Epoch")
         ax.set_ylabel(key.replace("_", " ").title())
         ax.set_title(key.replace("_", " ").title())
         ax.legend(loc="best", fontsize=8)
         ax.grid(True, alpha=0.3)
-        ax.set_xlim(left=-0.5)  # show epoch 0 clearly
+        ax.set_xlim(left=-0.2)  # small gap before epoch 0 (max 0.2)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))  # epochs are integers only
 
         # Y-axis: bounds from FINAL CHOSEN RUNS only (one per fold, lowest loss; initial + final values) + padding
         final_chosen_init = init_v[chosen]
