@@ -165,24 +165,29 @@ class CompositeScaleKernel(Kernel):
         super().__init__(**kwargs)
         self.input_transform = input_transform  # Predefined transformation module
 
-    def forward(self, x1, x2, **params):
+    def forward(self, x1, x2, diag=False, **params):
         """
         Compute the dot product kernel matrix between transformed inputs.
 
         Args:
             x1 (torch.Tensor): First input tensor of shape (n1, d).
             x2 (torch.Tensor): Second input tensor of shape (n2, d).
+            diag (bool): Whether to return only diagonal elements.
             **params: Additional parameters (unused).
 
         Returns:
-            torch.Tensor: Kernel matrix of shape (n1, n2).
+            torch.Tensor: Kernel matrix of shape (n1, n2) or diagonal of shape (n1,).
         """
         # Apply the input transformation
         f_x1 = self.input_transform(x1)  # Shape: (n1, m)
         f_x2 = self.input_transform(x2)  # Shape: (n2, m)
 
-        # Compute the dot product between transformed inputs
-        return torch.mm(f_x1, f_x2.t())
+        if diag:
+            # Diagonal: element-wise product and sum
+            return (f_x1 * f_x2).sum(dim=-1)
+        else:
+            # Full matrix: dot product
+            return torch.mm(f_x1, f_x2.t())
 
 
 ################################
@@ -277,9 +282,14 @@ class ExponentialKernel(Kernel):
             # No need for LazyTensor wrapping on diag case
             return torch.exp(base_output)
 
-        # Full-covar case: first get a dense Tensor
+        # Full-covar case: check if already dense to avoid redundant conversion
+        # OPTIMIZATION: If base_output is already a dense tensor, skip to_dense() call
+        if isinstance(base_output, torch.Tensor):
+            # Already dense, apply exp directly
+            return torch.exp(base_output)
+        
+        # Otherwise, convert from LazyTensor to dense
         dense_base = base_output.to_dense()
-
         return torch.exp(dense_base)  # Apply exp function; GPyTorch will lazily wrap this
 
 

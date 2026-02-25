@@ -9,7 +9,7 @@ from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from tabpfn import TabPFNRegressor
 from load_experimental_data import generate_rosenbrock_data
 import defaults
-
+import gpytorch
 # import warnings
 # warnings.filterwarnings("ignore")
 def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
@@ -40,6 +40,7 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         pfn_dtype = defaults.DTYPE_PFN,
         trainer_info=True,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
+        kernel_type=None,  # None=default, 'Gaussian', 'PowerExponential', 'Matern'
     ):
 
     if run_models == 'pfn':
@@ -146,17 +147,26 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         # KERNEL CONFIGURATION
         # ============================================================================
         # Choose between 'Gaussian', 'PowerExponential', 'Matern'
-        KERNEL_TYPE = "PowerExponential"  # Options: 'Gaussian', 'PowerExponential', 'Matern'
+        # KERNEL_TYPE = "Gaussian"  # Options: 'Gaussian', 'PowerExponential', 'Matern'
         # ============================================================================
-        if KERNEL_TYPE == "PowerExponential":
+        if kernel_type == "PowerExponential":
             kernel_mod = gpplus.kernels.LogScaleKernel(gpplus.kernels.PowerExponentialKernel(ard_num_dims=dimensions))
-        elif KERNEL_TYPE == "Gaussian":
+        elif kernel_type == "Gaussian":
             kernel_mod = gpplus.kernels.LogScaleKernel(gpplus.kernels.GaussianKernel(ard_num_dims=dimensions))
-        elif KERNEL_TYPE == "Matern":
+        elif kernel_type == "Matern":
             kernel_mod = gpplus.kernels.LogScaleKernel(gpplus.kernels.MaternKernel(nu=2.5, ard_num_dims=dimensions))
         else:
             kernel_mod = defaults.SF_kernel
 
+        MEAN_TYPE = 'constant'
+        if MEAN_TYPE == 'zero':
+            mean_module = gpytorch.means.ZeroMean()
+        elif MEAN_TYPE == 'constant':
+            mean_module = gpytorch.means.ConstantMean()
+        elif MEAN_TYPE == 'linear':
+            mean_module = gpytorch.means.LinearMean()
+        else:
+            raise ValueError(f"MEAN_TYPE must be 'zero', 'constant', or 'linear', got {MEAN_TYPE}")
         # =============================================================================
         # GP Section 
         # =============================================================================
@@ -168,7 +178,7 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 X_train,
                 y_train_normal if standardize_y else y_train,
                 kernel_module=kernel_mod,
-                mean_module=defaults.SF_mean,
+                mean_module=mean_module,
                 likelihood=defaults.SF_likelihood,
             )
             if (i == 0) or (i == num_folds - 1):
@@ -373,11 +383,8 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
 
 if __name__ == "__main__":
-
-    rosenbrock_GPvsPFN(title='WARMUP', num_folds=1, train_size=2, dimensions=10, num_runs=2, noise_test=0.005, noise_train=0.005, save_path=None, run_models='gp')
-    rosenbrock_GPvsPFN(title='test_analysis', num_folds=1, train_size=10, dimensions=40, num_runs=16, noise_test=0.005, noise_train=0.005, save_path='./results/rosenbrock/power_exponential', run_models='gp')
-    # rosenbrock_GPvsPFN(title='check1_5folds', num_folds=5, train_size=10, dimensions=40, num_runs=16, noise_test=0.005, noise_train=0.005, save_path='./results/rosenbrock/power_exponential', run_models='gp')
-    # rosenbrock_GPvsPFN(title='check1_5folds', num_folds=5, train_size=10, dimensions=40, num_runs=16, noise_test=0.05, noise_train=0.05, save_path='./results/rosenbrock/power_exponential', run_models='gp')
-
-    # rosenbrock_GPvsPFN(num_folds=2, train_size=40, dimensions=40, num_runs=4, noise_test=0.005, noise_train=0.005, save_path='./results/rosenbrock/power_exponential', run_models='gp')
-    # rosenbrock_GPvsPFN(num_folds=2, train_size=40, dimensions=40, num_runs=4, noise_test=0.05, noise_train=0.05, save_path='./results/rosenbrock/power_exponential', run_models='gp')
+    
+    # rosenbrock_GPvsPFN(title='WARMUP', num_folds=1, train_size=2, dimensions=10, num_runs=2, noise_test=0.005, noise_train=0.005, save_path=None, run_models='gp')
+    # rosenbrock_GPvsPFN(num_folds=20, train_size=10, dimensions=10, num_runs=16, noise_test=0.005, noise_train=0.005, save_path='./results/kernel_test/rosenbrock/gaussian', run_models='gp', kernel_type='Gaussian')
+    rosenbrock_GPvsPFN(num_folds=20, train_size=10, dimensions=40, num_runs=16, noise_test=0.005, noise_train=0.005, save_path='./results/kernel_test/rosenbrock/power_exponential', run_models='gp', kernel_type='PowerExponential')
+    rosenbrock_GPvsPFN(num_folds=20, train_size=10, dimensions=40, num_runs=16, noise_test=0.05, noise_train=0.05, save_path='./results/kernel_test/rosenbrock/power_exponential', run_models='gp', kernel_type='PowerExponential')

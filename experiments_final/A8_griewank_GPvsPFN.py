@@ -349,7 +349,7 @@ def griewank_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
 
 if __name__ == "__main__":
-    griewank_GPvsPFN(num_folds=1, train_size=10, dimensions=20, num_runs=4, save_path='./results/griewank/temp', run_models='pfn')
+    griewank_GPvsPFN(num_folds=20, train_size=10, dimensions=10, num_runs=16, save_path='./results/griewank/temp', run_models='gp')
     # griewank_GPvsPFN(num_folds=1, train_size=20, dimensions=20, num_runs=4, save_path='./results/griewank/temp')
     # griewank_GPvsPFN(num_folds=1, train_size=10, dimensions=40, num_runs=4, save_path='./results/griewank/temp')
     # griewank_GPvsPFN(num_folds=1, train_size=20, dimensions=40, num_runs=4, save_path='./results/griewank/temp')

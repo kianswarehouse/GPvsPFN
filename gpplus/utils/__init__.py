@@ -1,5 +1,6 @@
 from .encoders import MatrixEncoder, NeuralEncoder
 from .input_transform_net import InputTransformNet
+from .trunk_head_net import TrunkHeadNet
 from .latent_reps import get_latent_representations
 from .metrics_functions import compute_per_source_metrics
 from .mf_standardization import standardize_mf_data

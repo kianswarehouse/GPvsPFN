@@ -3,7 +3,7 @@ import time
 import numpy as np
 import torch
 from gpplus.training import GPTrainer
-from gpplus.training.callbacks import FinalParameterStorageCallback
+from gpplus.training.callbacks import FinalParameterStorageCallback, IterationParameterCallback, EpochParameterCallback, JitterTrackingCallback
 # from gpplus.training.eval import evaluate_gp_model
 from gpplus.training.stop_conditions import ConvergencePatienceStopCondition, MinLossChangeStopCondition
 from gpplus.training.eval2 import evaluate_gp_model
@@ -189,6 +189,19 @@ def train_eval_gp(
     #     }
 
     callbacks = [FinalParameterStorageCallback(save_file=None, verbose=False)]
+    
+    # Add optimizer-specific parameter callbacks
+    if optimizer_class is not None:
+        # Check if optimizer is LBFGSScipy
+        if optimizer_class is LBFGSScipy or (
+            isinstance(optimizer_class, type) and issubclass(optimizer_class, LBFGSScipy)
+        ):
+            callbacks.append(IterationParameterCallback(save_file="C:/Users/forty/tyler_gpplus/gp-private/results/wing/SEEK_Test/SEEK_tests/iteration_parameters.json", verbose=True, save_every_n_iterations=150))
+        # Check if optimizer is Adam
+        elif optimizer_class is torch.optim.Adam or (
+            isinstance(optimizer_class, type) and issubclass(optimizer_class, torch.optim.Adam)
+        ):
+            callbacks.append(EpochParameterCallback(save_file="C:/Users/forty/tyler_gpplus/gp-private/results/wing/SEEK_Test/SEEK_tests/epoch_parameters.json", verbose=True))
 
     trainer = GPTrainer(
         model=model,
@@ -475,19 +488,50 @@ def train_eval_gp(
         else None
     )
 
-    # Determine num_epochs from trainer
+    # Determine num_epochs from trainer (may be refined using callback data below)
     num_epochs_actual = trainer.num_epochs if hasattr(trainer, "num_epochs") else None
+    best_epoch_value = None
+    jitter_value = None
+    jitter_max_value = None
+
+    # If we have callback data for the best run, try to recover the true best_epoch/num_epochs
+    if best_run is not None:
+        callback_data = best_run.get("callback_data", {}) or {}
+        for cb_key, stored_params_list in callback_data.items():
+            if "FinalParameterStorage" in cb_key or "ParameterStorage" in cb_key:
+                if stored_params_list:
+                    # Each entry corresponds to one run; pick the one with lowest best_loss (usually only one)
+                    import math
+
+                    def _loss_or_inf(rec):
+                        val = rec.get("best_loss")
+                        return float(val) if val is not None else math.inf
+
+                    record = min(stored_params_list, key=_loss_or_inf)
+                    best_epoch_value = record.get("best_epoch", best_epoch_value)
+                    jitter_value = record.get("jitter", jitter_value)
+                    jitter_max_value = record.get("jitter_max", jitter_max_value)
+                    if num_epochs_actual is None:
+                        num_epochs_actual = record.get("num_epochs", num_epochs_actual)
+                break
 
     if hasattr(trainer, "cholesky_jitter"):
         # Extract metrics directly from the loaded best model (which is already in model after training)
-        # Create a temporary callback instance to use the extraction method
+        # Create a temporary callback instance to use the extraction method.
+        # NOTE:
+        #   We do NOT know the true best_epoch here (that information lives in the callback logs),
+        #   so we avoid using run_index as a proxy for epoch, which was misleading.
         temp_callback = FinalParameterStorageCallback(verbose=False)
         extracted_params = temp_callback._extract_final_parameters(
             model,
-            epoch=best_run.get("run_index", 0) if best_run else 0,  # Use run_index as proxy for epoch
+            # Epoch index here is only used inside _extract_final_parameters to derive num_epochs
+            # (epoch + 1 when callbacks are not available). Since we already have num_epochs_actual
+            # from the trainer/callbacks, we can safely pass 0.
+            epoch=0,
             best_loss=best_run.get("loss") if best_run else None,
             cholesky_jitter=trainer.cholesky_jitter,
-            best_epoch=None,  # Not available from results
+            best_epoch=None,  # Best epoch is intentionally left unknown here
+            jitter_max=None,  # Not available in this direct-extraction path
         )
         if extracted_params:
             lengthscales_extracted = extracted_params.get("lengthscales")
@@ -498,9 +542,13 @@ def train_eval_gp(
                 "num_epochs": num_epochs_actual
                 if num_epochs_actual is not None
                 else extracted_params.get("num_epochs"),
-                "best_epoch": extracted_params.get("best_epoch"),
+                # Use accurate best_epoch from callback data if available; otherwise leave as None.
+                "best_epoch": best_epoch_value,
                 "best_loss": best_run.get("loss") if best_run else extracted_params.get("best_loss"),
-                "jitter": extracted_params.get("jitter"),
+                # Prefer jitter from callback (per-run) if available; otherwise fall back to extracted value.
+                "jitter": jitter_value if jitter_value is not None else extracted_params.get("jitter"),
+                 # Max jitter actually used (from callbacks); may differ from base jitter.
+                "jitter_max": jitter_max_value,
                 "raw_noise": extracted_params.get("raw_noise"),
                 "outputscale": extracted_params.get("outputscale"),
                 "raw_power": extracted_params.get("raw_power"),
@@ -513,6 +561,8 @@ def train_eval_gp(
     if best_model_metrics:
         # Add metrics in desired order: jitter, raw_noise (all), noise (all), noise_std (all), outputscale
         gp_metric["jitter"] = best_model_metrics.get("jitter")
+        if best_model_metrics.get("jitter_max") is not None:
+            gp_metric["jitter_max"] = best_model_metrics.get("jitter_max")
 
         # Helper to add array/scalar metrics
         def add_metric(name, value):

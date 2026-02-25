@@ -46,6 +46,7 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         pfn_dtype = defaults.DTYPE_PFN,
         trainer_info=True,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
+        kernel_type=None,  # None=default, 'Gaussian', 'PowerExponential', 'Matern'
     ):
 
     if run_models == 'pfn':
@@ -152,13 +153,13 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         # KERNEL CONFIGURATION
         # ============================================================================
         # Choose between 'Gaussian', 'PowerExponential', 'Matern'
-        KERNEL_TYPE = "PowerExponential"  # Options: 'Gaussian', 'PowerExponential', 'Matern'
+        # KERNEL_TYPE = "PowerExponential"  # Options: 'Gaussian', 'PowerExponential', 'Matern'
         # ============================================================================
-        if KERNEL_TYPE == "PowerExponential":
+        if kernel_type == "PowerExponential":
             kernel_mod = gpplus.kernels.LogScaleKernel(gpplus.kernels.PowerExponentialKernel(ard_num_dims=dimensions))
-        elif KERNEL_TYPE == "Gaussian":
+        elif kernel_type == "Gaussian":
             kernel_mod = gpplus.kernels.LogScaleKernel(gpplus.kernels.GaussianKernel(ard_num_dims=dimensions))
-        elif KERNEL_TYPE == "Matern":
+        elif kernel_type == "Matern":
             kernel_mod = gpplus.kernels.LogScaleKernel(gpplus.kernels.MaternKernel(nu=2.5, ard_num_dims=dimensions))
         else:
             kernel_mod = defaults.SF_kernel
@@ -193,7 +194,7 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 num_runs=num_runs,
                 lr=lr,
                 convergence_patience=convergence_patience,
-                min_epochs=min_epochs,
+                # min_epochs=min_epochs,
                 min_loss_change=min_loss_change,
                 optimizer_class=optimizer_class,
                 initializer_class=initializer_class,
@@ -379,4 +380,6 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
 
 if __name__ == "__main__":
-    dixon_price_GPvsPFN(num_folds=20, train_size=40, dimensions=20, num_runs=16, noise_train=0.05, noise_test=0.05, save_path='./results/dixon_price/power_exponential/2_1')
+    dixon_price_GPvsPFN(num_folds=20, train_size=40, dimensions=20, num_runs=16, noise_train=0.005, noise_test=0.005, save_path='./results/kernel_test/dixon_price/power_exponential', run_models='gp', kernel_type='PowerExponential')
+    dixon_price_GPvsPFN(num_folds=20, train_size=40, dimensions=20, num_runs=16, noise_train=0.05, noise_test=0.05, save_path='./results/kernel_test/dixon_price/power_exponential', run_models='gp', kernel_type='PowerExponential')
+
