@@ -37,12 +37,14 @@ class LogScaleHomoskedasticNoise(_HomoskedasticNoiseBase):
         super().__init__(noise_prior=noise_prior, noise_constraint=noise_constraint, batch_shape=batch_shape, **kwargs)
 
     def _noise_param(self, m):
-        """Get the noise parameter from the model."""
-        return m.noise
+        """Return constrained raw_noise (log10 variance) so prior is on log-scale in [-7, -1]."""
+        return m.raw_noise_constraint.transform(m.raw_noise)
 
     def _noise_closure(self, m, v):
-        """Set the noise parameter in the model."""
-        return m._set_noise(v)
+        """Set raw_noise from a value in log-scale (constrained raw_noise in [-7, -1])."""
+        if not torch.is_tensor(v):
+            v = torch.as_tensor(v, dtype=m.raw_noise.dtype, device=m.raw_noise.device)
+        m.initialize(raw_noise=m.raw_noise_constraint.inverse_transform(v))
 
     @property
     def noise(self):
@@ -85,9 +87,10 @@ class LogGaussianLikelihood(_GaussianLikelihoodBase):
         LogGaussianLikelihood has an analytic marginal distribution.
 
     Args:
-        noise_prior: Prior for noise parameter :math:`\sigma^2`.
-        noise_constraint: Constraint for raw_noise parameter. Default: `SoftClamp(-7.0, 3.0)`
-                         (log scale from 0.0000001 to 1000).
+        noise_prior: Prior for the log-scale noise (constrained raw_noise in [-7, -1]),
+            i.e. same scale as noise initializations. Use e.g. NormalPrior(loc=-4, scale=2).
+        noise_constraint: Constraint for raw_noise parameter. Default: `SoftClamp(-7.0, -1.0)`
+                         (log10 variance from 1e-7 to 0.1).
         batch_shape: The batch shape of the learned noise parameter (default: []).
 
     Attributes:

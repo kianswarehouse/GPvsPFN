@@ -17,6 +17,7 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         train_size=10, # total training size is train_size * number of X input dimensions
         num_runs=defaults.TRAINER_NUM_RUNS, 
         num_epochs=defaults.TRAINER_NUM_EPOCHS, 
+        min_epochs=defaults.TRAINER_MIN_EPOCHS,
         lr=defaults.TRAINER_LR, 
         convergence_patience=defaults.TRAINER_CONVERGENCE_PATIENCE,
         min_loss_change=defaults.TRAINER_MIN_LOSS_CHANGE,
@@ -32,7 +33,7 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         standardize_y_log_scale=False,
         noise_train=0.0,
         noise_test=0.0,
-        noise_type='gaussian',
+        noise_type=defaults.NOISE_TYPE,
         seed=defaults.SEED,
         seed_trainer=defaults.SEED_TRAINER,
         gp_dtype = defaults.DTYPE_GP,
@@ -44,9 +45,9 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         num_runs = 0
     
     if title is None:
-        title = f"borehole_SF_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"borehole_SF_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_folds}"
     else: 
-        title = f"borehole_SF_{title}_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"borehole_SF_{title}_{train_size}Dn_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_folds}"
     
     
     print(f" GP Device: {gp_device}")
@@ -141,7 +142,6 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         y_train_mean = Yscaler.mean 
         y_train_std = Yscaler.std
         y_train_normal = Yscaler.transform(y_train)
-        y_train_min = None  # No longer needed
 
         # =============================================================================
         # GP Section 
@@ -173,6 +173,7 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 num_runs=num_runs,
                 lr=lr,
                 convergence_patience=convergence_patience,
+                min_epochs=min_epochs,
                 min_loss_change=min_loss_change,
                 optimizer_class=optimizer_class,
                 initializer_class=initializer_class,
@@ -180,7 +181,6 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 y_train_mean=y_train_mean if standardize_y else None,
                 y_train_std=y_train_std if standardize_y else None,
                 standardize_y_log_scale=standardize_y_log_scale,
-                y_train_min=y_train_min,
                 source_cols=source_cols,
                 trainer_info=trainer_info,
             )
@@ -215,7 +215,6 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 y_train_mean=y_train_mean if standardize_y else None,
                 y_train_std=y_train_std if standardize_y else None,
                 standardize_y_log_scale=standardize_y_log_scale,
-                y_train_min=y_train_min,
             )
             TabPFN_metrics.append(tabpfn_metric)
 
@@ -313,6 +312,10 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                     "metrics": TabPFN_metrics,
                     "pfn_model_info": tabpfn_model_info
                 }
+            # Append defaults.py source at end of JSON for reproducibility
+            _defaults_path = Path(__file__).resolve().parent / "defaults.py"
+            if _defaults_path.is_file():
+                combined_data["defaults_py"] = _defaults_path.read_text(encoding="utf-8")
             (out_dir / f"{file_prefix}_{title}.json").write_text(json.dumps(combined_data, indent=2))
         except Exception:
             pass
@@ -336,6 +339,11 @@ def borehole_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 trainer_info_file = trainer_analysis_dir / f"gpVpfn_{title}_GP_Trainer_Analysis.json"
                 trainer_info_file.write_text(json.dumps(trainer_info_data, indent=2))
                 print(f"\nTrainer info saved to: {trainer_info_file}")
+                try:
+                    from plot_trainer_analysis_hyperparams import plot_trainer_analysis_from_data
+                    plot_trainer_analysis_from_data(trainer_info_data, trainer_analysis_dir / "plots")
+                except Exception as plot_e:
+                    print(f"Trainer analysis plotting skipped: {plot_e}")
                 
             except Exception as e:
                 print(f"Error saving trainer info: {e}")

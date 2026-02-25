@@ -10,6 +10,7 @@ from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from tabpfn import TabPFNRegressor
 from load_experimental_data import generate_ackley_data
 import defaults
+import gpytorch
 
 # import warnings
 # warnings.filterwarnings("ignore")
@@ -22,6 +23,7 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         num_epochs=defaults.TRAINER_NUM_EPOCHS, 
         lr=defaults.TRAINER_LR, 
         convergence_patience=defaults.TRAINER_CONVERGENCE_PATIENCE,
+        min_epochs=defaults.TRAINER_MIN_EPOCHS,
         min_loss_change=defaults.TRAINER_MIN_LOSS_CHANGE,
         optimizer_class=defaults.TRAINER_OPTIMIZER_CLASS,
         initializer_class=defaults.TRAINER_INITIALIZER_CLASS,
@@ -34,7 +36,7 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         x_standardize_method=defaults.X_STANDARDIZE_METHOD,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
         noise_train=0.0,
         noise_test=0.0,
-        noise_type='gaussian',
+        noise_type=defaults.NOISE_TYPE,
         seed=defaults.SEED,
         seed_trainer=defaults.SEED_TRAINER,
         V2=False,
@@ -49,9 +51,9 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
     v2 = "V2" if V2 else ""
     if title is None:
-        title = f"Ackley{v2}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"Ackley{v2}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_folds}"
     else: 
-        title = f"Ackley{v2}_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
+        title = f"Ackley{v2}_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_folds}"
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
@@ -175,6 +177,7 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 num_runs=num_runs,
                 lr=lr,
                 convergence_patience=convergence_patience,
+                min_epochs=min_epochs,
                 min_loss_change=min_loss_change,
                 optimizer_class=optimizer_class,
                 initializer_class=initializer_class,
@@ -314,6 +317,10 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                     "metrics": TabPFN_metrics,
                     "pfn_model_info": tabpfn_model_info
                 }
+            # Append defaults.py source at end of JSON for reproducibility
+            _defaults_path = Path(__file__).resolve().parent / "defaults.py"
+            if _defaults_path.is_file():
+                combined_data["defaults_py"] = _defaults_path.read_text(encoding="utf-8")
             (out_dir / f"{file_prefix}_{title}.json").write_text(json.dumps(combined_data, indent=2))
         except Exception:
             pass
@@ -337,6 +344,11 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 trainer_info_file = trainer_analysis_dir / f"gp_{title}_GP_Trainer_Analysis.json"
                 trainer_info_file.write_text(json.dumps(trainer_info_data, indent=2))
                 print(f"\nTrainer info saved to: {trainer_info_file}")
+                try:
+                    from plot_trainer_analysis_hyperparams import plot_trainer_analysis_from_data
+                    plot_trainer_analysis_from_data(trainer_info_data, trainer_analysis_dir / "plots")
+                except Exception as plot_e:
+                    print(f"Trainer analysis plotting skipped: {plot_e}")
                 
             except Exception as e:
                 print(f"Error saving trainer info: {e}")
@@ -351,8 +363,8 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
 
 if __name__ == "__main__":
-    ackley_GPvsPFN(title="x_std2", x_standardize_method=2, num_folds=1, num_runs=4, train_size=10, dimensions=40, run_models='pfn', save_path="./results/Ackley/temp", noise_test=0.05, noise_train=0.05)
-    # ackley_GPvsPFN(num_folds=2, train_size=10, dimensions=20, num_runs=4, num_epochs=10000, save_path='./results/Ackley/test')
+    # ackley_GPvsPFN(title="x_std2", x_standardize_method=2, num_folds=1, num_runs=4, train_size=10, dimensions=40, run_models='pfn', save_path="./results/Ackley/temp", noise_test=0.05, noise_train=0.05)
+    ackley_GPvsPFN(num_folds=5, train_size=20, dimensions=80, num_runs=4, num_epochs=10000, save_path='./results/Ackley/test', run_models='pfn')
     # ackley_GPvsPFN(num_folds=1, train_size=10, dimensions=20, num_runs=4, num_epochs=10000, save_path='./results/Ackley/temp', standardize_X=False, standardize_y=False)
     # ackley_GPvsPFN(num_folds=1, train_size=10, num_runs=4, num_epochs=10000, save_path='./results/Ackley/tempv2', V2=True)
 
