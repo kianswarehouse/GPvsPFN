@@ -185,7 +185,7 @@ class GPTrainerSingleProcess:
             # Log every 10 epochs when logger level is INFO
             # if (epoch + 1) % 10 == 0 or epoch == 0:
             # logger.info(f"Epoch {epoch + 1}/{self.num_epochs}")
-            print(f"Epoch {epoch + 1}/{self.num_epochs}")
+            # print(f"Epoch {epoch + 1}/{self.num_epochs}")
             # ---------------------------
             # on_epoch_start
             # ---------------------------

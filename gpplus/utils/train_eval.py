@@ -148,6 +148,9 @@ def train_eval_gp(
     prescreening_optimizer_class=None,  # Optimizer for warmup (default: torch.optim.Adam)
     recorder=None,  # PrescreeningRecorder instance
     cholesky_jitter: float = 1e-6,  # Jitter for Cholesky; use larger (e.g. 1e-5, 1e-4) for large n
+    fold_index: int | None = None,  # Fold index for multi-fold experiments (sets fold_index on callbacks)
+    callbacks: list | None = None,  # Optional list of callbacks (if None, creates default callbacks)
+    callback_save_path: str | None = None,  # Base path for saving callback data (if None, uses default paths)
 ):
     """
     Train a GP model and evaluate metrics on the provided test set.
@@ -164,6 +167,9 @@ def train_eval_gp(
                     - If int: single source column (data not encoded)
                     - If list with 1 element: converted to int (data not encoded)
                     - If list with multiple elements: multiple source columns (one-hot encoded data)
+        fold_index: Fold index for multi-fold experiments. If provided, sets fold_index on callbacks
+                   that support it (IterationParameterCallback, EpochParameterCallback).
+        callbacks: Optional list of callbacks. If None, creates default callbacks based on optimizer.
 
     Returns:
         gp_metric: dict of computed metrics (includes Total_Time, Training_Time, Prediction_Time)
@@ -188,20 +194,37 @@ def train_eval_gp(
     #         "history_size": 10,
     #     }
 
-    callbacks = [FinalParameterStorageCallback(save_file=None, verbose=False)]
+    # Use provided callbacks or create default ones
+    if callbacks is None:
+        callbacks = [FinalParameterStorageCallback(save_file=None, verbose=False)]
+        
+        # Add optimizer-specific parameter callbacks
+        if optimizer_class is not None:
+            # Determine callback save paths
+            if callback_save_path is not None:
+                iteration_save_file = f"{callback_save_path}/iteration_parameters.json"
+                epoch_save_file = f"{callback_save_path}/epoch_parameters.json"
+            else:
+                # Default paths (for backward compatibility)
+                iteration_save_file = "C:/Users/forty/tyler_gpplus/gp-private/results/wing/SEEK_Test/SEEK_tests/iteration_parameters.json"
+                epoch_save_file = "C:/Users/forty/tyler_gpplus/gp-private/results/wing/SEEK_Test/SEEK_tests/epoch_parameters.json"
+            
+            # Check if optimizer is LBFGSScipy
+            if optimizer_class is LBFGSScipy or (
+                isinstance(optimizer_class, type) and issubclass(optimizer_class, LBFGSScipy)
+            ):
+                callbacks.append(IterationParameterCallback(save_file=iteration_save_file, verbose=True, save_every_n_iterations=150))
+            # Check if optimizer is Adam
+            elif optimizer_class is torch.optim.Adam or (
+                isinstance(optimizer_class, type) and issubclass(optimizer_class, torch.optim.Adam)
+            ):
+                callbacks.append(EpochParameterCallback(save_file=epoch_save_file, verbose=True, save_every_n_epochs=20))
     
-    # Add optimizer-specific parameter callbacks
-    if optimizer_class is not None:
-        # Check if optimizer is LBFGSScipy
-        if optimizer_class is LBFGSScipy or (
-            isinstance(optimizer_class, type) and issubclass(optimizer_class, LBFGSScipy)
-        ):
-            callbacks.append(IterationParameterCallback(save_file="C:/Users/forty/tyler_gpplus/gp-private/results/wing/SEEK_Test/SEEK_tests/iteration_parameters.json", verbose=True, save_every_n_iterations=150))
-        # Check if optimizer is Adam
-        elif optimizer_class is torch.optim.Adam or (
-            isinstance(optimizer_class, type) and issubclass(optimizer_class, torch.optim.Adam)
-        ):
-            callbacks.append(EpochParameterCallback(save_file="C:/Users/forty/tyler_gpplus/gp-private/results/wing/SEEK_Test/SEEK_tests/epoch_parameters.json", verbose=True))
+    # Set fold_index on callbacks that support it
+    if fold_index is not None:
+        for cb in callbacks:
+            if hasattr(cb, "set_fold_index"):
+                cb.set_fold_index(fold_index)
 
     trainer = GPTrainer(
         model=model,

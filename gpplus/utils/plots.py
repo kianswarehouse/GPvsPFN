@@ -1,6 +1,7 @@
 import os
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 import math
+import colorsys
 
 import numpy as np
 # import pandas as pd
@@ -9,7 +10,7 @@ import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 import torch
 from sklearn.metrics import roc_curve, auc, confusion_matrix, precision_recall_curve
-import seaborn as sns
+# import seaborn as sns
 from scipy.stats import norm
 import json
 from typing import Dict, List, Optional, Tuple, Any
@@ -934,6 +935,90 @@ def _get_best_run_index(data: Dict) -> Optional[str]:
     return best_run_idx
 
 
+def _get_green_gradient_colors(n_colors: int) -> List[str]:
+    """
+    Generate a list of green gradient colors from light to dark green.
+    
+    Args:
+        n_colors: Number of colors to generate
+    
+    Returns:
+        List of hex color strings in green gradient
+    """
+    if n_colors == 0:
+        return []
+    elif n_colors == 1:
+        return ['#228B22']  # Forest green
+    
+    # Generate colors from light green to dark green
+    # Using HSL: hue around 120 (green), saturation 0.5-1.0, lightness 0.3-0.6
+    colors = []
+    for i in range(n_colors):
+        # Interpolate from light (i=0) to dark (i=n_colors-1)
+        # Lightness: 0.6 -> 0.3 (darker as we go)
+        # Saturation: 0.5 -> 1.0 (more saturated as we go)
+        lightness = 0.6 - (i / (n_colors - 1)) * 0.3
+        saturation = 0.5 + (i / (n_colors - 1)) * 0.5
+        hue = 120 / 360  # Green hue
+        
+        # Convert HSL to RGB
+        r, g, b = colorsys.hls_to_rgb(hue, lightness, saturation)
+        hex_color = '#{:02x}{:02x}{:02x}'.format(int(r * 255), int(g * 255), int(b * 255))
+        colors.append(hex_color)
+    
+    return colors
+
+
+def _make_compact_title(param_path: str) -> str:
+    """
+    Create a compact title from a parameter path.
+    
+    Extracts:
+    - "base_kernels[x]" where x is the index
+    - "raw_parameter[y]" or "parameter[y]" where y is the index if it has multiple values
+    
+    Examples:
+    - "covar_module.base_kernels[0].base_kernel.lengthscale[0]" -> "base_kernels[0].lengthscale[0]"
+    - "covar_module.base_kernels[1].base_kernel.raw_lengthscale[0]" -> "base_kernels[1].raw_lengthscale[0]"
+    - "covar_module.base_kernels[0].raw_outputscale" -> "base_kernels[0].raw_outputscale"
+    - "covar_module.likelihood.raw_noise" -> "raw_noise"
+    
+    Args:
+        param_path: Full parameter path (e.g., "covar_module.base_kernels[0].base_kernel.lengthscale[0]")
+    
+    Returns:
+        Compact title (e.g., "base_kernels[0].lengthscale[0]")
+    """
+    import re
+    
+    # Remove "covar_module." prefix if present
+    path = param_path
+    if path.startswith("covar_module."):
+        path = path[len("covar_module."):]
+    
+    # Check if this is a base_kernels parameter
+    base_kernel_match = re.search(r'base_kernels\[(\d+)\]', path)
+    if base_kernel_match:
+        base_kernel_idx = base_kernel_match.group(1)
+        # Extract the parameter name and index after base_kernels[x]
+        # Pattern: base_kernels[x].base_kernel.parameter_name[index] or base_kernels[x].parameter_name[index]
+        # Remove "base_kernels[x].base_kernel." or "base_kernels[x]."
+        remaining = path.split(f"base_kernels[{base_kernel_idx}].")[-1]
+        # Remove "base_kernel." if present
+        if remaining.startswith("base_kernel."):
+            remaining = remaining[len("base_kernel."):]
+        # Return compact format: base_kernels[x].parameter_name[index]
+        return f"base_kernels[{base_kernel_idx}].{remaining}"
+    else:
+        # Not a base_kernels parameter, just return the parameter name with index if present
+        # Remove "likelihood." or "mean_module." prefixes
+        if "." in path:
+            parts = path.split(".")
+            # Take the last part (parameter name with index)
+            return parts[-1]
+        return path
+
+
 def plot_parameters_by_iteration(
     json_file: str,
     save_dir: Optional[str] = None,
@@ -943,11 +1028,12 @@ def plot_parameters_by_iteration(
     dpi: int = 300,
     alpha: float = 0.3,
     linewidth: float = 1.5,
-    verbose: bool = True
+    verbose: bool = True,
+    rrmse_values: Optional[Dict] = None
 ):
     """
     Plot parameter evolution over iterations (for LBFGS optimizer).
-    Highlights the best run in green.
+    Highlights the best run of each fold in green.
     
     Args:
         json_file: Path to JSON file saved by IterationParameterCallback
@@ -966,34 +1052,133 @@ def plot_parameters_by_iteration(
     with open(json_file, 'r') as f:
         data = json.load(f)
     
-    # Handle both single-run and multi-run formats
-    if "runs" in data:
+    # Handle new fold-based format, old multi-run format, and single-run format
+    if "folds" in data:
+        # New format: organized by folds
+        folds_data = data["folds"]
+        is_fold_format = True
+        # Flatten to get all runs across all folds for reference
+        all_runs_data = {}
+        for fold_key, fold_data in folds_data.items():
+            runs = fold_data.get("runs", {})
+            for run_key, run_data in runs.items():
+                # Use fold_run as key to avoid collisions
+                all_runs_data[f"{fold_key}_{run_key}"] = run_data
+        runs_data = all_runs_data
+    elif "runs" in data:
+        # Old multi-run format (backward compatibility)
         runs_data = data["runs"]
-        is_multi_run = True
+        is_fold_format = False
+        folds_data = None
     else:
         # Single run format
         runs_data = {"0": data}
-        is_multi_run = False
+        is_fold_format = False
+        folds_data = None
     
-    # Identify best run
-    best_run_idx = _get_best_run_index(data) if is_multi_run else None
+    # Find median RRMSE run per fold (if rrmse_values provided) or best loss run per fold
+    highlighted_runs_per_fold = {}  # {fold_key: highlighted_run_key}
+    highlight_color = 'red'  # Default to red for median RRMSE
+    highlight_label_suffix = " (Median RRMSE)"
+    best_run_idx = None  # For old format
     
-    if verbose:
-        if best_run_idx is not None:
-            print(f"Best run identified: Run {best_run_idx}")
+    if rrmse_values is not None:
+        # Find median RRMSE run for each fold
+        if is_fold_format:
+            for fold_key, fold_data in folds_data.items():
+                runs = fold_data.get("runs", {})
+                if runs:
+                    # Collect RRMSE values for all runs in this fold
+                    rrmse_list = []
+                    for run_key, run_data in runs.items():
+                        rrmse_key = (fold_key, run_key) if isinstance(list(rrmse_values.keys())[0], tuple) else run_key
+                        if rrmse_key in rrmse_values:
+                            rrmse_value = rrmse_values[rrmse_key]
+                            if rrmse_value is not None and not np.isnan(rrmse_value) and not np.isinf(rrmse_value):
+                                rrmse_list.append((run_key, rrmse_value))
+                    
+                    if rrmse_list:
+                        # Sort by RRMSE and find median
+                        rrmse_list.sort(key=lambda x: x[1])
+                        median_idx = len(rrmse_list) // 2
+                        median_run_key = rrmse_list[median_idx][0]
+                        highlighted_runs_per_fold[fold_key] = median_run_key
+                        if verbose:
+                            print(f"Fold {fold_key}: Median RRMSE run is {median_run_key} (RRMSE={rrmse_list[median_idx][1]:.6f})")
         else:
-            print("Single run detected (no best run to highlight)")
+            # Old format: find overall median RRMSE run
+            rrmse_list = []
+            for run_key in runs_data.keys():
+                if run_key in rrmse_values:
+                    rrmse_value = rrmse_values[run_key]
+                    if rrmse_value is not None and not np.isnan(rrmse_value) and not np.isinf(rrmse_value):
+                        rrmse_list.append((run_key, rrmse_value))
+            
+            if rrmse_list:
+                rrmse_list.sort(key=lambda x: x[1])
+                median_idx = len(rrmse_list) // 2
+                best_run_idx = rrmse_list[median_idx][0]
+                if verbose:
+                    print(f"Median RRMSE run is {best_run_idx} (RRMSE={rrmse_list[median_idx][1]:.6f})")
+    else:
+        # Fallback to best loss run (green)
+        highlight_color = 'green'
+        highlight_label_suffix = " (Best)"
+        if is_fold_format:
+            for fold_key, fold_data in folds_data.items():
+                runs = fold_data.get("runs", {})
+                if runs:
+                    # Find best run within this fold by loss
+                    best_loss = float('inf')
+                    best_run_key = None
+                    for run_key, run_data in runs.items():
+                        records = run_data.get("records", [])
+                        for record in records:
+                            loss = record.get("loss")
+                            if loss is not None and loss < best_loss:
+                                best_loss = loss
+                                best_run_key = run_key
+                    if best_run_key is not None:
+                        highlighted_runs_per_fold[fold_key] = best_run_key
+            if verbose:
+                print(f"Found {len(highlighted_runs_per_fold)} folds with best loss runs identified")
+        else:
+            # Old format: find overall best run
+            best_run_idx = _get_best_run_index(data) if len(runs_data) > 1 else None
+            if verbose:
+                if best_run_idx is not None:
+                    print(f"Best run identified: Run {best_run_idx}")
+                else:
+                    print("Single run detected (no best run to highlight)")
     
     # Extract all parameter paths from first run (or best run if available)
-    reference_run = best_run_idx if best_run_idx is not None else list(runs_data.keys())[0]
-    reference_records = runs_data[reference_run].get("records", [])
+    if is_fold_format:
+        # Use first fold's first run as reference
+        first_fold = list(folds_data.keys())[0]
+        first_run = list(folds_data[first_fold].get("runs", {}).keys())[0]
+        reference_records = folds_data[first_fold]["runs"][first_run].get("records", [])
+    else:
+        reference_run = best_run_idx if best_run_idx is not None else list(runs_data.keys())[0]
+        reference_records = runs_data[reference_run].get("records", [])
     
     if not reference_records:
-        print(f"Warning: No records found in run {reference_run}")
+        print(f"Warning: No records found")
         return
     
     # Extract parameter paths from first record
     all_param_paths = _extract_parameter_paths(reference_records[0].get("parameters", {}))
+    
+    # Filter out all neural network parameters - only keep GP parameters (lengthscales, outputscale, noise, etc.)
+    # Remove all neural network layers: trunk_layers, head_layers, and layers (from InputTransformNet)
+    filtered_param_paths = []
+    for path, value in all_param_paths:
+        path_str = path
+        # Skip all neural network layers: trunk_layers, head_layers, and layers
+        if ".trunk_layers[" in path_str or ".head_layers[" in path_str or ".layers[" in path_str:
+            continue
+        # Keep only GP parameters (lengthscales, outputscale, noise, etc.)
+        filtered_param_paths.append((path, value))
+    all_param_paths = filtered_param_paths
     
     # Filter parameter paths if specified
     if parameter_paths is not None:
@@ -1057,75 +1242,179 @@ def plot_parameters_by_iteration(
     else:
         axes = axes.flatten() if nrows > 1 else axes
     
+    # Generate green gradient colors for best runs (if using green highlighting)
+    highlighted_runs_list = []
+    if highlight_color == 'green' and is_fold_format:
+        # Collect all highlighted runs to assign gradient colors
+        for fold_key in sorted(folds_data.keys()):
+            if fold_key in highlighted_runs_per_fold:
+                highlighted_runs_list.append((fold_key, highlighted_runs_per_fold[fold_key]))
+        green_colors = _get_green_gradient_colors(len(highlighted_runs_list))
+        # Create mapping from (fold_key, run_key) to color
+        highlighted_run_colors = {}
+        for idx, (fold_key, run_key) in enumerate(highlighted_runs_list):
+            highlighted_run_colors[(fold_key, run_key)] = green_colors[idx]
+    else:
+        highlighted_run_colors = {}
+    
     # Plot each parameter
     for param_idx, (param_path, _) in enumerate(param_paths_to_plot):
         ax = axes[param_idx]
         
-        # Collect data for all runs
-        for run_idx, run_data in runs_data.items():
-            records = run_data.get("records", [])
-            if not records:
-                continue
-            
-            # Extract iterations and parameter values
-            iterations = []
-            param_values = []
-            
-            for record in records:
-                iter_num = record.get("iteration")
-                if iter_num is None:
+        # Collect data for all runs (grouped by fold if fold format)
+        if is_fold_format:
+            # Iterate through folds and runs
+            for fold_key, fold_data in folds_data.items():
+                runs = fold_data.get("runs", {})
+                highlighted_run_key = highlighted_runs_per_fold.get(fold_key)
+                
+                for run_key, run_data in runs.items():
+                    records = run_data.get("records", [])
+                    if not records:
+                        continue
+                    
+                    # Extract iterations and parameter values
+                    iterations = []
+                    param_values = []
+                    
+                    for record in records:
+                        iter_num = record.get("iteration")
+                        if iter_num is None:
+                            continue
+                        
+                        # Navigate to parameter value
+                        param_value = _get_nested_value(record.get("parameters", {}), param_path)
+                        if param_value is not None:
+                            iterations.append(iter_num)
+                            # Handle list values
+                            if isinstance(param_value, list):
+                                if len(param_value) > 0:
+                                    # If it's a single-element list (scalar wrapped in list), unwrap it
+                                    if len(param_value) == 1:
+                                        param_values.append(float(param_value[0]))
+                                    else:
+                                        # For multi-element lists, check if it's a neural network weight/bias
+                                        # Neural network weights/biases: use L2 norm to show magnitude changes
+                                        # Other lists (like lengthscales): use mean
+                                        if "weight" in param_path.lower() or "bias" in param_path.lower():
+                                            # For neural network weights/biases, use L2 norm to better show changes
+                                            param_array = np.array(param_value)
+                                            l2_norm = float(np.linalg.norm(param_array))
+                                            param_values.append(l2_norm)
+                                        else:
+                                            # For other lists (e.g., lengthscales), use mean
+                                            param_values.append(float(np.mean(param_value)))
+                                else:
+                                    continue
+                            else:
+                                param_values.append(float(param_value))
+                    
+                    if not iterations:
+                        continue
+                    
+                    # Determine color and style: highlighted run (median RRMSE or best loss)
+                    is_highlighted = (highlighted_run_key is not None and run_key == highlighted_run_key)
+                    if is_highlighted:
+                        # Use gradient green for best runs, or red for median RRMSE
+                        if highlight_color == 'green' and (fold_key, run_key) in highlighted_run_colors:
+                            color = highlighted_run_colors[(fold_key, run_key)]
+                            annotation_color = color  # Use the same gradient color for annotation
+                        else:
+                            color = highlight_color
+                            annotation_color = highlight_color
+                    else:
+                        color = 'gray'
+                        annotation_color = 'gray'
+                    line_alpha = 1.0 if is_highlighted else alpha
+                    line_width = linewidth * 1.5 if is_highlighted else linewidth
+                    fold_num = fold_key.replace("fold_", "") if fold_key.startswith("fold_") else fold_key
+                    run_num = run_key.replace("run_", "") if run_key.startswith("run_") else run_key
+                    # Create label with fold and run indices
+                    if is_highlighted:
+                        label = f"F{fold_num}R{run_num}{highlight_label_suffix}"
+                    else:
+                        label = f"F{fold_num}R{run_num}"
+                    
+                    # Plot (only add label to first subplot to avoid duplicate legends)
+                    line = None
+                    if param_idx == 0:
+                        line, = ax.plot(iterations, param_values, color=color, alpha=line_alpha, linewidth=line_width, label=label)
+                    else:
+                        line, = ax.plot(iterations, param_values, color=color, alpha=line_alpha, linewidth=line_width)
+                    
+                    # Add annotation for highlighted runs (only on first parameter subplot to avoid clutter)
+                    if is_highlighted and param_idx == 0 and len(iterations) > 0 and len(param_values) > 0:
+                        # Annotate at the last point
+                        last_idx = len(iterations) - 1
+                        ax.annotate(f"F{fold_num}R{run_num}", 
+                                   xy=(iterations[last_idx], param_values[last_idx]),
+                                   xytext=(5, 5), textcoords='offset points',
+                                   fontsize=7, color=annotation_color, fontweight='bold',
+                                   bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor=annotation_color, alpha=0.7))
+        else:
+            # Old format: iterate through runs
+            for run_idx, run_data in runs_data.items():
+                records = run_data.get("records", [])
+                if not records:
                     continue
                 
-                # Navigate to parameter value
-                param_value = _get_nested_value(record.get("parameters", {}), param_path)
-                if param_value is not None:
-                    iterations.append(iter_num)
-                    # Handle list values
-                    if isinstance(param_value, list):
-                        if len(param_value) > 0:
-                            # If it's a single-element list (scalar wrapped in list), unwrap it
-                            if len(param_value) == 1:
-                                param_values.append(float(param_value[0]))
-                            else:
-                                # For multi-element lists, check if it's a neural network weight/bias
-                                # Neural network weights/biases: use L2 norm to show magnitude changes
-                                # Other lists (like lengthscales): use mean
-                                if "weight" in param_path.lower() or "bias" in param_path.lower():
-                                    # For neural network weights/biases, use L2 norm to better show changes
-                                    param_array = np.array(param_value)
-                                    l2_norm = float(np.linalg.norm(param_array))
-                                    param_values.append(l2_norm)
+                # Extract iterations and parameter values
+                iterations = []
+                param_values = []
+                
+                for record in records:
+                    iter_num = record.get("iteration")
+                    if iter_num is None:
+                        continue
+                    
+                    # Navigate to parameter value
+                    param_value = _get_nested_value(record.get("parameters", {}), param_path)
+                    if param_value is not None:
+                        iterations.append(iter_num)
+                        # Handle list values
+                        if isinstance(param_value, list):
+                            if len(param_value) > 0:
+                                # If it's a single-element list (scalar wrapped in list), unwrap it
+                                if len(param_value) == 1:
+                                    param_values.append(float(param_value[0]))
                                 else:
-                                    # For other lists (e.g., lengthscales), use mean
-                                    param_values.append(float(np.mean(param_value)))
+                                    # For multi-element lists, check if it's a neural network weight/bias
+                                    # Neural network weights/biases: use L2 norm to show magnitude changes
+                                    # Other lists (like lengthscales): use mean
+                                    if "weight" in param_path.lower() or "bias" in param_path.lower():
+                                        # For neural network weights/biases, use L2 norm to better show changes
+                                        param_array = np.array(param_value)
+                                        l2_norm = float(np.linalg.norm(param_array))
+                                        param_values.append(l2_norm)
+                                    else:
+                                        # For other lists (e.g., lengthscales), use mean
+                                        param_values.append(float(np.mean(param_value)))
+                            else:
+                                continue
                         else:
-                            continue
-                    else:
-                        param_values.append(float(param_value))
-            
-            if not iterations:
-                continue
-            
-            # Determine color and style
-            is_best = (best_run_idx is not None and run_idx == best_run_idx)
-            color = 'green' if is_best else 'gray'
-            line_alpha = 1.0 if is_best else alpha
-            line_width = linewidth * 1.5 if is_best else linewidth
-            label = f"Run {run_idx}" + (" (Best)" if is_best else "")
-            
-            # Plot (only add label to first subplot to avoid duplicate legends)
-            if param_idx == 0:
-                ax.plot(iterations, param_values, color=color, alpha=line_alpha, linewidth=line_width, label=label)
-            else:
-                ax.plot(iterations, param_values, color=color, alpha=line_alpha, linewidth=line_width)
+                            param_values.append(float(param_value))
+                
+                if not iterations:
+                    continue
+                
+                # Determine color and style
+                is_best = (best_run_idx is not None and run_idx == best_run_idx)
+                color = 'green' if is_best else 'gray'
+                line_alpha = 1.0 if is_best else alpha
+                line_width = linewidth * 1.5 if is_best else linewidth
+                label = f"Run {run_idx}" + (" (Best)" if is_best else "")
+                
+                # Plot (only add label to first subplot to avoid duplicate legends)
+                if param_idx == 0:
+                    ax.plot(iterations, param_values, color=color, alpha=line_alpha, linewidth=line_width, label=label)
+                else:
+                    ax.plot(iterations, param_values, color=color, alpha=line_alpha, linewidth=line_width)
         
         # Customize subplot
         ax.set_xlabel("Iteration")
         ax.set_ylabel("Parameter Value")
-        # Remove "covar_module." prefix from title if present
-        title = param_path
-        if title.startswith("covar_module."):
-            title = title[len("covar_module."):]
+        # Create compact title
+        title = _make_compact_title(param_path)
         ax.set_title(title, fontsize=9)
         ax.grid(True, alpha=0.3)
     
@@ -1133,20 +1422,55 @@ def plot_parameters_by_iteration(
     for idx in range(n_params, len(axes)):
         fig.delaxes(axes[idx])
     
-    # Add single legend for entire figure (only if not too many runs)
-    if len(runs_data) <= 10:
-        # Get handles and labels from first subplot that has data
-        handles, labels = None, None
+    # Create legend showing fold and run indices
+    # For fold format, show only best runs in legend to avoid clutter
+    if is_fold_format:
+        # Collect only best run labels for legend
+        best_labels = []
+        best_handles = []
         for ax in axes[:n_params]:
             ax_handles, ax_labels = ax.get_legend_handles_labels()
-            if ax_handles:
-                handles, labels = ax_handles, ax_labels
-                break
+            if ax_handles and ax_labels:
+                for handle, label in zip(ax_handles, ax_labels):
+                    if "(Best)" in label and label not in best_labels:
+                        best_labels.append(label)
+                        best_handles.append(handle)
+                if best_handles:
+                    break
         
-        if handles and labels:
-            # Create a single legend for the entire figure
-            fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 0.02), 
-                      ncol=min(len(handles), 5), fontsize=8, frameon=True)
+        if best_handles and best_labels:
+            # Show only best runs in legend
+            fig.legend(best_handles, best_labels, loc='upper center', bbox_to_anchor=(0.5, 0.02), 
+                      ncol=min(len(best_handles), 10), fontsize=7, frameon=True, 
+                      title='Best Runs (Green)', title_fontsize=8)
+        else:
+            # Fallback: show all runs if not too many
+            total_runs = sum(len(fold_data.get("runs", {})) for fold_data in folds_data.values())
+            if total_runs <= 20:
+                handles, labels = None, None
+                for ax in axes[:n_params]:
+                    ax_handles, ax_labels = ax.get_legend_handles_labels()
+                    if ax_handles:
+                        handles, labels = ax_handles, ax_labels
+                        break
+                if handles and labels:
+                    fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 0.02), 
+                              ncol=min(len(handles), 8), fontsize=7, frameon=True)
+    else:
+        # Old format: show all runs if not too many
+        total_runs = len(runs_data)
+        if total_runs <= 20:
+            handles, labels = None, None
+            for ax in axes[:n_params]:
+                ax_handles, ax_labels = ax.get_legend_handles_labels()
+                if ax_handles:
+                    handles, labels = ax_handles, ax_labels
+                    break
+            
+            if handles and labels:
+                # Create a single legend for the entire figure
+                fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 0.02), 
+                          ncol=min(len(handles), 8), fontsize=7, frameon=True)
     
     # Overall title
     fig.suptitle("Parameter Evolution Over Iterations", fontsize=14, fontweight='bold')
@@ -1174,11 +1498,13 @@ def plot_parameters_by_epoch(
     dpi: int = 300,
     alpha: float = 0.3,
     linewidth: float = 1.5,
-    verbose: bool = True
+    verbose: bool = True,
+    rrmse_values: Optional[Dict] = None
 ):
     """
     Plot parameter evolution over epochs (for Adam and other epoch-based optimizers).
-    Highlights the best run in green.
+    Highlights the run with median RRMSE of each fold in red (if rrmse_values provided),
+    otherwise highlights the best loss run in green.
     
     Args:
         json_file: Path to JSON file saved by EpochParameterCallback
@@ -1189,42 +1515,144 @@ def plot_parameters_by_epoch(
                        If None, plots all parameters without limit.
         figsize: Figure size (width, height)
         dpi: Resolution for saved plots
-        alpha: Transparency for non-best runs
+        alpha: Transparency for non-highlighted runs
         linewidth: Line width for plots
         verbose: Whether to print progress messages
+        rrmse_values: Optional dict mapping (fold_key, run_key) or run_key to RRMSE values.
+                     If provided, highlights median RRMSE run in red instead of best loss run in green.
+                     Format: {(fold_key, run_key): rrmse} for fold format, or {run_key: rrmse} for old format.
     """
     # Load JSON data
     with open(json_file, 'r') as f:
         data = json.load(f)
     
-    # Handle both single-run and multi-run formats
-    if "runs" in data:
+    # Handle new fold-based format, old multi-run format, and single-run format
+    if "folds" in data:
+        # New format: organized by folds
+        folds_data = data["folds"]
+        is_fold_format = True
+        # Flatten to get all runs across all folds for reference
+        all_runs_data = {}
+        for fold_key, fold_data in folds_data.items():
+            runs = fold_data.get("runs", {})
+            for run_key, run_data in runs.items():
+                # Use fold_run as key to avoid collisions
+                all_runs_data[f"{fold_key}_{run_key}"] = run_data
+        runs_data = all_runs_data
+    elif "runs" in data:
+        # Old multi-run format (backward compatibility)
         runs_data = data["runs"]
-        is_multi_run = True
+        is_fold_format = False
+        folds_data = None
     else:
         # Single run format
         runs_data = {"0": data}
-        is_multi_run = False
+        is_fold_format = False
+        folds_data = None
     
-    # Identify best run
-    best_run_idx = _get_best_run_index(data) if is_multi_run else None
+    # Find median RRMSE run per fold (if rrmse_values provided) or best loss run per fold
+    highlighted_runs_per_fold = {}  # {fold_key: highlighted_run_key}
+    highlight_color = 'red'  # Default to red for median RRMSE
+    highlight_label_suffix = " (Median RRMSE)"
+    best_run_idx = None  # For old format
     
-    if verbose:
-        if best_run_idx is not None:
-            print(f"Best run identified: Run {best_run_idx}")
+    if rrmse_values is not None:
+        # Find median RRMSE run for each fold
+        if is_fold_format:
+            for fold_key, fold_data in folds_data.items():
+                runs = fold_data.get("runs", {})
+                if runs:
+                    # Collect RRMSE values for all runs in this fold
+                    rrmse_list = []
+                    for run_key, run_data in runs.items():
+                        rrmse_key = (fold_key, run_key) if isinstance(list(rrmse_values.keys())[0], tuple) else run_key
+                        if rrmse_key in rrmse_values:
+                            rrmse_value = rrmse_values[rrmse_key]
+                            if rrmse_value is not None and not np.isnan(rrmse_value) and not np.isinf(rrmse_value):
+                                rrmse_list.append((run_key, rrmse_value))
+                    
+                    if rrmse_list:
+                        # Sort by RRMSE and find median
+                        rrmse_list.sort(key=lambda x: x[1])
+                        median_idx = len(rrmse_list) // 2
+                        median_run_key = rrmse_list[median_idx][0]
+                        highlighted_runs_per_fold[fold_key] = median_run_key
+                        if verbose:
+                            print(f"Fold {fold_key}: Median RRMSE run is {median_run_key} (RRMSE={rrmse_list[median_idx][1]:.6f})")
         else:
-            print("Single run detected (no best run to highlight)")
+            # Old format: find overall median RRMSE run
+            rrmse_list = []
+            for run_key in runs_data.keys():
+                if run_key in rrmse_values:
+                    rrmse_value = rrmse_values[run_key]
+                    if rrmse_value is not None and not np.isnan(rrmse_value) and not np.isinf(rrmse_value):
+                        rrmse_list.append((run_key, rrmse_value))
+            
+            if rrmse_list:
+                rrmse_list.sort(key=lambda x: x[1])
+                median_idx = len(rrmse_list) // 2
+                best_run_idx = rrmse_list[median_idx][0]
+                if verbose:
+                    print(f"Median RRMSE run is {best_run_idx} (RRMSE={rrmse_list[median_idx][1]:.6f})")
+    else:
+        # Fallback to best loss run (green)
+        highlight_color = 'green'
+        highlight_label_suffix = " (Best)"
+        if is_fold_format:
+            for fold_key, fold_data in folds_data.items():
+                runs = fold_data.get("runs", {})
+                if runs:
+                    # Find best run within this fold by loss
+                    best_loss = float('inf')
+                    best_run_key = None
+                    for run_key, run_data in runs.items():
+                        records = run_data.get("records", [])
+                        for record in records:
+                            loss = record.get("loss")
+                            if loss is not None and loss < best_loss:
+                                best_loss = loss
+                                best_run_key = run_key
+                    if best_run_key is not None:
+                        highlighted_runs_per_fold[fold_key] = best_run_key
+            if verbose:
+                print(f"Found {len(highlighted_runs_per_fold)} folds with best loss runs identified")
+        else:
+            # Old format: find overall best run
+            best_run_idx = _get_best_run_index(data) if len(runs_data) > 1 else None
+            if verbose:
+                if best_run_idx is not None:
+                    print(f"Best run identified: Run {best_run_idx}")
+                else:
+                    print("Single run detected (no best run to highlight)")
     
     # Extract all parameter paths from first run (or best run if available)
-    reference_run = best_run_idx if best_run_idx is not None else list(runs_data.keys())[0]
-    reference_records = runs_data[reference_run].get("records", [])
+    if is_fold_format:
+        # Use first fold's first run as reference
+        first_fold = list(folds_data.keys())[0]
+        first_run = list(folds_data[first_fold].get("runs", {}).keys())[0]
+        reference_records = folds_data[first_fold]["runs"][first_run].get("records", [])
+    else:
+        reference_run = best_run_idx if best_run_idx is not None else list(runs_data.keys())[0]
+        reference_records = runs_data[reference_run].get("records", [])
     
     if not reference_records:
-        print(f"Warning: No records found in run {reference_run}")
+        print(f"Warning: No records found")
         return
     
     # Extract parameter paths from first record
     all_param_paths = _extract_parameter_paths(reference_records[0].get("parameters", {}))
+    
+    # Filter out all neural network parameters - only keep GP parameters (lengthscales, outputscale, noise, etc.)
+    # Remove all neural network layers: trunk_layers, head_layers, and layers (from InputTransformNet)
+    filtered_param_paths = []
+    for path, value in all_param_paths:
+        path_str = path
+        # Skip all neural network layers: trunk_layers, head_layers, and layers
+        if ".trunk_layers[" in path_str or ".head_layers[" in path_str or ".layers[" in path_str:
+            continue
+        # Keep only GP parameters (lengthscales, outputscale, noise, etc.)
+        filtered_param_paths.append((path, value))
+    all_param_paths = filtered_param_paths
     
     # Filter parameter paths if specified
     if parameter_paths is not None:
@@ -1288,75 +1716,179 @@ def plot_parameters_by_epoch(
     else:
         axes = axes.flatten() if nrows > 1 else axes
     
+    # Generate green gradient colors for best runs (if using green highlighting)
+    highlighted_runs_list = []
+    if highlight_color == 'green' and is_fold_format:
+        # Collect all highlighted runs to assign gradient colors
+        for fold_key in sorted(folds_data.keys()):
+            if fold_key in highlighted_runs_per_fold:
+                highlighted_runs_list.append((fold_key, highlighted_runs_per_fold[fold_key]))
+        green_colors = _get_green_gradient_colors(len(highlighted_runs_list))
+        # Create mapping from (fold_key, run_key) to color
+        highlighted_run_colors = {}
+        for idx, (fold_key, run_key) in enumerate(highlighted_runs_list):
+            highlighted_run_colors[(fold_key, run_key)] = green_colors[idx]
+    else:
+        highlighted_run_colors = {}
+    
     # Plot each parameter
     for param_idx, (param_path, _) in enumerate(param_paths_to_plot):
         ax = axes[param_idx]
         
-        # Collect data for all runs
-        for run_idx, run_data in runs_data.items():
-            records = run_data.get("records", [])
-            if not records:
-                continue
-            
-            # Extract epochs and parameter values
-            epochs = []
-            param_values = []
-            
-            for record in records:
-                epoch_num = record.get("epoch")
-                if epoch_num is None:
+        # Collect data for all runs (grouped by fold if fold format)
+        if is_fold_format:
+            # Iterate through folds and runs
+            for fold_key, fold_data in folds_data.items():
+                runs = fold_data.get("runs", {})
+                highlighted_run_key = highlighted_runs_per_fold.get(fold_key)
+                
+                for run_key, run_data in runs.items():
+                    records = run_data.get("records", [])
+                    if not records:
+                        continue
+                    
+                    # Extract epochs and parameter values
+                    epochs = []
+                    param_values = []
+                    
+                    for record in records:
+                        epoch_num = record.get("epoch")
+                        if epoch_num is None:
+                            continue
+                        
+                        # Navigate to parameter value
+                        param_value = _get_nested_value(record.get("parameters", {}), param_path)
+                        if param_value is not None:
+                            epochs.append(epoch_num)
+                            # Handle list values
+                            if isinstance(param_value, list):
+                                if len(param_value) > 0:
+                                    # If it's a single-element list (scalar wrapped in list), unwrap it
+                                    if len(param_value) == 1:
+                                        param_values.append(float(param_value[0]))
+                                    else:
+                                        # For multi-element lists, check if it's a neural network weight/bias
+                                        # Neural network weights/biases: use L2 norm to show magnitude changes
+                                        # Other lists (like lengthscales): use mean
+                                        if "weight" in param_path.lower() or "bias" in param_path.lower():
+                                            # For neural network weights/biases, use L2 norm to better show changes
+                                            param_array = np.array(param_value)
+                                            l2_norm = float(np.linalg.norm(param_array))
+                                            param_values.append(l2_norm)
+                                        else:
+                                            # For other lists (e.g., lengthscales), use mean
+                                            param_values.append(float(np.mean(param_value)))
+                                else:
+                                    continue
+                            else:
+                                param_values.append(float(param_value))
+                    
+                    if not epochs:
+                        continue
+                    
+                    # Determine color and style: highlighted run (median RRMSE or best loss)
+                    is_highlighted = (highlighted_run_key is not None and run_key == highlighted_run_key)
+                    if is_highlighted:
+                        # Use gradient green for best runs, or red for median RRMSE
+                        if highlight_color == 'green' and (fold_key, run_key) in highlighted_run_colors:
+                            color = highlighted_run_colors[(fold_key, run_key)]
+                            annotation_color = color  # Use the same gradient color for annotation
+                        else:
+                            color = highlight_color
+                            annotation_color = highlight_color
+                    else:
+                        color = 'gray'
+                        annotation_color = 'gray'
+                    line_alpha = 1.0 if is_highlighted else alpha
+                    line_width = linewidth * 1.5 if is_highlighted else linewidth
+                    fold_num = fold_key.replace("fold_", "") if fold_key.startswith("fold_") else fold_key
+                    run_num = run_key.replace("run_", "") if run_key.startswith("run_") else run_key
+                    # Create label with fold and run indices
+                    if is_highlighted:
+                        label = f"F{fold_num}R{run_num}{highlight_label_suffix}"
+                    else:
+                        label = f"F{fold_num}R{run_num}"
+                    
+                    # Plot (only add label to first subplot to avoid duplicate legends)
+                    line = None
+                    if param_idx == 0:
+                        line, = ax.plot(epochs, param_values, color=color, alpha=line_alpha, linewidth=line_width, label=label)
+                    else:
+                        line, = ax.plot(epochs, param_values, color=color, alpha=line_alpha, linewidth=line_width)
+                    
+                    # Add annotation for highlighted runs (only on first parameter subplot to avoid clutter)
+                    if is_highlighted and param_idx == 0 and len(epochs) > 0 and len(param_values) > 0:
+                        # Annotate at the last point
+                        last_idx = len(epochs) - 1
+                        ax.annotate(f"F{fold_num}R{run_num}", 
+                                   xy=(epochs[last_idx], param_values[last_idx]),
+                                   xytext=(5, 5), textcoords='offset points',
+                                   fontsize=7, color=annotation_color, fontweight='bold',
+                                   bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor=annotation_color, alpha=0.7))
+        else:
+            # Old format: iterate through runs
+            for run_idx, run_data in runs_data.items():
+                records = run_data.get("records", [])
+                if not records:
                     continue
                 
-                # Navigate to parameter value
-                param_value = _get_nested_value(record.get("parameters", {}), param_path)
-                if param_value is not None:
-                    epochs.append(epoch_num)
-                    # Handle list values
-                    if isinstance(param_value, list):
-                        if len(param_value) > 0:
-                            # If it's a single-element list (scalar wrapped in list), unwrap it
-                            if len(param_value) == 1:
-                                param_values.append(float(param_value[0]))
-                            else:
-                                # For multi-element lists, check if it's a neural network weight/bias
-                                # Neural network weights/biases: use L2 norm to show magnitude changes
-                                # Other lists (like lengthscales): use mean
-                                if "weight" in param_path.lower() or "bias" in param_path.lower():
-                                    # For neural network weights/biases, use L2 norm to better show changes
-                                    param_array = np.array(param_value)
-                                    l2_norm = float(np.linalg.norm(param_array))
-                                    param_values.append(l2_norm)
+                # Extract epochs and parameter values
+                epochs = []
+                param_values = []
+                
+                for record in records:
+                    epoch_num = record.get("epoch")
+                    if epoch_num is None:
+                        continue
+                    
+                    # Navigate to parameter value
+                    param_value = _get_nested_value(record.get("parameters", {}), param_path)
+                    if param_value is not None:
+                        epochs.append(epoch_num)
+                        # Handle list values
+                        if isinstance(param_value, list):
+                            if len(param_value) > 0:
+                                # If it's a single-element list (scalar wrapped in list), unwrap it
+                                if len(param_value) == 1:
+                                    param_values.append(float(param_value[0]))
                                 else:
-                                    # For other lists (e.g., lengthscales), use mean
-                                    param_values.append(float(np.mean(param_value)))
+                                    # For multi-element lists, check if it's a neural network weight/bias
+                                    # Neural network weights/biases: use L2 norm to show magnitude changes
+                                    # Other lists (like lengthscales): use mean
+                                    if "weight" in param_path.lower() or "bias" in param_path.lower():
+                                        # For neural network weights/biases, use L2 norm to better show changes
+                                        param_array = np.array(param_value)
+                                        l2_norm = float(np.linalg.norm(param_array))
+                                        param_values.append(l2_norm)
+                                    else:
+                                        # For other lists (e.g., lengthscales), use mean
+                                        param_values.append(float(np.mean(param_value)))
+                            else:
+                                continue
                         else:
-                            continue
-                    else:
-                        param_values.append(float(param_value))
-            
-            if not epochs:
-                continue
-            
-            # Determine color and style
-            is_best = (best_run_idx is not None and run_idx == best_run_idx)
-            color = 'green' if is_best else 'gray'
-            line_alpha = 1.0 if is_best else alpha
-            line_width = linewidth * 1.5 if is_best else linewidth
-            label = f"Run {run_idx}" + (" (Best)" if is_best else "")
-            
-            # Plot (only add label to first subplot to avoid duplicate legends)
-            if param_idx == 0:
-                ax.plot(epochs, param_values, color=color, alpha=line_alpha, linewidth=line_width, label=label)
-            else:
-                ax.plot(epochs, param_values, color=color, alpha=line_alpha, linewidth=line_width)
+                            param_values.append(float(param_value))
+                
+                if not epochs:
+                    continue
+                
+                # Determine color and style
+                is_best = (best_run_idx is not None and run_idx == best_run_idx)
+                color = 'green' if is_best else 'gray'
+                line_alpha = 1.0 if is_best else alpha
+                line_width = linewidth * 1.5 if is_best else linewidth
+                label = f"Run {run_idx}" + (" (Best)" if is_best else "")
+                
+                # Plot (only add label to first subplot to avoid duplicate legends)
+                if param_idx == 0:
+                    ax.plot(epochs, param_values, color=color, alpha=line_alpha, linewidth=line_width, label=label)
+                else:
+                    ax.plot(epochs, param_values, color=color, alpha=line_alpha, linewidth=line_width)
         
         # Customize subplot
         ax.set_xlabel("Epoch")
         ax.set_ylabel("Parameter Value")
-        # Remove "covar_module." prefix from title if present
-        title = param_path
-        if title.startswith("covar_module."):
-            title = title[len("covar_module."):]
+        # Create compact title
+        title = _make_compact_title(param_path)
         ax.set_title(title, fontsize=9)
         ax.grid(True, alpha=0.3)
     
@@ -1364,20 +1896,55 @@ def plot_parameters_by_epoch(
     for idx in range(n_params, len(axes)):
         fig.delaxes(axes[idx])
     
-    # Add single legend for entire figure (only if not too many runs)
-    if len(runs_data) <= 10:
-        # Get handles and labels from first subplot that has data
-        handles, labels = None, None
+    # Create legend showing fold and run indices
+    # For fold format, show only best runs in legend to avoid clutter
+    if is_fold_format:
+        # Collect only best run labels for legend
+        best_labels = []
+        best_handles = []
         for ax in axes[:n_params]:
             ax_handles, ax_labels = ax.get_legend_handles_labels()
-            if ax_handles:
-                handles, labels = ax_handles, ax_labels
-                break
+            if ax_handles and ax_labels:
+                for handle, label in zip(ax_handles, ax_labels):
+                    if "(Best)" in label and label not in best_labels:
+                        best_labels.append(label)
+                        best_handles.append(handle)
+                if best_handles:
+                    break
         
-        if handles and labels:
-            # Create a single legend for the entire figure
-            fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 0.02), 
-                      ncol=min(len(handles), 5), fontsize=8, frameon=True)
+        if best_handles and best_labels:
+            # Show only best runs in legend
+            fig.legend(best_handles, best_labels, loc='upper center', bbox_to_anchor=(0.5, 0.02), 
+                      ncol=min(len(best_handles), 10), fontsize=7, frameon=True, 
+                      title='Best Runs (Green)', title_fontsize=8)
+        else:
+            # Fallback: show all runs if not too many
+            total_runs = sum(len(fold_data.get("runs", {})) for fold_data in folds_data.values())
+            if total_runs <= 20:
+                handles, labels = None, None
+                for ax in axes[:n_params]:
+                    ax_handles, ax_labels = ax.get_legend_handles_labels()
+                    if ax_handles:
+                        handles, labels = ax_handles, ax_labels
+                        break
+                if handles and labels:
+                    fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 0.02), 
+                              ncol=min(len(handles), 8), fontsize=7, frameon=True)
+    else:
+        # Old format: show all runs if not too many
+        total_runs = len(runs_data)
+        if total_runs <= 20:
+            handles, labels = None, None
+            for ax in axes[:n_params]:
+                ax_handles, ax_labels = ax.get_legend_handles_labels()
+                if ax_handles:
+                    handles, labels = ax_handles, ax_labels
+                    break
+            
+            if handles and labels:
+                # Create a single legend for the entire figure
+                fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 0.02), 
+                          ncol=min(len(handles), 8), fontsize=7, frameon=True)
     
     # Overall title
     fig.suptitle("Parameter Evolution Over Epochs", fontsize=14, fontweight='bold')

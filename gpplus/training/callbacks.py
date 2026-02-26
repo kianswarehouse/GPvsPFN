@@ -1721,6 +1721,11 @@ class IterationParameterCallback(Callback):
         self._warning_handler = None  # Warning handler to capture jitter from linear_operator
         self._initial_parameters = None  # Store initial parameters from ParameterInitializer
         self._run_index = None  # Will be set via set_run_index() by GPTrainer
+        self._fold_index = None  # Will be set via set_fold_index() by experiment script
+    
+    def set_fold_index(self, fold_index: int):
+        """Set the fold index for this callback instance. Called by experiment script."""
+        self._fold_index = fold_index
     
     def on_train_start(self, context: dict):
         """Store model and trainer references for later use."""
@@ -1950,8 +1955,9 @@ class IterationParameterCallback(Callback):
                 "parameters": params,
             }
             
-            # Add run_index to record
+            # Add run_index and fold_index to record
             record["run_index"] = self._run_index
+            record["fold_index"] = self._fold_index
             self.recorded_parameters.append(record)
             
             if self.verbose and iteration % 250 == 0:  # Print every 250 iterations
@@ -2070,34 +2076,61 @@ class IterationParameterCallback(Callback):
         if save_file is None:
             return
         
-        # Collect parameter data from all runs
-        aggregated_data = {}  # {run_index: {"initial_parameters": {...}, "records": [...]}}
+        # Collect parameter data from all folds and runs
+        # Structure: {fold_index: {run_index: {"initial_parameters": {...}, "records": [...]}}}
+        aggregated_data = {}  # Will be organized by fold, then by run
         
         # First, check for temporary files (they have the most complete data)
         base_path, ext = os.path.splitext(save_file)
-        temp_pattern = f"{base_path}_temp_run_*{ext}"
-        temp_files = glob.glob(temp_pattern)
+        # Look for both patterns: with fold_index and without
+        temp_pattern_with_fold = f"{base_path}_temp_fold_*_run_*{ext}"
+        temp_pattern_no_fold = f"{base_path}_temp_run_*{ext}"
+        temp_files = glob.glob(temp_pattern_with_fold) + glob.glob(temp_pattern_no_fold)
         
         if verbose:
             print(f"IterationParameterCallback: Aggregating data from {len(results)} results...")
-            print(f"  Looking for temp files with pattern: {temp_pattern}")
+            print(f"  Looking for temp files with patterns: {temp_pattern_with_fold}, {temp_pattern_no_fold}")
             print(f"  Found {len(temp_files)} temp files: {[os.path.basename(f) for f in temp_files]}")
         
         for temp_file in temp_files:
             try:
-                # Extract run_index from filename: {base_path}_temp_run_{run_index}{ext}
+                # Extract fold_index and run_index from filename
                 filename = os.path.basename(temp_file)
-                match = filename.replace(f"{os.path.basename(base_path)}_temp_run_", "").replace(ext, "")
-                run_idx_str = match
+                base_name = os.path.basename(base_path)
+                
+                # Try pattern with fold: {base_path}_temp_fold_{fold_index}_run_{run_index}{ext}
+                if f"_temp_fold_" in filename:
+                    # Extract fold_index and run_index
+                    fold_match = filename.replace(f"{base_name}_temp_fold_", "").replace(ext, "")
+                    parts = fold_match.split("_run_")
+                    if len(parts) == 2:
+                        fold_idx_str = parts[0]
+                        run_idx_str = parts[1]
+                    else:
+                        # Fallback: treat as run_index only
+                        fold_idx_str = None
+                        run_idx_str = fold_match.replace("_run_", "")
+                else:
+                    # Pattern without fold: {base_path}_temp_run_{run_index}{ext}
+                    fold_idx_str = None
+                    match = filename.replace(f"{base_name}_temp_run_", "").replace(ext, "")
+                    run_idx_str = match
                 
                 with open(temp_file, "r") as f:
                     temp_data = json.load(f)
                 
-                aggregated_data[run_idx_str] = temp_data
+                # Organize by fold, then by run
+                if fold_idx_str is None:
+                    fold_idx_str = "0"  # Default fold if not specified
+                
+                if fold_idx_str not in aggregated_data:
+                    aggregated_data[fold_idx_str] = {}
+                
+                aggregated_data[fold_idx_str][run_idx_str] = temp_data
                 if verbose:
                     num_records = len(temp_data.get("records", [])) if isinstance(temp_data, dict) else len(temp_data) if isinstance(temp_data, list) else 0
                     has_initial = temp_data.get("initial_parameters") is not None if isinstance(temp_data, dict) else False
-                    print(f"  Run {run_idx_str}: Loaded {num_records} records from temp file (initial_parameters: {'present' if has_initial else 'null'})")
+                    print(f"  Fold {fold_idx_str}, Run {run_idx_str}: Loaded {num_records} records from temp file (initial_parameters: {'present' if has_initial else 'null'})")
             except Exception as e:
                 if verbose:
                     print(f"  Warning: Could not load temp file {temp_file}: {e}")
@@ -2105,46 +2138,80 @@ class IterationParameterCallback(Callback):
         # Then, try to get data from results (callback_data) for runs not found in temp files
         for result in results:
             run_index = result.get("run_index")
+            fold_index = result.get("fold_index")  # May not be present in old format
             if run_index is None:
                 if verbose:
                     print(f"  Warning: Result missing run_index: {list(result.keys())}")
                 continue
             
             run_idx_str = str(run_index)
+            fold_idx_str = str(fold_index) if fold_index is not None else "0"
+            
             # Only use callback_data if we don't already have data from temp files
-            if run_idx_str not in aggregated_data:
+            if fold_idx_str not in aggregated_data or run_idx_str not in aggregated_data.get(fold_idx_str, {}):
+                if fold_idx_str not in aggregated_data:
+                    aggregated_data[fold_idx_str] = {}
+                
                 callback_data = result.get("callback_data", {})
                 param_data = callback_data.get("IterationParameterCallback")
                 
                 if param_data is not None:
                     # Data is already in the correct format from callback_data
                     if isinstance(param_data, dict) and "initial_parameters" in param_data and "records" in param_data:
-                        aggregated_data[run_idx_str] = param_data
+                        aggregated_data[fold_idx_str][run_idx_str] = param_data
                         if verbose:
                             has_initial = param_data.get("initial_parameters") is not None
-                            print(f"  Run {run_index}: Found {len(param_data.get('records', []))} records in callback_data (initial_parameters: {'present' if has_initial else 'null'})")
+                            print(f"  Fold {fold_idx_str}, Run {run_index}: Found {len(param_data.get('records', []))} records in callback_data (initial_parameters: {'present' if has_initial else 'null'})")
                     elif isinstance(param_data, list):
                         # Old format: just a list of records
-                        aggregated_data[run_idx_str] = {
+                        aggregated_data[fold_idx_str][run_idx_str] = {
                             "initial_parameters": None,
                             "records": param_data
                         }
                         if verbose:
-                            print(f"  Run {run_index}: Found {len(param_data)} records in callback_data (old format)")
+                            print(f"  Fold {fold_idx_str}, Run {run_index}: Found {len(param_data)} records in callback_data (old format)")
         
-        # Save aggregated data
+        # Save aggregated data organized by folds
         if aggregated_data:
-            output_data = {"runs": aggregated_data}
+            # Read existing aggregated data if file exists (to merge with previous folds)
+            existing_data = {"folds": {}}
+            if os.path.exists(save_file):
+                try:
+                    with open(save_file, "r") as f:
+                        existing_data = json.load(f)
+                        if "folds" not in existing_data:
+                            existing_data = {"folds": {}}
+                except Exception as e:
+                    if verbose:
+                        print(f"  Warning: Could not read existing aggregated file: {e}")
+                    existing_data = {"folds": {}}
+            
+            # Merge new fold data with existing data
+            for fold_idx, runs_dict in aggregated_data.items():
+                fold_key = f"fold_{fold_idx}"
+                if fold_key not in existing_data["folds"]:
+                    existing_data["folds"][fold_key] = {"runs": {}}
+                # Merge runs for this fold (new runs overwrite old ones if same run_index)
+                existing_data["folds"][fold_key]["runs"].update(runs_dict)
+            
+            # Write merged data back
             os.makedirs(os.path.dirname(save_file) if os.path.dirname(save_file) else ".", exist_ok=True)
             with open(save_file, "w") as f:
-                json.dump(output_data, f, indent=2)
+                json.dump(existing_data, f, indent=2)
+            
+            output_data = existing_data
             
             if verbose:
-                total_records = sum(
-                    len(run_data.get("records", [])) if isinstance(run_data, dict) else len(run_data) if isinstance(run_data, list) else 0
-                    for run_data in aggregated_data.values()
-                )
-                print(f"IterationParameterCallback: Aggregated {total_records} total records from {len(aggregated_data)} runs to {save_file}")
+                total_records = 0
+                total_folds = len(output_data["folds"])
+                total_runs = 0
+                for fold_data in output_data["folds"].values():
+                    runs = fold_data.get("runs", {})
+                    total_runs += len(runs)
+                    for run_data in runs.values():
+                        total_records += len(run_data.get("records", [])) if isinstance(run_data, dict) else len(run_data) if isinstance(run_data, list) else 0
+                print(f"IterationParameterCallback: Aggregated {total_folds} folds, {total_runs} runs with {total_records} total records")
+                print(f"  Saved to: {save_file}")
             
             # Clean up temporary files
             for temp_file in temp_files:
@@ -2203,10 +2270,15 @@ class EpochParameterCallback(Callback):
         self._warning_handler = None
         self._initial_parameters = None  # Store initial parameters from ParameterInitializer
         self._run_index = None  # Will be set via set_run_index() by GPTrainer
+        self._fold_index = None  # Will be set via set_fold_index() by experiment script
     
     def set_run_index(self, run_index: int):
         """Set the run index for this callback instance. Called by GPTrainer."""
         self._run_index = run_index
+    
+    def set_fold_index(self, fold_index: int):
+        """Set the fold index for this callback instance. Called by experiment script."""
+        self._fold_index = fold_index
     
     def on_train_start(self, context: dict):
         """Check if we should activate based on optimizer type."""
@@ -2363,8 +2435,9 @@ class EpochParameterCallback(Callback):
             
             # Add run_index to record
             record["run_index"] = self._run_index
+            record["fold_index"] = self._fold_index
             self.recorded_parameters.append(record)
-            
+
             if self.verbose and epoch % 10 == 0:  # Print every 10 epochs
                 run_str = f"Run {self._run_index}, " if self._run_index is not None else ""
                 print(f"{run_str}Epoch {epoch} - Loss: {loss:.6f}" if loss else f"{run_str}Epoch {epoch}")
@@ -2428,10 +2501,14 @@ class EpochParameterCallback(Callback):
             }
             
             # If run_index is set, we're in a multi-run scenario - save to temp file
+            # Include fold_index in filename if available
             if self._run_index is not None:
-                # Save to temporary file: {base_path}_temp_run_{run_index}.json
+                # Save to temporary file: {base_path}_temp_fold_{fold_index}_run_{run_index}.json
                 base_path, ext = os.path.splitext(self.save_file)
-                temp_file = f"{base_path}_temp_run_{self._run_index}{ext}"
+                if self._fold_index is not None:
+                    temp_file = f"{base_path}_temp_fold_{self._fold_index}_run_{self._run_index}{ext}"
+                else:
+                    temp_file = f"{base_path}_temp_run_{self._run_index}{ext}"
                 with open(temp_file, "w") as f:
                     json.dump(output_data, f, indent=2)
                 if self.verbose:
@@ -2476,34 +2553,61 @@ class EpochParameterCallback(Callback):
         if save_file is None:
             return
         
-        # Collect parameter data from all runs
-        aggregated_data = {}  # {run_index: {"initial_parameters": {...}, "records": [...]}}
+        # Collect parameter data from all folds and runs
+        # Structure: {fold_index: {run_index: {"initial_parameters": {...}, "records": [...]}}}
+        aggregated_data = {}  # Will be organized by fold, then by run
         
         # First, check for temporary files (they have the most complete data, saved after on_train_start)
         base_path, ext = os.path.splitext(save_file)
-        temp_pattern = f"{base_path}_temp_run_*{ext}"
-        temp_files = glob.glob(temp_pattern)
+        # Look for both patterns: with fold_index and without
+        temp_pattern_with_fold = f"{base_path}_temp_fold_*_run_*{ext}"
+        temp_pattern_no_fold = f"{base_path}_temp_run_*{ext}"
+        temp_files = glob.glob(temp_pattern_with_fold) + glob.glob(temp_pattern_no_fold)
         
         if verbose:
             print(f"EpochParameterCallback: Aggregating data from {len(results)} results...")
-            print(f"  Looking for temp files with pattern: {temp_pattern}")
+            print(f"  Looking for temp files with patterns: {temp_pattern_with_fold}, {temp_pattern_no_fold}")
             print(f"  Found {len(temp_files)} temp files: {[os.path.basename(f) for f in temp_files]}")
         
         for temp_file in temp_files:
             try:
-                # Extract run_index from filename: {base_path}_temp_run_{run_index}{ext}
+                # Extract fold_index and run_index from filename
                 filename = os.path.basename(temp_file)
-                match = filename.replace(f"{os.path.basename(base_path)}_temp_run_", "").replace(ext, "")
-                run_idx_str = match
+                base_name = os.path.basename(base_path)
+                
+                # Try pattern with fold: {base_path}_temp_fold_{fold_index}_run_{run_index}{ext}
+                if f"_temp_fold_" in filename:
+                    # Extract fold_index and run_index
+                    fold_match = filename.replace(f"{base_name}_temp_fold_", "").replace(ext, "")
+                    parts = fold_match.split("_run_")
+                    if len(parts) == 2:
+                        fold_idx_str = parts[0]
+                        run_idx_str = parts[1]
+                    else:
+                        # Fallback: treat as run_index only
+                        fold_idx_str = None
+                        run_idx_str = fold_match.replace("_run_", "")
+                else:
+                    # Pattern without fold: {base_path}_temp_run_{run_index}{ext}
+                    fold_idx_str = None
+                    match = filename.replace(f"{base_name}_temp_run_", "").replace(ext, "")
+                    run_idx_str = match
                 
                 with open(temp_file, "r") as f:
                     temp_data = json.load(f)
                 
-                aggregated_data[run_idx_str] = temp_data
+                # Organize by fold, then by run
+                if fold_idx_str is None:
+                    fold_idx_str = "0"  # Default fold if not specified
+                
+                if fold_idx_str not in aggregated_data:
+                    aggregated_data[fold_idx_str] = {}
+                
+                aggregated_data[fold_idx_str][run_idx_str] = temp_data
                 if verbose:
                     num_records = len(temp_data.get("records", [])) if isinstance(temp_data, dict) else len(temp_data) if isinstance(temp_data, list) else 0
                     has_initial = temp_data.get("initial_parameters") is not None if isinstance(temp_data, dict) else False
-                    print(f"  Run {run_idx_str}: Loaded {num_records} records from temp file (initial_parameters: {'present' if has_initial else 'null'})")
+                    print(f"  Fold {fold_idx_str}, Run {run_idx_str}: Loaded {num_records} records from temp file (initial_parameters: {'present' if has_initial else 'null'})")
             except Exception as e:
                 if verbose:
                     print(f"  Warning: Could not load temp file {temp_file}: {e}")
@@ -2511,46 +2615,80 @@ class EpochParameterCallback(Callback):
         # Then, try to get data from results (callback_data) for runs not found in temp files
         for result in results:
             run_index = result.get("run_index")
+            fold_index = result.get("fold_index")  # May not be present in old format
             if run_index is None:
                 if verbose:
                     print(f"  Warning: Result missing run_index: {list(result.keys())}")
                 continue
             
             run_idx_str = str(run_index)
+            fold_idx_str = str(fold_index) if fold_index is not None else "0"
+            
             # Only use callback_data if we don't already have data from temp files
-            if run_idx_str not in aggregated_data:
+            if fold_idx_str not in aggregated_data or run_idx_str not in aggregated_data.get(fold_idx_str, {}):
+                if fold_idx_str not in aggregated_data:
+                    aggregated_data[fold_idx_str] = {}
+                
                 callback_data = result.get("callback_data", {})
                 param_data = callback_data.get("EpochParameterCallback")
                 
                 if param_data is not None:
                     # Data is already in the correct format from callback_data
                     if isinstance(param_data, dict) and "initial_parameters" in param_data and "records" in param_data:
-                        aggregated_data[run_idx_str] = param_data
+                        aggregated_data[fold_idx_str][run_idx_str] = param_data
                         if verbose:
                             has_initial = param_data.get("initial_parameters") is not None
-                            print(f"  Run {run_index}: Found {len(param_data.get('records', []))} records in callback_data (initial_parameters: {'present' if has_initial else 'null'})")
+                            print(f"  Fold {fold_idx_str}, Run {run_index}: Found {len(param_data.get('records', []))} records in callback_data (initial_parameters: {'present' if has_initial else 'null'})")
                     elif isinstance(param_data, list):
                         # Old format: just a list of records
-                        aggregated_data[run_idx_str] = {
+                        aggregated_data[fold_idx_str][run_idx_str] = {
                             "initial_parameters": None,
                             "records": param_data
                         }
                         if verbose:
-                            print(f"  Run {run_index}: Found {len(param_data)} records in callback_data (old format)")
+                            print(f"  Fold {fold_idx_str}, Run {run_index}: Found {len(param_data)} records in callback_data (old format)")
         
-        # Save aggregated data
+        # Save aggregated data organized by folds
         if aggregated_data:
-            output_data = {"runs": aggregated_data}
+            # Read existing aggregated data if file exists (to merge with previous folds)
+            existing_data = {"folds": {}}
+            if os.path.exists(save_file):
+                try:
+                    with open(save_file, "r") as f:
+                        existing_data = json.load(f)
+                        if "folds" not in existing_data:
+                            existing_data = {"folds": {}}
+                except Exception as e:
+                    if verbose:
+                        print(f"  Warning: Could not read existing aggregated file: {e}")
+                    existing_data = {"folds": {}}
+            
+            # Merge new fold data with existing data
+            for fold_idx, runs_dict in aggregated_data.items():
+                fold_key = f"fold_{fold_idx}"
+                if fold_key not in existing_data["folds"]:
+                    existing_data["folds"][fold_key] = {"runs": {}}
+                # Merge runs for this fold (new runs overwrite old ones if same run_index)
+                existing_data["folds"][fold_key]["runs"].update(runs_dict)
+            
+            # Write merged data back
             os.makedirs(os.path.dirname(save_file) if os.path.dirname(save_file) else ".", exist_ok=True)
             with open(save_file, "w") as f:
-                json.dump(output_data, f, indent=2)
+                json.dump(existing_data, f, indent=2)
+            
+            output_data = existing_data
             
             if verbose:
-                total_records = sum(
-                    len(run_data.get("records", [])) if isinstance(run_data, dict) else len(run_data) if isinstance(run_data, list) else 0
-                    for run_data in aggregated_data.values()
-                )
-                print(f"EpochParameterCallback: Aggregated {total_records} total records from {len(aggregated_data)} runs to {save_file}")
+                total_records = 0
+                total_folds = len(output_data["folds"])
+                total_runs = 0
+                for fold_data in output_data["folds"].values():
+                    runs = fold_data.get("runs", {})
+                    total_runs += len(runs)
+                    for run_data in runs.values():
+                        total_records += len(run_data.get("records", [])) if isinstance(run_data, dict) else len(run_data) if isinstance(run_data, list) else 0
+                print(f"EpochParameterCallback: Aggregated {total_folds} folds, {total_runs} runs with {total_records} total records")
+                print(f"  Saved to: {save_file}")
             
             # Clean up temporary files
             for temp_file in temp_files:
