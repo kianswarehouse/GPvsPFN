@@ -92,7 +92,8 @@ class LBFGSScipy(torch.optim.Optimizer):
             p.data = params[offset : offset + numel].view_as(p.data)
             offset += numel
 
-    def step(self, closure):
+
+    def step(self, closure=None):
         """Performs a single optimization step.
 
         Arguments:
@@ -119,8 +120,10 @@ class LBFGSScipy(torch.optim.Optimizer):
 
         def callback(flat_params):
             self._n_iter += 1
-            # Optional: print progress (can be disabled)
-            # print('Iter %i Loss %.5f' % (self._n_iter, self._last_loss.item()))
+            # Optional: invoke trainer inner callback for per-iteration logging (e.g. NLL, NIS)
+            inner_cb = getattr(self, "_inner_callback", None)
+            if inner_cb is not None and self._last_loss is not None:
+                inner_cb(self._n_iter, self._last_loss)
 
         initial_params = self._gather_flat_params().cpu().numpy()
 
