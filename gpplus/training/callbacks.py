@@ -75,6 +75,29 @@ class PrintLossCallback(Callback):
         print(f"Epoch {context['epoch']} - Loss: {context['loss']:.4f}")
 
 
+class PrintTrainingMetricsCallback(Callback):
+    """Prints NLL, NIS, LOO_NLL, KF, MSE, and R2 each epoch when provided in context['metrics']."""
+
+    def on_epoch_end(self, context: dict):
+        metrics = context.get("metrics")
+        if not metrics:
+            return
+        parts = [f"Epoch {context['epoch']} - Loss: {context['loss']:.4f}"]
+        if "NLL" in metrics:
+            parts.append(f"NLL: {metrics['NLL']:.4f}")
+        if "NIS" in metrics:
+            parts.append(f"NIS: {metrics['NIS']:.4f}")
+        if "LOO_NLL" in metrics:
+            parts.append(f"LOO_NLL: {metrics['LOO_NLL']:.4f}")
+        if "KF" in metrics:
+            parts.append(f"KF: {metrics['KF']:.4f}")
+        if "MSE" in metrics:
+            parts.append(f"MSE: {metrics['MSE']:.4f}")
+        if "R2" in metrics:
+            parts.append(f"R2: {metrics['R2']:.4f}")
+        print(" | ".join(parts))
+
+
 class PrintInitialParametersCallback(Callback):
     def on_train_start(self, context: dict):
         print("Initial parameters: ")
@@ -100,18 +123,39 @@ class FinalParameterStorageCallback(Callback):
         self._run_count = 0
         self._best_epoch = 0  # Track best epoch when loss improves
         self._current_best_loss = float("inf")
+        self._metrics_at_best = None  # NLL, NIS, LOO_NLL, KF, MSE, R2 at best epoch (for trainer analysis JSON)
+        self._current_run_index = None
+        self._current_fold_index = None
+        self._current_num_folds = None
+        self._epoch_metrics_list = None  # Per-epoch metrics for this run (list of dicts)
+
+    def _run_fold_label(self, context: dict) -> str:
+        """Build label for display: 'Fold X/Y — Init Z' or 'Init Z' when no fold info."""
+        run_index = context.get("run_index")
+        fold_index = context.get("fold_index")
+        num_folds = context.get("num_folds")
+        init_label = f"Init {run_index}" if run_index is not None else f"Run {self._run_count}"
+        if fold_index is not None and num_folds is not None:
+            return f"Fold {fold_index}/{num_folds} — {init_label}"
+        return init_label
 
     def on_train_start(self, context: dict):
         """Capture initial parameters at the start of training."""
         model = context["model"]
         self._run_count += 1
+        self._current_run_index = context.get("run_index")
+        self._current_fold_index = context.get("fold_index")
+        self._current_num_folds = context.get("num_folds")
         self._best_epoch = 0
         self._current_best_loss = float("inf")
+        self._metrics_at_best = None
+        self._epoch_metrics_list = []
         try:
             # Use epoch 0 for initial snapshot (epoch may be unavailable here)
             self._initial_params = self._extract_final_parameters(model, epoch=0, best_loss=None)
             if self.verbose:
-                print(f"\n=== Initial Parameters (Run {self._run_count}, Epoch 0) ===")
+                label = self._run_fold_label(context)
+                print(f"\n=== Initial Parameters ({label}, Epoch 0) ===")
                 print(f"Raw noise: {self._initial_params['raw_noise']}")
                 print(f"Raw outputscale: {self._initial_params['raw_outputscale']}")
                 raw_lengthscales = self._initial_params.get("raw_lengthscales", [])
@@ -131,13 +175,30 @@ class FinalParameterStorageCallback(Callback):
 
             traceback.print_exc()
 
+    @staticmethod
+    def _to_float(x: Any) -> float:
+        """Convert metric value to JSON-serializable float."""
+        if x is None:
+            return None
+        if hasattr(x, "item"):
+            return float(x.item())
+        return float(x)
+
     def on_epoch_end(self, context: dict):
-        """Track best epoch when loss improves."""
+        """Track best epoch when loss improves; save metrics at best epoch; record metrics every epoch."""
         loss = context.get("loss")
         epoch = context.get("epoch", 0)
         if loss is not None and loss < self._current_best_loss:
             self._current_best_loss = loss
             self._best_epoch = epoch
+            self._metrics_at_best = context.get("metrics")  # NLL, NIS, LOO_NLL, KF, MSE, R2 when logged
+        # Record metrics at every epoch for reporting
+        metrics = context.get("metrics") or {}
+        epoch_record = {"epoch": int(epoch), "loss": self._to_float(loss)}
+        for key in ("NLL", "NIS", "LOO_NLL", "KF", "MSE", "R2"):
+            if key in metrics:
+                epoch_record[key] = self._to_float(metrics[key])
+        self._epoch_metrics_list.append(epoch_record)
 
     def on_train_end(self, context: dict):
         """Store final parameters at the end of training."""
@@ -145,6 +206,9 @@ class FinalParameterStorageCallback(Callback):
         epoch = context["epoch"]
         best_loss = context.get("best_loss", None)
         trainer = context.get("trainer", None)
+        self._current_run_index = context.get("run_index")
+        self._current_fold_index = context.get("fold_index")
+        self._current_num_folds = context.get("num_folds")
         # Get cholesky_jitter from trainer if available
         cholesky_jitter = None
         if trainer is not None and hasattr(trainer, "cholesky_jitter"):
@@ -168,10 +232,19 @@ class FinalParameterStorageCallback(Callback):
                 model_to_extract, epoch, best_loss, cholesky_jitter, self._best_epoch
             )
             record = self._combine_initial_final(self._initial_params, final_params)
+            # Add training metrics at best epoch (NLL, NIS, LOO_NLL, KF, MSE, R2) for trainer analysis JSON
+            if self._metrics_at_best:
+                for key in ("NLL", "NIS", "LOO_NLL", "KF", "MSE", "R2"):
+                    if key in self._metrics_at_best:
+                        record[key] = self._metrics_at_best[key]
+            # Per-epoch metrics (loss, NLL, NIS, LOO_NLL, KF, MSE, R2 at each epoch)
+            if self._epoch_metrics_list:
+                record["epoch_metrics"] = self._epoch_metrics_list
             self.stored_parameters.append(record)
 
             if self.verbose:
-                print(f"\n=== Final Parameters (Run {self._run_count}, Epoch {epoch}) ===")
+                label = self._run_fold_label(context)
+                print(f"\n=== Final Parameters ({label}, Epoch {epoch}) ===")
                 print(f"Number of epochs: {final_params.get('num_epochs', 'N/A')}")
                 print(f"Best epoch: {final_params.get('best_epoch', 'N/A')}")
                 print(f"Jitter: {final_params.get('jitter', 'N/A')}")
@@ -235,8 +308,9 @@ class FinalParameterStorageCallback(Callback):
 
         If no initial snapshot is available, returns a record with only final values.
         """
+        run_value = self._current_run_index if self._current_run_index is not None else self._run_count
         record = {
-            "run": self._run_count,
+            "run": run_value,
             "epoch": final.get("epoch"),
             "num_epochs": final.get("num_epochs"),
             "best_epoch": final.get("best_epoch"),
@@ -247,23 +321,31 @@ class FinalParameterStorageCallback(Callback):
             "final": None,
             "deltas": None,
         }
+        if self._current_fold_index is not None:
+            record["fold"] = self._current_fold_index
+        if self._current_num_folds is not None:
+            record["num_folds"] = self._current_num_folds
 
         record["final"] = {
             "raw_noise": final.get("raw_noise"),
             "raw_outputscale": final.get("raw_outputscale"),
             "raw_lengthscales": final.get("raw_lengthscales"),
-            "raw_cat_lengthscales": final.get("raw_cat_lengthscales"),
-            "raw_source_lengthscales": final.get("raw_source_lengthscales"),
             "raw_constant": final.get("raw_constant"),
             "constant": final.get("constant"),
             "noise": final.get("noise"),  # Transformed
             "outputscale": final.get("outputscale"),  # Transformed
             "lengthscales": final.get("lengthscales"),  # Transformed (from cont_kernel)
-            "cat_lengthscales": final.get("cat_lengthscales"),  # Transformed (from cat_kernel)
-            "source_lengthscales": final.get("source_lengthscales"),  # Transformed (from source_kernel)
             "kernel_type": final.get("kernel_type"),
             "input_dim": final.get("input_dim"),
         }
+        if final.get("raw_cat_lengthscales") is not None:
+            record["final"]["raw_cat_lengthscales"] = final.get("raw_cat_lengthscales")
+        if final.get("raw_source_lengthscales") is not None:
+            record["final"]["raw_source_lengthscales"] = final.get("raw_source_lengthscales")
+        if final.get("cat_lengthscales") is not None:
+            record["final"]["cat_lengthscales"] = final.get("cat_lengthscales")
+        if final.get("source_lengthscales") is not None:
+            record["final"]["source_lengthscales"] = final.get("source_lengthscales")
 
         # Only include power-specific parameters when using the PowerExponential kernel
         if isinstance(final.get("kernel_type"), str) and "PowerExponential" in final.get("kernel_type"):
@@ -281,13 +363,15 @@ class FinalParameterStorageCallback(Callback):
             "raw_noise": initial.get("raw_noise"),
             "raw_outputscale": initial.get("raw_outputscale"),
             "raw_lengthscales": initial.get("raw_lengthscales"),
-            "raw_cat_lengthscales": initial.get("raw_cat_lengthscales"),
-            "raw_source_lengthscales": initial.get("raw_source_lengthscales"),
             "raw_constant": initial.get("raw_constant"),
             "constant": initial.get("constant"),
             "kernel_type": initial.get("kernel_type"),
             "input_dim": initial.get("input_dim"),
         }
+        if initial.get("raw_cat_lengthscales") is not None:
+            record["initial"]["raw_cat_lengthscales"] = initial.get("raw_cat_lengthscales")
+        if initial.get("raw_source_lengthscales") is not None:
+            record["initial"]["raw_source_lengthscales"] = initial.get("raw_source_lengthscales")
 
         if isinstance(initial.get("kernel_type"), str) and "PowerExponential" in initial.get("kernel_type"):
             record["initial"]["raw_power"] = initial.get("raw_power")
