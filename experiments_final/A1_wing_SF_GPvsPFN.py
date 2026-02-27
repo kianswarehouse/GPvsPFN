@@ -21,7 +21,8 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         convergence_patience=defaults.TRAINER_CONVERGENCE_PATIENCE,
         min_epochs=defaults.TRAINER_MIN_EPOCHS,
         min_loss_change=defaults.TRAINER_MIN_LOSS_CHANGE,
-        optimizer_class=defaults.TRAINER_OPTIMIZER_CLASS,        
+        optimizer_class=defaults.TRAINER_OPTIMIZER_CLASS,
+        optimizer_kwargs=defaults.TRAINER_OPTIMIZER_KWARGS,
         initializer_class=defaults.TRAINER_INITIALIZER_CLASS,
         gp_device=defaults.TRAINER_GP_DEVICE,
         amp_device=defaults.TRAINER_AMP_DEVICE,
@@ -35,10 +36,14 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         noise_type=defaults.NOISE_TYPE,
         seed=defaults.SEED,
         seed_trainer=defaults.SEED_TRAINER,
-        gp_dtype = defaults.DTYPE_GP,
-        pfn_dtype = defaults.DTYPE_PFN,
+        gp_dtype=defaults.DTYPE_GP,
+        pfn_dtype=defaults.DTYPE_PFN,
         trainer_info=True,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
+        optimization_loss=defaults.TRAINER_OPTIMIZATION_LOSS,  # "nll", "nll_plus_kf", etc.
+        log_lbfgs_inner=defaults.TRAINER_LOG_LBFGS_INNER,
+        log_lbfgs_inner_full=defaults.TRAINER_LOG_LBFGS_INNER_FULL,
+        log_lbfgs_inner_full_T_mon=defaults.TRAINER_LOG_LBFGS_INNER_FULL_T_MON,
     ):
     
     if run_models == 'pfn':
@@ -61,8 +66,9 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         plot_save_path = None
 
     # Calculate total samples needed
+    num_folds_gen = max(num_folds, 20)
     train_per_fold = train_size * 10
-    total_train = num_folds * train_per_fold
+    total_train = num_folds_gen * train_per_fold
     total_samples = num_test + total_train
     
     # Generate all unique Sobol samples at once
@@ -100,7 +106,7 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
     # Randomize across the single source (s0), then split across folds
     all_indices = torch.randperm(total_train)
-    train_indices_2d = all_indices.reshape(num_folds, train_per_fold)
+    train_indices_2d = all_indices.reshape(num_folds_gen, train_per_fold)
         
     total_start_time = time.time()
     for i in range(num_folds):
@@ -178,12 +184,17 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 min_epochs=min_epochs,
                 min_loss_change=min_loss_change,
                 optimizer_class=optimizer_class,
+                optimizer_kwargs=optimizer_kwargs,
                 initializer_class=initializer_class,
                 device=gp_device,
                 y_train_mean=y_train_mean if standardize_y else None,
                 y_train_std=y_train_std if standardize_y else None,
                 source_cols=source_cols,  # Source column is at index 10 (single int = not encoded)
                 trainer_info=trainer_info,  # Set to True if you want trainer info
+                optimization_loss=optimization_loss,
+                log_lbfgs_inner=log_lbfgs_inner,
+                log_lbfgs_inner_full=log_lbfgs_inner_full,
+                log_lbfgs_inner_full_T_mon=log_lbfgs_inner_full_T_mon,
             )
             
             GPPlus_metrics.append(gp_metric)
@@ -260,6 +271,7 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                     "num_folds": num_folds,
                     "seed": seed,
                     "seed_trainer": seed_trainer,
+                    "optimization_loss": optimization_loss,
                 }
             if run_models in [None, 'pfn']:
                 tabpfn_model_info = {
@@ -330,11 +342,16 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 trainer_analysis_dir.mkdir(parents=True, exist_ok=True)
                 
                 # Save raw trainer info (just the parameter info)
+                trainer_info_by_fold = {
+                    f"fold_{entry.get('fold', i + 1)}": entry
+                    for i, entry in enumerate(GPTrainer_info)
+                }
                 trainer_info_data = {
                     "title": title,
                     "num_folds": num_folds,
                     "num_runs_per_fold": num_runs,
-                    "trainer_info": GPTrainer_info,
+                    "trainer_info": trainer_info_by_fold,
+                    "optimization_loss": optimization_loss,
                 }
                 
                 # Save trainer info JSON
@@ -346,6 +363,13 @@ def wing_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                     plot_trainer_analysis_from_data(trainer_info_data, trainer_analysis_dir / "plots")
                 except Exception as plot_e:
                     print(f"Trainer analysis plotting skipped: {plot_e}")
+                try:
+                    from plot_epoch_metrics import plot_iter_metrics_from_data
+                    plot_iter_metrics_from_data(trainer_info_data, trainer_analysis_dir / "plots")
+                except ValueError:
+                    pass  # no epoch_metrics in data
+                except Exception as e:
+                    print(f"Epoch metrics plotting skipped: {e}")
                 
             except Exception as e:
                 print(f"Error saving trainer info: {e}")

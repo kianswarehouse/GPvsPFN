@@ -19,11 +19,13 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         num_test=5000,
         train_size=10, # total training size is train_size * number of X input dimensions (4)
         num_runs=defaults.TRAINER_NUM_RUNS, 
-        num_epochs=defaults.TRAINER_NUM_EPOCHS, 
+        num_epochs=defaults.TRAINER_NUM_EPOCHS,
+        min_epochs=defaults.TRAINER_MIN_EPOCHS,
         lr=defaults.TRAINER_LR, 
         convergence_patience=defaults.TRAINER_CONVERGENCE_PATIENCE,
         min_loss_change=defaults.TRAINER_MIN_LOSS_CHANGE,
         optimizer_class=defaults.TRAINER_OPTIMIZER_CLASS,
+        optimizer_kwargs=defaults.TRAINER_OPTIMIZER_KWARGS,
         initializer_class=defaults.TRAINER_INITIALIZER_CLASS,
         gp_device=defaults.TRAINER_GP_DEVICE,
         amp_device=defaults.TRAINER_AMP_DEVICE,
@@ -43,6 +45,10 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         trainer_info=True,
         MF_kernel=True,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
+        optimization_loss=defaults.TRAINER_OPTIMIZATION_LOSS,  # "nll", "nll_plus_kf", etc.
+        log_lbfgs_inner=defaults.TRAINER_LOG_LBFGS_INNER,
+        log_lbfgs_inner_full=defaults.TRAINER_LOG_LBFGS_INNER_FULL,
+        log_lbfgs_inner_full_T_mon=defaults.TRAINER_LOG_LBFGS_INNER_FULL_T_MON,
     ):
     if run_models == 'pfn':
         num_runs = 0
@@ -64,8 +70,9 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         plot_save_path = None
     
     # Calculate total samples needed (4D problem)
+    num_folds_gen = max(num_folds, 20)
     train_per_fold = train_size * 4
-    total_train = num_folds * train_per_fold
+    total_train = num_folds_gen * train_per_fold
     total_samples = num_test + total_train
     
     # Generate all unique Sobol samples at once for single-fidelity (use only s0)
@@ -73,7 +80,7 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     X_train_folds, y_train_folds, X_test_all, y_test_all = generate_mf_buckling_data_with_folds(
         train_samples_per_source=[total_train, 0],
         test_samples_per_source=[num_test, 0],
-        num_folds=num_folds,
+        num_folds=num_folds_gen,
         train_noise=[noise_train, 0.0],
         test_noise=[noise_test, 0.0],
         noise_type=noise_type,
@@ -246,7 +253,6 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                     # fix_lengthscale_cat=True,
                     )  
                 )
-
             else:
                 kernel = defaults.SF_kernel
 
@@ -284,6 +290,7 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 min_epochs=min_epochs,
                 min_loss_change=min_loss_change,
                 optimizer_class=optimizer_class,
+                optimizer_kwargs=optimizer_kwargs,
                 initializer_class=initializer_class,
                 device=gp_device,
                 y_train_mean=y_train_mean if standardize_y else None,
@@ -292,6 +299,10 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 log_scale_C=log_scale_C,
                 source_cols=source_cols,
                 trainer_info=trainer_info,
+                optimization_loss=optimization_loss,
+                log_lbfgs_inner=log_lbfgs_inner,
+                log_lbfgs_inner_full=log_lbfgs_inner_full,
+                log_lbfgs_inner_full_T_mon=log_lbfgs_inner_full_T_mon,
             )
             GPPlus_metrics.append(gp_metric)
             
@@ -439,11 +450,16 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 trainer_analysis_dir.mkdir(parents=True, exist_ok=True)
                 
                 # Save raw trainer info (just the parameter info)
+                trainer_info_by_fold = {
+                    f"fold_{entry.get('fold', i + 1)}": entry
+                    for i, entry in enumerate(GPTrainer_info)
+                }
                 trainer_info_data = {
                     "title": title,
                     "num_folds": num_folds,
                     "num_runs_per_fold": num_runs,
-                    "trainer_info": GPTrainer_info,
+                    "trainer_info": trainer_info_by_fold,
+                    "optimization_loss": optimization_loss,
                 }
                 
                 # Save trainer info JSON
@@ -457,6 +473,13 @@ def buckling_SF_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                     plot_trainer_analysis_from_data(trainer_info_data, plots_dir)
                 except Exception as plot_e:
                     print(f"Trainer analysis plotting skipped: {plot_e}")
+                try:
+                    from plot_epoch_metrics import plot_iter_metrics_from_data
+                    plot_iter_metrics_from_data(trainer_info_data, trainer_analysis_dir / "plots")
+                except ValueError:
+                    pass  # no epoch_metrics in data
+                except Exception as e:
+                    print(f"Epoch metrics plotting skipped: {e}")
                 
             except Exception as e:
                 print(f"Error saving trainer info: {e}")

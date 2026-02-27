@@ -1,11 +1,11 @@
 """
-Plot hyperparameter vs epochs from GP_Trainer_Analysis.json files.
+Plot hyperparameter vs total optimization steps from GP_Trainer_Analysis.json files.
 
 For each trainer_analysis JSON:
 - One subplot per hyperparameter: raw_noise, raw_outputscale, then one per dimension for
   raw_lengthscale_0, raw_lengthscale_1, ... and raw_cat_lengthscale_0, raw_cat_lengthscale_1, ...
-- X = epoch (0 = start, value = when run ended), Y = hyperparameter value.
-- All runs: small gray points; lines from (0, initial) to (num_epochs, final).
+- X = total steps (0 = start, value = when run ended), Y = hyperparameter value.
+- All runs: small gray points; lines from (0, initial) to (num_steps, final).
 - Chosen runs (lowest loss per fold): thicker green line; circle = start, star = end.
 """
 
@@ -225,12 +225,15 @@ def build_arrays_per_hyperparameter(
 ) -> dict[str, dict[str, np.ndarray]]:
     """
     For each hyperparameter key, build:
-    - num_epochs, best_epoch, initial_value, final_value, is_chosen, is_best_rrmse
-    best_epoch = epoch when best loss occurred (checkpoint we use); num_epochs = when run ended.
+    - num_iters (treated as total LBFGS iterations), best_iter, initial_value, final_value,
+      is_chosen, is_best_rrmse.
+    best_iter = LBFGS iteration when best loss occurred (checkpoint we use);
+    num_iters = total number of LBFGS iterations when the run ended.
+    If no inner-iteration metrics are available, falls back to epoch-based counts.
     """
     out: dict[str, dict[str, np.ndarray]] = {}
     for key in param_keys:
-        epochs, best_epochs, init_vals, final_vals, is_chosen, is_best_rrmse = [], [], [], [], [], []
+        iters, best_iters, init_vals, final_vals, is_chosen, is_best_rrmse = [], [], [], [], [], []
         for r in all_runs:
             init = r.get("initial_parameters") or {}
             fin = r.get("final_parameters") or {}
@@ -238,20 +241,36 @@ def build_arrays_per_hyperparameter(
             vf = _get_hyperparameter_value(fin, key)
             if vi is None and vf is None:
                 continue
-            epochs.append(r.get("num_epochs", 0))
-            # best_epoch = epoch when best loss occurred (checkpoint we use); at run level or in final_parameters
-            be = r.get("best_epoch") if r.get("best_epoch") is not None else fin.get("best_epoch")
-            if be is not None and isinstance(be, (int, float)) and np.isfinite(be):
-                best_epochs.append(float(be))
+            # Prefer LBFGS inner-iteration metrics if available; otherwise fall back to epochs.
+            inner = r.get("lbfgs_inner_metrics") or []
+            if inner:
+                # Total iterations = max lbfgs_iter; best_iter = lbfgs_iter at minimum loss.
+                valid_inner = [m for m in inner if m.get("lbfgs_iter") is not None and np.isfinite(m.get("loss", np.nan))]
+                if valid_inner:
+                    num_iters = float(max(m["lbfgs_iter"] for m in valid_inner))
+                    best_entry = min(valid_inner, key=lambda m: m.get("loss", np.inf))
+                    best_iter = float(best_entry.get("lbfgs_iter", num_iters))
+                else:
+                    num_iters = float(len(inner))
+                    best_iter = np.nan
             else:
-                best_epochs.append(np.nan)
+                # Fallback: epochs
+                num_iters = float(r.get("num_epochs", 0))
+                be = r.get("best_epoch") if r.get("best_epoch") is not None else fin.get("best_epoch")
+                if be is not None and isinstance(be, (int, float)) and np.isfinite(be):
+                    best_iter = float(be)
+                else:
+                    best_iter = np.nan
+
+            iters.append(num_iters)
+            best_iters.append(best_iter)
             init_vals.append(vi if vi is not None else np.nan)
             final_vals.append(vf if vf is not None else np.nan)
             is_chosen.append(r.get("_chosen", False))
             is_best_rrmse.append(r.get("_best_rrmse", False))
         out[key] = {
-            "num_epochs": np.array(epochs, dtype=float),
-            "best_epoch": np.array(best_epochs, dtype=float),
+            "num_iters": np.array(iters, dtype=float),
+            "best_iter": np.array(best_iters, dtype=float),
             "initial_value": np.array(init_vals, dtype=float),
             "final_value": np.array(final_vals, dtype=float),
             "is_chosen": np.array(is_chosen, dtype=bool),
@@ -267,8 +286,10 @@ def plot_hyperparameter_epochs(
     figsize_per_subplot: tuple[float, float] = (5, 4),
 ) -> None:
     """
-    One subplot per hyperparameter. X = epoch (0 = start, num_epochs = end). Y = hyperparameter value.
-    Each run shows 2 or 3 points: start (epoch 0), best epoch (if distinct), and final (num_epochs).
+    One subplot per hyperparameter. X = total steps (0 = start, num_steps = end).
+    Y = hyperparameter value.
+    Each run shows 2 or 3 points: start (step 0), best step (if distinct), and final
+    (total steps).
     Same for gray, green (chosen), and red (best RRMSE) runs.
     """
     def _run_line_points(epochs_i: float, best_epoch_i: float, init_i: float, final_i: float):
@@ -301,8 +322,8 @@ def plot_hyperparameter_epochs(
     for idx, key in enumerate(param_keys):
         ax = axes[idx]
         d = arrays_per_param[key]
-        epochs = d["num_epochs"]
-        best_epochs = d.get("best_epoch", np.full_like(epochs, np.nan))
+        epochs = d["num_iters"]
+        best_epochs = d.get("best_iter", np.full_like(epochs, np.nan))
         init_v = d["initial_value"]
         final_v = d["final_value"]
         chosen = d["is_chosen"]
@@ -367,13 +388,13 @@ def plot_hyperparameter_epochs(
             ax.scatter(ends_x, ends_y, s=220, c="red", alpha=0.95, marker="*",
                        edgecolors="darkred", linewidths=1.5, label="Best RRMSE (end)", zorder=8)
 
-        ax.set_xlabel("Epoch")
+        ax.set_xlabel("Iterations")
         ax.set_ylabel(key.replace("_", " ").title())
         ax.set_title(key.replace("_", " ").title())
         ax.legend(loc="best", fontsize=8)
         ax.grid(True, alpha=0.3)
-        ax.set_xlim(left=-0.2)  # small gap before epoch 0 (max 0.2)
-        ax.xaxis.set_major_locator(MaxNLocator(integer=True))  # epochs are integers only
+        ax.set_xlim(left=-0.2)  # small gap before step 0 (max 0.2)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))  # steps are integers only
 
         # Y-axis: bounds from FINAL CHOSEN RUNS only (one per fold, lowest loss; initial + final values) + padding
         final_chosen_init = init_v[chosen]
@@ -607,7 +628,8 @@ def plot_embedding_2d(
 
 def plot_trainer_analysis_from_data(data: dict, out_dir: Path) -> None:
     """
-    Generate hyperparameter vs epochs plot from in-memory trainer_info data (same structure as saved JSON).
+    Generate hyperparameter vs total-step plot from in-memory trainer_info data
+    (same structure as saved JSON).
     Use this right after saving the trainer_analysis JSON so plots are created automatically.
     If encoder_embedding_* keys exist, also generates 2D embedding plots (initial vs final).
     """

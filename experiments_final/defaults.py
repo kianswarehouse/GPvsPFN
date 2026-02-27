@@ -8,19 +8,28 @@ STANDARDIZE_Y = True
 SF_kernel = None
 SF_mean = None
 SF_likelihood = None
+
 NUM_FOLDS = 20
 TRAINER_LR = None # Using LBFGS
 TRAINER_MIN_EPOCHS = 0  # Do not consider early stopping until at least this many epochs
-TRAINER_NUM_EPOCHS = 200 
+TRAINER_NUM_EPOCHS = 1
 TRAINER_NUM_RUNS = 16
 TRAINER_CONVERGENCE_PATIENCE = 10
 # TRAINER_CHOLESKY_JITTER = 0
 TRAINER_CHOLESKY_JITTER = 1e-6
 TRAINER_MIN_LOSS_CHANGE = 1e-7
+# optimization_loss: "nll" | "nis" | "loo" | "kf" | "nll_plus_kf" | "nll_minus_kf"
+TRAINER_OPTIMIZATION_LOSS = "nll"  # "nll" | "nll_plus_kf" | "nll_minus_kf" | "kf" | "nis" | "loo"
 # TRAINER_OPTIMIZER_CLASS = torch.optim.Adam
 TRAINER_OPTIMIZER_CLASS = gpplus.training.optimizers.LBFGSScipy
-TRAINER_OPTIMIZER_KWARGS = {"max_iter": 2000, "max_eval": 5000, "tolerance_grad": 1e-5, "tolerance_change": 1e-9, "history_size": 10} #1
+# TRAINER_OPTIMIZER_KWARGS = {"max_iter": 20, "tolerance_grad": 1e-5, "tolerance_change": 1e-9, "history_size": 10} #1
+# TRAINER_OPTIMIZER_KWARGS = {"max_iter": 15000, "max_eval": 15000, "tolerance_grad": 1e-5, "tolerance_change": 1e-9, "history_size": 10} #2
+TRAINER_OPTIMIZER_KWARGS = {"max_iter": 2000, "max_eval": 2500, "tolerance_grad": 1e-5, "tolerance_change": 1e-9, "history_size": 10} #2
 # TRAINER_OPTIMIZER_KWARGS = {"max_iter": 20}   # 0 
+TRAINER_LOG_LBFGS_INNER = True
+TRAINER_LOG_LBFGS_INNER_FULL = True
+TRAINER_LOG_LBFGS_INNER_FULL_T_MON = 1
+
 TRAINER_INITIALIZER_CLASS = gpplus.training.parameter_initializer.DefaultParameterInitializer
 TRAINER_GP_DEVICE = 'cpu'
 TRAINER_AMP_DEVICE = 'cuda'
@@ -28,6 +37,8 @@ DTYPE_GP = torch.float64
 DTYPE_PFN = torch.float32
 NOISE_TYPE = 'gaussian'
 
+# TRAINER_ANALYSIS = True # make settings into problems
+# PLOT_METRICS = False
 
 SEED = 42
 SEED_TRAINER = None

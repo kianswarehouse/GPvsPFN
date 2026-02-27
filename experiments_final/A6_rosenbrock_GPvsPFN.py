@@ -21,10 +21,11 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         num_epochs=defaults.TRAINER_NUM_EPOCHS, 
         min_epochs=defaults.TRAINER_MIN_EPOCHS,
         lr=defaults.TRAINER_LR, 
-        convergence_patience=defaults.TRAINER_CONVERGENCE_PATIENCE,
+        convergence_patience=defaults.TRAINER_CONVERGENCE_PATIENCE, 
         cholesky_jitter=defaults.TRAINER_CHOLESKY_JITTER,
         min_loss_change=defaults.TRAINER_MIN_LOSS_CHANGE,
         optimizer_class=defaults.TRAINER_OPTIMIZER_CLASS,
+        optimizer_kwargs=defaults.TRAINER_OPTIMIZER_KWARGS,
         initializer_class=defaults.TRAINER_INITIALIZER_CLASS,
         gp_device=defaults.TRAINER_GP_DEVICE,
         amp_device=defaults.TRAINER_AMP_DEVICE,
@@ -42,6 +43,10 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         pfn_dtype = defaults.DTYPE_PFN,
         trainer_info=True,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
+        optimization_loss=defaults.TRAINER_OPTIMIZATION_LOSS,  # "nll", "nll_plus_kf", etc.
+        log_lbfgs_inner=defaults.TRAINER_LOG_LBFGS_INNER,
+        log_lbfgs_inner_full=defaults.TRAINER_LOG_LBFGS_INNER_FULL,
+        log_lbfgs_inner_full_T_mon=defaults.TRAINER_LOG_LBFGS_INNER_FULL_T_MON,
     ):
 
     if run_models == 'pfn':
@@ -65,7 +70,8 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     
     # Calculate total samples needed
     train_per_fold = train_size * dimensions  # train_size * dimensions for Rosenbrock
-    total_train = num_folds * train_per_fold
+    num_folds_gen = max(num_folds, 20)
+    total_train = num_folds_gen * train_per_fold
     total_samples = num_test + total_train
     
     print(f"Generating {total_samples} unique Sobol samples for {dimensions}D Rosenbrock function\n\tTest samples: {num_test} / Train samples: {total_train}")
@@ -101,7 +107,7 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     # Use seed to ensure consistent fold splits
     torch.manual_seed(seed)
     all_indices = torch.randperm(total_train)
-    train_indices_2d = all_indices.reshape(num_folds, train_per_fold)
+    train_indices_2d = all_indices.reshape(num_folds_gen, train_per_fold)
         
     total_start_time = time.time()
     for i in range(num_folds):
@@ -148,16 +154,16 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         # KERNEL CONFIGURATION
         # ============================================================================
         # Choose between 'Gaussian', 'PowerExponential', 'Matern'
-        KERNEL_TYPE = None  # Options: 'Gaussian', 'PowerExponential', 'Matern'
-        # ============================================================================
-        if KERNEL_TYPE == "PowerExponential":
-            kernel_mod = gpplus.kernels.LogScaleKernel(gpplus.kernels.PowerExponentialKernel(ard_num_dims=dimensions))
-        elif KERNEL_TYPE == "Gaussian":
-            kernel_mod = gpplus.kernels.LogScaleKernel(gpplus.kernels.GaussianKernel(ard_num_dims=dimensions))
-        elif KERNEL_TYPE == "Matern":
-            kernel_mod = gpplus.kernels.LogScaleKernel(gpplus.kernels.MaternKernel(nu=2.5, ard_num_dims=dimensions))
-        else:
-            kernel_mod = defaults.SF_kernel
+        # KERNEL_TYPE = None  # Options: 'Gaussian', 'PowerExponential', 'Matern'
+        # # ============================================================================
+        # if KERNEL_TYPE == "PowerExponential":
+        #     kernel_mod = gpplus.kernels.LogScaleKernel(gpplus.kernels.PowerExponentialKernel(ard_num_dims=dimensions))
+        # elif KERNEL_TYPE == "Gaussian":
+        #     kernel_mod = gpplus.kernels.LogScaleKernel(gpplus.kernels.GaussianKernel(ard_num_dims=dimensions))
+        # elif KERNEL_TYPE == "Matern":
+        #     kernel_mod = gpplus.kernels.LogScaleKernel(gpplus.kernels.MaternKernel(nu=2.5, ard_num_dims=dimensions))
+        # else:
+        # kernel_mod = defaults.SF_kernel
 
         # =============================================================================
         # GP Section 
@@ -169,7 +175,7 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             model = gpplus.models.GPR(
                 X_train,
                 y_train_normal if standardize_y else y_train,
-                kernel_module=kernel_mod,
+                kernel_module=defaults.SF_kernel,
                 mean_module=defaults.SF_mean,
                 likelihood=defaults.SF_likelihood,
             )
@@ -192,6 +198,7 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 min_epochs=min_epochs,
                 min_loss_change=min_loss_change,
                 optimizer_class=optimizer_class,
+                optimizer_kwargs=optimizer_kwargs,
                 initializer_class=initializer_class,
                 device=gp_device,
                 y_train_mean=y_train_mean if standardize_y else None,
@@ -199,6 +206,10 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 source_cols=source_cols,
                 trainer_info=trainer_info,
                 cholesky_jitter=cholesky_jitter,
+                optimization_loss=optimization_loss,
+                log_lbfgs_inner=log_lbfgs_inner,
+                log_lbfgs_inner_full=log_lbfgs_inner_full,
+                log_lbfgs_inner_full_T_mon=log_lbfgs_inner_full_T_mon,
             )
             GPPlus_metrics.append(gp_metric)
             
@@ -346,11 +357,16 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 trainer_analysis_dir.mkdir(parents=True, exist_ok=True)
                 
                 # Save raw trainer info (just the parameter info)
+                trainer_info_by_fold = {
+                    f"fold_{entry.get('fold', i + 1)}": entry
+                    for i, entry in enumerate(GPTrainer_info)
+                }
                 trainer_info_data = {
                     "title": title,
                     "num_folds": num_folds,
                     "num_runs_per_fold": num_runs,
-                    "trainer_info": GPTrainer_info,
+                    "trainer_info": trainer_info_by_fold,
+                    "optimization_loss": optimization_loss,
                 }
                 
                 # Save trainer info JSON (always use "gp" prefix for GP trainer info)
@@ -362,6 +378,13 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                     plot_trainer_analysis_from_data(trainer_info_data, trainer_analysis_dir / "plots")
                 except Exception as plot_e:
                     print(f"Trainer analysis plotting skipped: {plot_e}")
+                try:
+                    from plot_epoch_metrics import plot_iter_metrics_from_data
+                    plot_iter_metrics_from_data(trainer_info_data, trainer_analysis_dir / "plots")
+                except ValueError:
+                    pass  # no epoch_metrics in data
+                except Exception as e:
+                    print(f"Epoch metrics plotting skipped: {e}")
                 
             except Exception as e:
                 print(f"Error saving trainer info: {e}")

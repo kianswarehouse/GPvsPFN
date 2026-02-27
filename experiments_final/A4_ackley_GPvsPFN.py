@@ -26,6 +26,7 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         min_epochs=defaults.TRAINER_MIN_EPOCHS,
         min_loss_change=defaults.TRAINER_MIN_LOSS_CHANGE,
         optimizer_class=defaults.TRAINER_OPTIMIZER_CLASS,
+        optimizer_kwargs=defaults.TRAINER_OPTIMIZER_KWARGS,
         initializer_class=defaults.TRAINER_INITIALIZER_CLASS,
         gp_device=defaults.TRAINER_GP_DEVICE,
         amp_device=defaults.TRAINER_AMP_DEVICE,
@@ -44,6 +45,10 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         pfn_dtype = defaults.DTYPE_PFN,
         trainer_info=True,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
+        optimization_loss=defaults.TRAINER_OPTIMIZATION_LOSS,  # "nll", "nll_plus_kf", etc.
+        log_lbfgs_inner=defaults.TRAINER_LOG_LBFGS_INNER,
+        log_lbfgs_inner_full=defaults.TRAINER_LOG_LBFGS_INNER_FULL,
+        log_lbfgs_inner_full_T_mon=defaults.TRAINER_LOG_LBFGS_INNER_FULL_T_MON,
     ):
 
     if run_models == 'pfn':
@@ -67,8 +72,9 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     set_seed(seed)
     
     # Calculate total samples needed
+    num_folds_gen = max(num_folds, 20)
     train_per_fold = train_size * dimensions  # train_size * dimensions for Ackley
-    total_train = num_folds * train_per_fold
+    total_train = num_folds_gen * train_per_fold
     total_samples = num_test + total_train
     
     print(f"Generating {total_samples} unique Sobol samples for {dimensions}D Ackley function\n\tTest samples: {num_test} / Train samples: {total_train}")
@@ -103,7 +109,7 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
 
     # Randomize across the single source, then split across folds
     all_indices = torch.randperm(total_train)
-    train_indices_2d = all_indices.reshape(num_folds, train_per_fold)
+    train_indices_2d = all_indices.reshape(num_folds_gen, train_per_fold)
         
     total_start_time = time.time()
     for i in range(num_folds):
@@ -180,12 +186,17 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 min_epochs=min_epochs,
                 min_loss_change=min_loss_change,
                 optimizer_class=optimizer_class,
+                optimizer_kwargs=optimizer_kwargs,
                 initializer_class=initializer_class,
                 device=gp_device,
                 y_train_mean=y_train_mean if standardize_y else None,
                 y_train_std=y_train_std if standardize_y else None,
                 source_cols=source_cols,
                 trainer_info=trainer_info,  # Set to True if you want trainer info
+                optimization_loss=optimization_loss,
+                log_lbfgs_inner=log_lbfgs_inner,
+                log_lbfgs_inner_full=log_lbfgs_inner_full,
+                log_lbfgs_inner_full_T_mon=log_lbfgs_inner_full_T_mon,
             )
             
             GPPlus_metrics.append(gp_metric)
@@ -309,7 +320,8 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 combined_data["gp_data"] = {
                     "summary": GPPlus_summary,
                     "metrics": GPPlus_metrics,
-                    "gp_model_info": gp_model_info
+                    "gp_model_info": gp_model_info,
+                    "optimization_loss": optimization_loss,
                 }
             if run_models in [None, 'pfn']:
                 combined_data["tabpfn_data"] = {
@@ -332,12 +344,17 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 trainer_analysis_dir = Path(save_path) / "trainer_analysis"
                 trainer_analysis_dir.mkdir(parents=True, exist_ok=True)
                 
-                # Save raw trainer info (just the parameter info)
+                # Save raw trainer info keyed by fold (fold_1, fold_2, ...)
+                trainer_info_by_fold = {
+                    f"fold_{entry.get('fold', i + 1)}": entry
+                    for i, entry in enumerate(GPTrainer_info)
+                }
                 trainer_info_data = {
                     "title": title,
                     "num_folds": num_folds,
                     "num_runs_per_fold": num_runs,
-                    "trainer_info": GPTrainer_info,
+                    "optimization_loss": optimization_loss,
+                    "trainer_info": trainer_info_by_fold,
                 }
                 
                 # Save trainer info JSON (always use "gp" prefix for GP trainer info)
@@ -349,6 +366,13 @@ def ackley_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                     plot_trainer_analysis_from_data(trainer_info_data, trainer_analysis_dir / "plots")
                 except Exception as plot_e:
                     print(f"Trainer analysis plotting skipped: {plot_e}")
+                try:
+                    from plot_epoch_metrics import plot_iter_metrics_from_data
+                    plot_iter_metrics_from_data(trainer_info_data, trainer_analysis_dir / "plots")
+                except ValueError:
+                    pass  # no epoch_metrics in data
+                except Exception as e:
+                    print(f"Epoch metrics plotting skipped: {e}")
                 
             except Exception as e:
                 print(f"Error saving trainer info: {e}")

@@ -43,6 +43,10 @@ def griewank_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         pfn_dtype = defaults.DTYPE_PFN,
         trainer_info=True,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
+        optimization_loss=defaults.TRAINER_OPTIMIZATION_LOSS,  # "nll", "nll_plus_kf", etc.
+        log_lbfgs_inner=defaults.TRAINER_LOG_LBFGS_INNER,
+        log_lbfgs_inner_full=defaults.TRAINER_LOG_LBFGS_INNER_FULL,
+        log_lbfgs_inner_full_T_mon=defaults.TRAINER_LOG_LBFGS_INNER_FULL_T_MON,
     ):
 
     if run_models == 'pfn':
@@ -66,7 +70,8 @@ def griewank_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     
     # Calculate total samples needed
     train_per_fold = train_size * dimensions  # train_size * dimensions for Griewank
-    total_train = num_folds * train_per_fold
+    num_folds_gen = max(num_folds, 20)
+    total_train = num_folds_gen * train_per_fold
     total_samples = num_test + total_train
     
     print(f"Generating {total_samples} unique Sobol samples for {dimensions}D Griewank function\n\tTest samples: {num_test} / Train samples: {total_train}")
@@ -102,7 +107,7 @@ def griewank_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     # Use seed to ensure consistent fold splits
     torch.manual_seed(seed)
     all_indices = torch.randperm(total_train)
-    train_indices_2d = all_indices.reshape(num_folds, train_per_fold)
+    train_indices_2d = all_indices.reshape(num_folds_gen, train_per_fold)
         
     total_start_time = time.time()
     for i in range(num_folds):
@@ -187,6 +192,10 @@ def griewank_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 trainer_info=trainer_info,
                 cholesky_jitter=cholesky_jitter,
                 optimizer_kwargs=optimizer_kwargs,
+                optimization_loss=optimization_loss,
+                log_lbfgs_inner=log_lbfgs_inner,
+                log_lbfgs_inner_full=log_lbfgs_inner_full,
+                log_lbfgs_inner_full_T_mon=log_lbfgs_inner_full_T_mon,
             )
             GPPlus_metrics.append(gp_metric)
             
@@ -334,11 +343,16 @@ def griewank_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 trainer_analysis_dir.mkdir(parents=True, exist_ok=True)
                 
                 # Save raw trainer info (just the parameter info)
+                trainer_info_by_fold = {
+                    f"fold_{entry.get('fold', i + 1)}": entry
+                    for i, entry in enumerate(GPTrainer_info)
+                }
                 trainer_info_data = {
                     "title": title,
                     "num_folds": num_folds,
                     "num_runs_per_fold": num_runs,
-                    "trainer_info": GPTrainer_info,
+                    "trainer_info": trainer_info_by_fold,
+                    "optimization_loss": optimization_loss,
                 }
                 
                 # Save trainer info JSON (always use "gp" prefix for GP trainer info)
@@ -350,6 +364,13 @@ def griewank_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                     plot_trainer_analysis_from_data(trainer_info_data, trainer_analysis_dir / "plots")
                 except Exception as plot_e:
                     print(f"Trainer analysis plotting skipped: {plot_e}")
+                try:
+                    from plot_epoch_metrics import plot_iter_metrics_from_data
+                    plot_iter_metrics_from_data(trainer_info_data, trainer_analysis_dir / "plots")
+                except ValueError:
+                    pass  # no epoch_metrics in data
+                except Exception as e:
+                    print(f"Epoch metrics plotting skipped: {e}")
                 
             except Exception as e:
                 print(f"Error saving trainer info: {e}")
