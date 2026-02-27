@@ -11,6 +11,7 @@ from .advanced_kernels import (
 )
 from .mvmf_kernel import MVMFKernel  # was combined_kernel_OneCatK
 from .seek_kernel import SEEKKernel
+from .seek_kernel_trunk_head import SEEKKernelTrunkHead
 
 from .unconstrained_kernel import UnconstrainedKernel
 from .gaussian_kernel import GaussianKernel

@@ -121,12 +121,60 @@ class GPTrainerSingleProcess:
             "trainer": self,
             "device": self.device,
         }
+        # Add run_index to context if any callback has it set
+        for cb in self.callbacks:
+            if hasattr(cb, "_run_index") and cb._run_index is not None:
+                ctx["run_index"] = cb._run_index
+                break  # Only need to set it once in context
         for cb in self.callbacks:
             cb.on_train_start(ctx)
+        
+        # Register iteration callbacks with optimizer if needed
+        # Store reference to trainer for accessing jitter during iterations
+        # IMPORTANT: LBFGSScipy only has one iteration_callback slot, so we need to chain
+        # multiple callbacks together if both IterationParameterCallback and JitterTrackingCallback are present
+        iteration_callbacks = []
+        for cb in self.callbacks:
+            if hasattr(cb, "register_with_optimizer"):
+                # For LBFGSScipy, collect callbacks that need iteration tracking (have _on_iteration method)
+                if isinstance(optimizer, LBFGSScipy):
+                    # Check if this callback wants to track iterations
+                    if hasattr(cb, "_on_iteration"):
+                        iteration_callbacks.append(cb)
+                    # Still call register_with_optimizer to set up model/trainer references
+                    cb.register_with_optimizer(optimizer, model=self.model, trainer=self)
+                else:
+                    # For other optimizers, register directly
+                    cb.register_with_optimizer(optimizer, model=self.model, trainer=self)
+        
+        # Chain iteration callbacks for LBFGSScipy (so both can work together)
+        if isinstance(optimizer, LBFGSScipy) and iteration_callbacks:
+            def chained_iteration_callback(iteration, loss=None, flat_params=None):
+                """Chain multiple iteration callbacks together."""
+                for cb in iteration_callbacks:
+                    if hasattr(cb, "_on_iteration"):
+                        try:
+                            # Pass flat_params if the callback accepts it
+                            import inspect
+                            sig = inspect.signature(cb._on_iteration)
+                            if 'flat_params' in sig.parameters:
+                                cb._on_iteration(iteration, loss, flat_params=flat_params)
+                            else:
+                                cb._on_iteration(iteration, loss)
+                        except Exception as e:
+                            import warnings
+                            warnings.warn(f"Iteration callback {cb.__class__.__name__} raised an error: {e}")
+            
+            optimizer.iteration_callback = chained_iteration_callback
+            if len(iteration_callbacks) > 1:
+                logger.info(f"Chained {len(iteration_callbacks)} iteration callbacks: {[cb.__class__.__name__ for cb in iteration_callbacks]}")
 
-        # Jitter can increase on NotPSDError; track current value for this run
+        # Jitter can increase on NotPSDError; track current and maximum value for this run
         run_jitter = float(self.cholesky_jitter)
         max_jitter = 1e-3
+        max_jitter_used = run_jitter
+        # Store current jitter in trainer for callbacks to access
+        self.current_jitter = run_jitter
 
         # Set the model to training mode
         self.model.train()
@@ -134,6 +182,10 @@ class GPTrainerSingleProcess:
         logger.info(f"Starting training for {self.num_epochs} epochs.")
 
         for epoch in range(self.num_epochs):
+            # Log every 10 epochs when logger level is INFO
+            # if (epoch + 1) % 10 == 0 or epoch == 0:
+            # logger.info(f"Epoch {epoch + 1}/{self.num_epochs}")
+            # print(f"Epoch {epoch + 1}/{self.num_epochs}")
             # ---------------------------
             # on_epoch_start
             # ---------------------------
@@ -161,6 +213,8 @@ class GPTrainerSingleProcess:
                     except NotPSDError:
                         if run_jitter < max_jitter:
                             run_jitter = min(run_jitter * 10.0, max_jitter)
+                            max_jitter_used = max(max_jitter_used, run_jitter)
+                            self.current_jitter = run_jitter  # Update for callbacks
                             logger.warning(
                                 f"NotPSDError detected. Increasing jitter to {run_jitter:.1e}."
                             )
@@ -178,6 +232,8 @@ class GPTrainerSingleProcess:
                         ):
                             if run_jitter < max_jitter:
                                 run_jitter = min(run_jitter * 10.0, max_jitter)
+                                max_jitter_used = max(max_jitter_used, run_jitter)
+                                self.current_jitter = run_jitter  # Update for callbacks
                                 logger.warning(
                                     f"NotPSD error detected. Increasing jitter to {run_jitter:.1e}."
                                 )
@@ -195,6 +251,7 @@ class GPTrainerSingleProcess:
                 "trainer": self,
                 "loss": loss,
                 "device": self.device,
+                "jitter": run_jitter,  # Current jitter value used for this epoch
             }
             for cb in self.callbacks:
                 cb.on_epoch_end(ctx)
@@ -259,6 +316,8 @@ class GPTrainerSingleProcess:
             "best_loss": best_loss,
             "best_state_dict": best_state_dict,
             "device": self.device,
+            # Maximum jitter actually used in this run (may be > base cholesky_jitter)
+            "jitter_max": max_jitter_used,
         }
         for cb in self.callbacks:
             cb.on_train_end(ctx)

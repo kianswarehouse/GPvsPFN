@@ -4,7 +4,12 @@ import time
 import numpy as np
 import torch
 from sklearn.metrics import mean_squared_error
-from CRPS.CRPS import CRPS as pscore
+try:
+    # Optional dependency used for exact CRPS computation (TabPFN bucket sampling).
+    # If unavailable, we still support Gaussian closed-form CRPS via compute_crps_gaussian.
+    from CRPS.CRPS import CRPS as pscore
+except ModuleNotFoundError:  # pragma: no cover
+    pscore = None
 
 # from sklearn.metrics import mean_absolute_error, r2_score
 
@@ -268,8 +273,15 @@ def compute_metrics(
         )
         metrics.update(nis_metrics)
         
-        # CRPS (Continuous Ranked Probability Score) currently requires Gaussian std
-        if (output_std is not None) and (tabpfn_logits is not None) and (tabpfn_bar_dist is not None):
+        # CRPS (Continuous Ranked Probability Score)
+        # - Exact (bucket-sampling) CRPS requires optional CRPS package + TabPFN logits/bar_dist
+        # - Gaussian CRPS is always computed (closed form) when output_std is provided
+        if (
+            (pscore is not None)
+            and (output_std is not None)
+            and (tabpfn_logits is not None)
+            and (tabpfn_bar_dist is not None)
+        ):
             # Exact CRPS using bar distribution buckets
             # Note: logits and bar_dist are in normalized space, need to transform back
             
@@ -315,6 +327,11 @@ def compute_metrics(
             metrics["fCRPS_exact"] = fcrps_exact
             metrics["NfCRPS_exact"] = fcrps_exact / y_true.std()
             print(f"[CRPS] Using exact CRPS with {n_bins} bins, {n_samples} samples (denormalized)")
+        elif (tabpfn_logits is not None) and (tabpfn_bar_dist is not None) and (pscore is None):
+            logging.warning(
+                "CRPS package not installed; skipping exact CRPS (CRPS_exact/NCRPS_exact). "
+                "Install CRPS or set tabpfn_logits=None."
+            )
         
         # Always compute Gaussian CRPS for comparison
         crps = compute_crps_gaussian(y_true, y_hat, output_std)
@@ -380,8 +397,8 @@ def format_metric_value(key: str, value: float, precision: int = 4) -> str:
     Returns:
         Formatted string representation of the value
     """
-    if key in ["jitter", "noise"]:
-        # Use scientific notation for jitter and noise
+    if key in ["jitter", "jitter_max", "noise", "noise_std"]:
+        # Use scientific notation for jitter / jitter_max / noise / noise_std
         return f"{value:.6e}"
     elif key in ["num_epochs", "best_epoch"]:
         # Integer values
@@ -497,8 +514,8 @@ def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None
             elif m in ["num_epochs", "best_epoch"]:
                 # For integer metrics, show as integers
                 print(f"  {m}: median={s['median']:.0f} | min={s['min']:.0f} | max={s['max']:.0f} | mean={s['mean']:.1f} ± {s['std']:.1f} (n={s['count']})")
-            elif m in ["jitter", "noise", "noise_std"]:
-                # Use scientific notation for jitter and noise
+            elif m in ["jitter", "jitter_max", "noise", "noise_std"]:
+                # Use scientific notation for jitter / jitter_max / noise / noise_std
                 print(f"  {m}: median={s['median']:.6e} | min={s['min']:.6e} | max={s['max']:.6e} | mean={s['mean']:.6e} ± {s['std']:.6e} (n={s['count']})")
             else:
                 print(f"  {m}: median={s['median']:.6f} | min={s['min']:.6f} | max={s['max']:.6f} | mean={s['mean']:.6f} ± {s['std']:.6f} (n={s['count']})")

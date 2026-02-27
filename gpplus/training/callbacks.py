@@ -1,5 +1,6 @@
 from abc import ABC
 from typing import Any, TypedDict
+import torch
 
 
 class CallbackOnEpochStartContext(TypedDict):
@@ -15,6 +16,7 @@ class CallbackOnEpochEndContext(TypedDict):
     trainer: Any
     loss: float
     device: str
+    jitter: float  # Current jitter value used for this epoch
 
 
 class CallbackOnTrainStartContext(TypedDict):
@@ -103,6 +105,385 @@ class PrintInitialParametersCallback(Callback):
         print("Initial parameters: ")
         for name, param in context["model"].named_parameters():
             print(name, param.data)
+
+
+class KernelParameterExtractor:
+    """
+    Helper class to extract parameters from kernel structures in a nested path format.
+    Recursively traverses kernel hierarchies and extracts all parameters without overwriting.
+    """
+    
+    def __init__(self, verbose: bool = False):
+        self.verbose = verbose
+    
+    def extract_all_parameters(self, model, trainer=None) -> dict:
+        """
+        Extract all parameters from the model's kernel structure.
+        
+        Returns:
+            dict: Nested dictionary with kernel parameters organized by path
+        """
+        result = {}
+        
+        # Extract from covar_module
+        if hasattr(model, "covar_module") and model.covar_module is not None:
+            result["covar_module"] = self._extract_from_kernel(model.covar_module, path="covar_module")
+            # Optional: SEEK internal combination outputs (weight/bias terms used before exponential wrapper)
+            # We only record lightweight summary stats, and only if training data is available.
+            try:
+                if trainer is not None and hasattr(trainer, "train_x") and trainer.train_x is not None:
+                    seek_stats = self._extract_seek_internal_outputs(model.covar_module, trainer.train_x)
+                    if seek_stats:
+                        result["covar_module"]["seek_internal_outputs"] = seek_stats
+            except Exception:
+                # Never break training/recording if stats extraction fails
+                pass
+        
+        # Extract from likelihood (noise)
+        if hasattr(model, "likelihood") and model.likelihood is not None:
+            noise_params = self._extract_noise(model.likelihood)
+            if noise_params:
+                result["likelihood"] = noise_params
+        
+        # Extract from mean_module
+        if hasattr(model, "mean_module") and model.mean_module is not None:
+            mean_params = self._extract_mean_module(model.mean_module)
+            if mean_params:
+                result["mean_module"] = mean_params
+        
+        return result
+
+    def _extract_seek_internal_outputs(self, kernel, train_x):
+        """
+        For SEEK kernels, compute lightweight stats of the multiplicative "weight" term(s)
+        and additive "bias" term used in the SEEK forward before any exponential wrapper.
+
+        We compute diagonal-only outputs to avoid huge NxN dumps.
+        """
+        try:
+            from gpplus.kernels.seek_kernel import SEEKKernel
+            from gpplus.kernels.seek_kernel_trunk_head import SEEKKernelTrunkHead
+        except Exception:
+            return None
+
+        if not isinstance(kernel, (SEEKKernel, SEEKKernelTrunkHead)):
+            return None
+
+        import torch
+
+        def _stats_1d(vec: torch.Tensor):
+            try:
+                v = vec.detach()
+                if v.is_cuda:
+                    v = v.cpu()
+                v = v.to(dtype=torch.float64)
+                return {
+                    "min": float(v.min().item()),
+                    "max": float(v.max().item()),
+                    "mean": float(v.mean().item()),
+                    "std": float(v.std(unbiased=False).item()),
+                    "numel": int(v.numel()),
+                }
+            except Exception:
+                return None
+
+        stats = {"weight_kernels_diag": [], "bias_kernel_diag": None}
+
+        with torch.no_grad():
+            # SEEK uses encoded features for weight/bias computation (mirrors kernel.forward)
+            x = train_x
+            if hasattr(kernel, "_encode_for_weights") and hasattr(kernel, "base_kernels") and len(kernel.base_kernels) > 0:
+                base_kernel = kernel.base_kernels[0]
+                x_encoded, _ = kernel._encode_for_weights(x, base_kernel, epsilon=None)
+            else:
+                x_encoded = x
+
+            # Weight terms: one per base kernel
+            if hasattr(kernel, "weight_kernels") and kernel.weight_kernels is not None:
+                for wk in kernel.weight_kernels:
+                    try:
+                        diag_vec = wk(x_encoded, x_encoded, diag=True)
+                        stats["weight_kernels_diag"].append(
+                            {"stats": _stats_1d(diag_vec)}
+                        )
+                    except Exception:
+                        stats["weight_kernels_diag"].append({"stats": None})
+
+            # Bias term: optional
+            if getattr(kernel, "use_bias", False) and hasattr(kernel, "bias_kernel") and kernel.bias_kernel is not None:
+                try:
+                    diag_vec = kernel.bias_kernel(x_encoded, x_encoded, diag=True)
+                    stats["bias_kernel_diag"] = {"stats": _stats_1d(diag_vec)}
+                except Exception:
+                    stats["bias_kernel_diag"] = {"stats": None}
+            else:
+                stats["bias_kernel_diag"] = None
+
+        return stats
+    
+    def _extract_from_kernel(self, kernel, path: str = "") -> dict:
+        """Recursively extract parameters from a kernel object."""
+        if kernel is None:
+            return {}
+        
+        result = {}
+        kernel_type = type(kernel).__name__
+        result["type"] = kernel_type
+        
+        # Handle LogScaleKernel - wraps another kernel and has outputscale
+        # Check this first so we can unwrap and continue extraction
+        from gpplus.kernels.log_scale_kernel import LogScaleKernel
+        if isinstance(kernel, LogScaleKernel):
+            # Extract outputscale
+            if hasattr(kernel, "raw_outputscale"):
+                result["raw_outputscale"] = self._tensor_to_value(kernel.raw_outputscale)
+            if hasattr(kernel, "outputscale"):
+                result["outputscale"] = self._tensor_to_value(kernel.outputscale)
+            
+            # Recursively extract from base_kernel (unwrap LogScaleKernel)
+            if hasattr(kernel, "base_kernel") and kernel.base_kernel is not None:
+                base_result = self._extract_from_kernel(kernel.base_kernel, path=f"{path}.base_kernel")
+                result["base_kernel"] = base_result
+                # Return early since we've handled the wrapped kernel
+                return result
+        
+        # Handle SEEKKernel and SEEKKernelTrunkHead - has base_kernels ModuleList, weight_kernels, and bias_kernel
+        from gpplus.kernels.seek_kernel import SEEKKernel
+        from gpplus.kernels.seek_kernel_trunk_head import SEEKKernelTrunkHead
+        if isinstance(kernel, (SEEKKernel, SEEKKernelTrunkHead)):
+            if hasattr(kernel, "base_kernels") and len(kernel.base_kernels) > 0:
+                base_kernels_list = []
+                for idx, base_kernel in enumerate(kernel.base_kernels):
+                    base_result = self._extract_from_kernel(base_kernel, path=f"{path}.base_kernels[{idx}]")
+                    base_kernels_list.append(base_result)
+                result["base_kernels"] = base_kernels_list
+            
+            # Extract weight kernels (neural network weights and biases)
+            if hasattr(kernel, "weight_kernels") and len(kernel.weight_kernels) > 0:
+                weight_kernels_list = []
+                for idx, weight_kernel in enumerate(kernel.weight_kernels):
+                    weight_result = self._extract_neural_network_params(
+                        weight_kernel, path=f"{path}.weight_kernels[{idx}]"
+                    )
+                    weight_kernels_list.append(weight_result)
+                result["weight_kernels"] = weight_kernels_list
+            
+            # Extract bias kernel (neural network weights and biases)
+            if hasattr(kernel, "bias_kernel") and kernel.bias_kernel is not None:
+                bias_result = self._extract_neural_network_params(
+                    kernel.bias_kernel, path=f"{path}.bias_kernel"
+                )
+                result["bias_kernel"] = bias_result
+        
+        # Handle MVMFKernel - has cont_kernel, cat_kernel, source_kernel
+        from gpplus.kernels.mvmf_kernel import MVMFKernel
+        if isinstance(kernel, MVMFKernel):
+            if hasattr(kernel, "cont_kernel") and kernel.cont_kernel is not None:
+                cont_result = self._extract_from_kernel(kernel.cont_kernel, path=f"{path}.cont_kernel")
+                result["cont_kernel"] = cont_result
+            
+            if hasattr(kernel, "cat_kernel") and kernel.cat_kernel is not None:
+                cat_result = self._extract_from_kernel(kernel.cat_kernel, path=f"{path}.cat_kernel")
+                result["cat_kernel"] = cat_result
+            
+            if hasattr(kernel, "source_kernel") and kernel.source_kernel is not None:
+                source_result = self._extract_from_kernel(kernel.source_kernel, path=f"{path}.source_kernel")
+                result["source_kernel"] = source_result
+        
+        # Handle base kernels (GaussianKernel, PowerExponentialKernel, MaternKernel, etc.)
+        # Extract lengthscale parameters
+        if hasattr(kernel, "raw_lengthscale"):
+            result["raw_lengthscale"] = self._tensor_to_value(kernel.raw_lengthscale)
+        
+        if hasattr(kernel, "lengthscale"):
+            result["lengthscale"] = self._tensor_to_value(kernel.lengthscale)
+        
+        # Extract power parameter (PowerExponentialKernel)
+        if hasattr(kernel, "raw_power"):
+            result["raw_power"] = self._tensor_to_value(kernel.raw_power)
+        
+        if hasattr(kernel, "power"):
+            result["power"] = self._tensor_to_value(kernel.power)
+        
+        # Extract outputscale if not already extracted (for kernels that have it directly)
+        if "raw_outputscale" not in result and hasattr(kernel, "raw_outputscale"):
+            result["raw_outputscale"] = self._tensor_to_value(kernel.raw_outputscale)
+        
+        if "outputscale" not in result and hasattr(kernel, "outputscale"):
+            result["outputscale"] = self._tensor_to_value(kernel.outputscale)
+        
+        return result
+    
+    def _extract_noise(self, likelihood) -> dict:
+        """Extract noise parameters from likelihood."""
+        result = {}
+        if hasattr(likelihood, "raw_noise"):
+            result["raw_noise"] = self._tensor_to_value(likelihood.raw_noise)
+        if hasattr(likelihood, "noise"):
+            result["noise"] = self._tensor_to_value(likelihood.noise)
+        return result
+    
+    def _extract_mean_module(self, mean_module) -> dict:
+        """Extract parameters from mean module (e.g., ConstantMean, LinearMean, MultiMean)."""
+        result = {}
+        result["type"] = type(mean_module).__name__
+        
+        # Handle MultiMean - has a list of mean modules
+        from gpplus.means.multi_mean import MultiMean
+        if isinstance(mean_module, MultiMean):
+            if hasattr(mean_module, "means") and mean_module.means is not None:
+                means_list = []
+                for idx, mean in enumerate(mean_module.means):
+                    mean_result = self._extract_mean_module(mean)
+                    means_list.append(mean_result)
+                result["means"] = means_list
+            return result
+        
+        # ConstantMean parameters
+        if hasattr(mean_module, "raw_constant"):
+            result["raw_constant"] = self._tensor_to_value(mean_module.raw_constant)
+        if hasattr(mean_module, "constant"):
+            result["constant"] = self._tensor_to_value(mean_module.constant)
+        
+        # LinearMean parameters - check both attributes and named_parameters
+        # LinearMean may use 'weights' attribute or register it as a parameter
+        if hasattr(mean_module, "weights"):
+            result["weights"] = self._tensor_to_value(mean_module.weights)
+        if hasattr(mean_module, "bias"):
+            result["bias"] = self._tensor_to_value(mean_module.bias)
+        
+        # Check for weight and bias as named parameters (LinearMean stores them as parameters)
+        # This handles cases where attributes don't exist but parameters do
+        for name, param in mean_module.named_parameters():
+            if "weight" in name.lower():
+                if "weights" not in result:
+                    result["weights"] = self._tensor_to_value(param)
+                else:
+                    # Store with full name if multiple weight parameters exist
+                    result[name] = self._tensor_to_value(param)
+            elif "bias" in name.lower():
+                if "bias" not in result:
+                    result["bias"] = self._tensor_to_value(param)
+                else:
+                    # Store with full name if multiple bias parameters exist
+                    result[name] = self._tensor_to_value(param)
+        
+        return result
+    
+    def _extract_neural_network_params(self, composite_scale_kernel, path: str = "") -> dict:
+        """Extract neural network weights and biases from CompositeScaleKernel."""
+        result = {}
+        result["type"] = type(composite_scale_kernel).__name__
+        
+        if hasattr(composite_scale_kernel, "input_transform"):
+            network = composite_scale_kernel.input_transform
+            
+            # Handle InputTransformNet (has .network which is a Sequential)
+            if hasattr(network, "network"):
+                layers = []
+                for layer_idx, layer in enumerate(network.network):
+                    layer_dict = {}
+                    layer_dict["type"] = type(layer).__name__
+                    
+                    # Extract weights and biases from Linear layers
+                    if hasattr(layer, "weight"):
+                        layer_dict["weight"] = self._tensor_to_value(layer.weight)
+                        if hasattr(layer.weight, "shape"):
+                            layer_dict["weight_shape"] = list(layer.weight.shape)
+                    
+                    if hasattr(layer, "bias") and layer.bias is not None:
+                        layer_dict["bias"] = self._tensor_to_value(layer.bias)
+                        if hasattr(layer.bias, "shape"):
+                            layer_dict["bias_shape"] = list(layer.bias.shape)
+                    
+                    layers.append(layer_dict)
+                
+                result["layers"] = layers
+            
+            # Handle TrunkHeadNet (has .trunk and .head)
+            elif hasattr(network, "trunk") or hasattr(network, "head"):
+                # Extract trunk network
+                if hasattr(network, "trunk") and hasattr(network.trunk, "network"):
+                    trunk_layers = []
+                    for layer_idx, layer in enumerate(network.trunk.network):
+                        layer_dict = {}
+                        layer_dict["type"] = type(layer).__name__
+                        if hasattr(layer, "weight"):
+                            layer_dict["weight"] = self._tensor_to_value(layer.weight)
+                            if hasattr(layer.weight, "shape"):
+                                layer_dict["weight_shape"] = list(layer.weight.shape)
+                        if hasattr(layer, "bias") and layer.bias is not None:
+                            layer_dict["bias"] = self._tensor_to_value(layer.bias)
+                            if hasattr(layer.bias, "shape"):
+                                layer_dict["bias_shape"] = list(layer.bias.shape)
+                        trunk_layers.append(layer_dict)
+                    result["trunk_layers"] = trunk_layers
+                
+                # Extract head network
+                # In our codebase (`gpplus/utils/trunk_head_net.py`), `TrunkHeadNet.head` is an `nn.Sequential`,
+                # not an object with `.network`. Handle both patterns.
+                head_seq = None
+                if hasattr(network, "head"):
+                    head_seq = network.head
+                if head_seq is not None:
+                    head_layers = []
+                    # If it is a Sequential, iterate over it. Otherwise, try `.network` as fallback.
+                    iterable = None
+                    if hasattr(head_seq, "__iter__"):
+                        iterable = head_seq
+                    elif hasattr(head_seq, "network"):
+                        iterable = head_seq.network
+                    else:
+                        iterable = None
+
+                    if iterable is not None:
+                        for layer_idx, layer in enumerate(iterable):
+                            layer_dict = {}
+                            layer_dict["type"] = type(layer).__name__
+                            if hasattr(layer, "weight"):
+                                layer_dict["weight"] = self._tensor_to_value(layer.weight)
+                                if hasattr(layer.weight, "shape"):
+                                    layer_dict["weight_shape"] = list(layer.weight.shape)
+                            if hasattr(layer, "bias") and layer.bias is not None:
+                                layer_dict["bias"] = self._tensor_to_value(layer.bias)
+                                if hasattr(layer.bias, "shape"):
+                                    layer_dict["bias_shape"] = list(layer.bias.shape)
+                            head_layers.append(layer_dict)
+                        result["head_layers"] = head_layers
+            
+            # Fallback: try to extract from named_parameters if structure is unknown
+            else:
+                params_dict = {}
+                for name, param in network.named_parameters():
+                    params_dict[name] = self._tensor_to_value(param)
+                if params_dict:
+                    result["parameters"] = params_dict
+        
+        return result
+    
+    def _tensor_to_value(self, tensor) -> Any:
+        """Convert tensor to Python value(s)."""
+        if tensor is None:
+            return None
+        try:
+            if hasattr(tensor, "data"):
+                tensor = tensor.data
+            if hasattr(tensor, "detach"):
+                tensor = tensor.detach()
+            if hasattr(tensor, "cpu"):
+                tensor = tensor.cpu()
+            
+            if hasattr(tensor, "numel"):
+                if tensor.numel() == 1:
+                    return float(tensor.item())
+                else:
+                    return tensor.flatten().tolist()
+            else:
+                return float(tensor) if isinstance(tensor, (int, float)) else tensor
+        except Exception as e:
+            if self.verbose:
+                print(f"Warning: Could not convert tensor to value: {e}")
+            return None
 
 
 class FinalParameterStorageCallback(Callback):
@@ -213,6 +594,8 @@ class FinalParameterStorageCallback(Callback):
         cholesky_jitter = None
         if trainer is not None and hasattr(trainer, "cholesky_jitter"):
             cholesky_jitter = trainer.cholesky_jitter
+        # Max jitter actually used during this run (tracked in GPTrainerSingleProcess)
+        jitter_max = context.get("jitter_max", None)
         best_state_dict = context.get("best_state_dict", None)
 
         try:
@@ -229,7 +612,7 @@ class FinalParameterStorageCallback(Callback):
 
             # Extract parameters (including transformed ones)
             final_params = self._extract_final_parameters(
-                model_to_extract, epoch, best_loss, cholesky_jitter, self._best_epoch
+                model_to_extract, epoch, best_loss, cholesky_jitter, self._best_epoch, jitter_max=jitter_max
             )
             record = self._combine_initial_final(self._initial_params, final_params)
             # Add training metrics at best epoch (NLL, NIS, LOO_NLL, KF, MSE, R2) for trainer analysis JSON
@@ -316,6 +699,7 @@ class FinalParameterStorageCallback(Callback):
             "best_epoch": final.get("best_epoch"),
             "best_loss": final.get("best_loss"),
             "jitter": final.get("jitter"),
+            "jitter_max": final.get("jitter_max"),
             "timestamp": final.get("timestamp"),
             "initial": None,
             "final": None,
@@ -412,7 +796,13 @@ class FinalParameterStorageCallback(Callback):
         return record
 
     def _extract_final_parameters(
-        self, model, epoch: int, best_loss: float = None, cholesky_jitter: float = None, best_epoch: int = None
+        self,
+        model,
+        epoch: int,
+        best_loss: float = None,
+        cholesky_jitter: float = None,
+        best_epoch: int = None,
+        jitter_max: float = None,
     ):
         """Extract raw and transformed parameters from the model using recursive search."""
         params = {
@@ -421,6 +811,7 @@ class FinalParameterStorageCallback(Callback):
             "best_epoch": best_epoch if best_epoch is not None else epoch,
             "best_loss": best_loss,
             "jitter": cholesky_jitter,
+            "jitter_max": jitter_max,
             "timestamp": None,
             "raw_noise": None,
             "raw_outputscale": None,
@@ -458,6 +849,53 @@ class FinalParameterStorageCallback(Callback):
 
         # Always check base_kernel for raw lengthscales - it's the authoritative source
         # This ensures we get all lengthscales for ARD kernels
+        
+        # Special handling for SEEK kernels (SEEKKernel, SEEKKernelTrunkHead) - they use base_kernels (plural)
+        covar_module = getattr(model, "covar_module", None)
+        if covar_module is not None:
+            # Check if this is a SEEK kernel
+            from gpplus.kernels.seek_kernel import SEEKKernel
+            from gpplus.kernels.seek_kernel_trunk_head import SEEKKernelTrunkHead
+            from gpplus.kernels.log_scale_kernel import LogScaleKernel
+            
+            if isinstance(covar_module, (SEEKKernel, SEEKKernelTrunkHead)):
+                # SEEK kernels use base_kernels (plural) as a ModuleList
+                if hasattr(covar_module, "base_kernels") and len(covar_module.base_kernels) > 0:
+                    # Extract from the first base kernel (or aggregate across all if needed)
+                    # Unwrap LogScaleKernel if present
+                    first_base = covar_module.base_kernels[0]
+                    actual_kernel = first_base.base_kernel if isinstance(first_base, LogScaleKernel) else first_base
+                    
+                    # Unwrap MVMFKernel if present to get to cont_kernel
+                    if hasattr(actual_kernel, "cont_kernel") and actual_kernel.cont_kernel is not None:
+                        cont_kernel = actual_kernel.cont_kernel
+                        if hasattr(cont_kernel, "raw_lengthscale"):
+                            try:
+                                ls = cont_kernel.raw_lengthscale.data.flatten().tolist()
+                                if ls:
+                                    params["raw_lengthscales"] = ls
+                            except Exception:
+                                pass
+                    elif hasattr(actual_kernel, "raw_lengthscale"):
+                        # Direct kernel (not wrapped in MVMFKernel)
+                        try:
+                            ls = actual_kernel.raw_lengthscale.data.flatten().tolist()
+                            if ls:
+                                params["raw_lengthscales"] = ls
+                        except Exception:
+                            pass
+                    
+                    # Extract outputscale from LogScaleKernel if present
+                    if isinstance(first_base, LogScaleKernel) and hasattr(first_base, "raw_outputscale"):
+                        try:
+                            outputscale = first_base.raw_outputscale.data
+                            if outputscale.numel() == 1:
+                                params["raw_outputscale"] = float(outputscale.item())
+                            else:
+                                params["raw_outputscale"] = outputscale.detach().cpu().flatten().tolist()
+                        except Exception:
+                            pass
+        
         if hasattr(model, "covar_module") and hasattr(model.covar_module, "base_kernel"):
             base_kernel = model.covar_module.base_kernel
 
@@ -656,6 +1094,93 @@ class FinalParameterStorageCallback(Callback):
                     hasattr(kernel_obj, attr) and getattr(kernel_obj, attr) is not None
                     for attr in ("cont_kernel", "cat_kernel", "source_kernel")
                 )
+
+            # Special handling for SEEK kernels (SEEKKernel, SEEKKernelTrunkHead)
+            from gpplus.kernels.seek_kernel import SEEKKernel
+            from gpplus.kernels.seek_kernel_trunk_head import SEEKKernelTrunkHead
+            from gpplus.kernels.log_scale_kernel import LogScaleKernel
+            
+            if isinstance(covar, (SEEKKernel, SEEKKernelTrunkHead)):
+                # SEEK kernels use base_kernels (plural) as a ModuleList
+                if hasattr(covar, "base_kernels") and len(covar.base_kernels) > 0:
+                    # Extract from the first base kernel (or aggregate across all if needed)
+                    # Unwrap LogScaleKernel if present
+                    first_base = covar.base_kernels[0]
+                    actual_kernel = first_base.base_kernel if isinstance(first_base, LogScaleKernel) else first_base
+                    
+                    try:
+                        ls_list = None
+                        # Unwrap MVMFKernel if present to get to cont_kernel
+                        if hasattr(actual_kernel, "cont_kernel") and actual_kernel.cont_kernel is not None:
+                            cont_kernel = actual_kernel.cont_kernel
+                            if hasattr(cont_kernel, "raw_lengthscale"):
+                                raw_ls = cont_kernel.raw_lengthscale
+                                if raw_ls is not None and raw_ls.numel() > 0:
+                                    if hasattr(cont_kernel, "raw_lengthscale_constraint"):
+                                        constraint = cont_kernel.raw_lengthscale_constraint
+                                        transformed = constraint.transform(raw_ls)
+                                        ls_list = transformed.detach().cpu().numpy().flatten().tolist()
+                                    else:
+                                        ls_list = raw_ls.detach().cpu().numpy().flatten().tolist()
+                        elif hasattr(actual_kernel, "raw_lengthscale"):
+                            # Direct kernel (not wrapped in MVMFKernel)
+                            raw_ls = actual_kernel.raw_lengthscale
+                            if raw_ls is not None and raw_ls.numel() > 0:
+                                if hasattr(actual_kernel, "raw_lengthscale_constraint"):
+                                    constraint = actual_kernel.raw_lengthscale_constraint
+                                    transformed = constraint.transform(raw_ls)
+                                    ls_list = transformed.detach().cpu().numpy().flatten().tolist()
+                                else:
+                                    ls_list = raw_ls.detach().cpu().numpy().flatten().tolist()
+                        
+                        # Fallback to lengthscale property
+                        if ls_list is None:
+                            if hasattr(actual_kernel, "cont_kernel") and actual_kernel.cont_kernel is not None:
+                                cont_kernel = actual_kernel.cont_kernel
+                                if hasattr(cont_kernel, "lengthscale"):
+                                    ls = cont_kernel.lengthscale
+                                    if ls is not None and ls.numel() > 0:
+                                        ls_list = ls.detach().cpu().numpy().flatten().tolist()
+                            elif hasattr(actual_kernel, "lengthscale"):
+                                ls = actual_kernel.lengthscale
+                                if ls is not None and ls.numel() > 0:
+                                    ls_list = ls.detach().cpu().numpy().flatten().tolist()
+                        
+                        if ls_list is not None:
+                            params["lengthscales"] = ls_list
+                            params["_lengthscales_locked"] = True
+                            if self.verbose:
+                                print(f"[DEBUG] Extracted {len(ls_list)} lengthscales from SEEK kernel base_kernels[0]: {ls_list[:5]}..."
+                                      if len(ls_list) > 5
+                                      else f"[DEBUG] Extracted {len(ls_list)} lengthscales from SEEK kernel base_kernels[0]: {ls_list}")
+                        
+                        # Extract outputscale from LogScaleKernel if present
+                        if isinstance(first_base, LogScaleKernel):
+                            if hasattr(first_base, "raw_outputscale"):
+                                raw_os = first_base.raw_outputscale
+                                if raw_os is not None and raw_os.numel() > 0:
+                                    if hasattr(first_base, "raw_outputscale_constraint"):
+                                        constraint = first_base.raw_outputscale_constraint
+                                        transformed = constraint.transform(raw_os)
+                                        if transformed.numel() == 1:
+                                            params["outputscale"] = float(transformed.item())
+                                        else:
+                                            params["outputscale"] = transformed.detach().cpu().numpy().flatten().tolist()
+                                    else:
+                                        if raw_os.numel() == 1:
+                                            params["outputscale"] = float(raw_os.item())
+                                        else:
+                                            params["outputscale"] = raw_os.detach().cpu().numpy().flatten().tolist()
+                            elif hasattr(first_base, "outputscale"):
+                                os = first_base.outputscale
+                                if os is not None and os.numel() > 0:
+                                    if os.numel() == 1:
+                                        params["outputscale"] = float(os.item())
+                                    else:
+                                        params["outputscale"] = os.detach().cpu().numpy().flatten().tolist()
+                    except Exception as e:
+                        import logging
+                        logging.debug(f"Error extracting parameters from SEEK kernel: {e}")
 
             base_kernel_attr = covar.base_kernel if hasattr(covar, "base_kernel") else None
             combined_kernel = None
@@ -1235,6 +1760,7 @@ class FinalParameterStorageCallback(Callback):
             "best_epoch": best_run.get("best_epoch"),
             "best_loss": best_run.get("best_loss"),
             "jitter": best_run.get("jitter"),
+            "jitter_max": best_run.get("jitter_max"),
             "noise": final_dict.get("noise"),
             "outputscale": final_dict.get("outputscale"),
             "lengthscales": lengthscales,
@@ -1245,3 +1771,1625 @@ class FinalParameterStorageCallback(Callback):
     def clear_parameters(self):
         """Clear stored parameters."""
         self.stored_parameters = []
+
+
+class IterationParameterCallback(Callback):
+    """
+    Callback to record parameters at each LBFGSScipy iteration.
+    Only activates when LBFGSScipy optimizer is used.
+    
+    This callback records parameters from every run (not just the best one),
+    making it useful for analyzing parameter evolution across multiple initializations.
+    
+    Args:
+        save_file (str): Path to save the parameters JSON file. If None, parameters are still tracked
+                        but not saved to file.
+        verbose (bool): Whether to print parameter values when storing
+        save_every_n_iterations (int): Save to file every N iterations. Defaults to 50.
+                                      Set to 1 to save every iteration, or None to only save at end.
+    """
+    
+    def __init__(self, save_file: str = None, verbose: bool = True, save_every_n_iterations: int = 50):
+        self.save_file = save_file
+        self.verbose = verbose
+        self.save_every_n_iterations = save_every_n_iterations
+        self.recorded_parameters = []
+        self.extractor = KernelParameterExtractor(verbose=verbose)
+        self._optimizer = None
+        self._model = None
+        self._trainer = None
+        self._current_epoch = 0
+        self._is_active = False
+        self._last_actual_jitter = None  # Track the last jitter value from warnings
+        self._max_actual_jitter = None  # Track the maximum jitter value seen from warnings
+        self._warning_handler = None  # Warning handler to capture jitter from linear_operator
+        self._initial_parameters = None  # Store initial parameters from ParameterInitializer
+        self._run_index = None  # Will be set via set_run_index() by GPTrainer
+        self._fold_index = None  # Will be set via set_fold_index() by experiment script
+    
+    def set_fold_index(self, fold_index: int):
+        """Set the fold index for this callback instance. Called by experiment script."""
+        self._fold_index = fold_index
+    
+    def on_train_start(self, context: dict):
+        """Store model and trainer references for later use."""
+        self._model = context["model"]
+        self._trainer = context.get("trainer", None)
+        # Optimizer registration will happen via register_with_optimizer() called from trainer
+        
+        # Capture initial parameters (set by ParameterInitializer before training starts)
+        try:
+            self._initial_parameters = self.extractor.extract_all_parameters(self._model, trainer=self._trainer)
+            if self.verbose:
+                print(f"IterationParameterCallback: Captured initial parameters")
+        except Exception as e:
+            if self.verbose:
+                print(f"IterationParameterCallback: Warning - Could not capture initial parameters: {e}")
+            self._initial_parameters = None
+        
+        # Set up warning handler to capture jitter values (same as JitterTrackingCallback)
+        try:
+            import warnings
+            if not hasattr(warnings, '_showwarning_orig'):
+                warnings._showwarning_orig = warnings.showwarning
+            self._warning_handler = self._create_jitter_warning_handler()
+            warnings.showwarning = self._warning_handler
+        except Exception as e:
+            if self.verbose:
+                print(f"IterationParameterCallback: Warning - Could not set up warning handler: {e}")
+            self._warning_handler = None
+    
+    def on_epoch_start(self, context: dict):
+        """Update current epoch."""
+        self._current_epoch = context.get("epoch", 0)
+    
+    def register_with_optimizer(self, optimizer, model=None, trainer=None):
+        """Register this callback with the LBFGSScipy optimizer."""
+        from .optimizers import LBFGSScipy
+        
+        if model is not None:
+            self._model = model
+        if trainer is not None:
+            self._trainer = trainer
+        
+        if isinstance(optimizer, LBFGSScipy):
+            self._optimizer = optimizer
+            self._is_active = True
+            # Set the iteration callback - it will be called with iteration and loss
+            optimizer.iteration_callback = self._on_iteration
+            
+            # Store trunk/head parameter indices for tracking changes in flat_params
+            if model is not None:
+                self._trunk_head_param_indices = []
+                self._trunk_head_param_names = []
+                self._trunk_head_param_objects = []  # Store param objects for gradient checking
+                trunk_head_params = []
+                for name, param in model.named_parameters():
+                    if 'trunk' in name.lower() or 'head' in name.lower():
+                        trunk_head_params.append((name, param))
+                
+                if trunk_head_params:
+                    optimizer_param_ids = {id(p) for p in optimizer._params}
+                    # Find which optimizer parameter indices correspond to trunk/head params
+                    for idx, opt_param in enumerate(optimizer._params):
+                        if id(opt_param) in {id(p) for _, p in trunk_head_params}:
+                            self._trunk_head_param_indices.append(idx)
+                            # Find the name and store the param object
+                            for name, param in trunk_head_params:
+                                if id(param) == id(opt_param):
+                                    self._trunk_head_param_names.append(name)
+                                    self._trunk_head_param_objects.append(param)
+                                    break
+                    
+                    # Calculate offsets for each parameter in flat_params
+                    self._trunk_head_offsets = []
+                    offset = 0
+                    for idx in range(len(optimizer._params)):
+                        if idx in self._trunk_head_param_indices:
+                            self._trunk_head_offsets.append((offset, offset + optimizer._params[idx].numel()))
+                        offset += optimizer._params[idx].numel()
+            
+            # Diagnostic: Check if TrunkHeadNet parameters are in optimizer and find their indices
+            if self.verbose and model is not None:
+                trunk_head_params = []
+                trunk_head_param_objects = []
+                for name, param in model.named_parameters():
+                    if 'trunk' in name.lower() or 'head' in name.lower():
+                        trunk_head_params.append((name, param))
+                        trunk_head_param_objects.append(param)
+                
+                if trunk_head_params:
+                    optimizer_param_ids = {id(p) for p in optimizer._params}
+                    in_optimizer = []
+                    not_in_optimizer = []
+                    param_indices = []
+                    
+                    # Find which optimizer parameter indices correspond to trunk/head params
+                    for idx, opt_param in enumerate(optimizer._params):
+                        if id(opt_param) in {id(p) for _, p in trunk_head_params}:
+                            param_indices.append(idx)
+                    
+                    for name, param in trunk_head_params:
+                        if id(param) in optimizer_param_ids:
+                            in_optimizer.append(name)
+                        else:
+                            not_in_optimizer.append(name)
+                    
+                    # Count total elements (not just tensors)
+                    total_elements = sum(p.numel() for _, p in trunk_head_params if id(p) in optimizer_param_ids)
+                    print(f"IterationParameterCallback: Found {len(trunk_head_params)} trunk/head parameter tensors ({total_elements} total elements)")
+                    if in_optimizer:
+                        print(f"  ✓ {len(in_optimizer)} parameter tensors in optimizer (indices: {param_indices[:5]}...)" if len(param_indices) > 5 else f"  ✓ {len(in_optimizer)} parameter tensors in optimizer (indices: {param_indices})")
+                        # Print parameter names and sizes for debugging
+                        if len(in_optimizer) <= 10:
+                            print(f"    Parameter details:")
+                            for name in in_optimizer:
+                                # Find the param object
+                                param_obj = next(p for n, p in trunk_head_params if n == name)
+                                print(f"      {name}: shape={list(param_obj.shape)}, numel={param_obj.numel()}")
+                    if not_in_optimizer:
+                        print(f"  ✗ {len(not_in_optimizer)} parameters NOT in optimizer: {not_in_optimizer[:3]}...")
+                else:
+                    print(f"IterationParameterCallback: No trunk/head parameters found in model")
+            
+            if self.verbose:
+                print(f"IterationParameterCallback: Registered with LBFGSScipy optimizer")
+        else:
+            self._is_active = False
+            if self.verbose:
+                print(f"IterationParameterCallback: Not LBFGSScipy optimizer, callback inactive")
+    
+    def _create_jitter_warning_handler(self):
+        """Create a warning handler that captures jitter values from linear_operator warnings."""
+        import warnings
+        import re
+        callback_instance = self  # Capture self for use in closure
+        
+        def jitter_warning_handler(message, category, filename, lineno, file=None, line=None):
+            """Intercept warnings to capture jitter values from linear_operator."""
+            try:
+                # Call original handler first
+                if hasattr(warnings, '_showwarning_orig'):
+                    warnings._showwarning_orig(message, category, filename, lineno, file, line)
+                else:
+                    import sys
+                    sys.stderr.write(warnings.formatwarning(message, category, filename, lineno))
+                
+                # Check if this is a jitter-related warning from linear_operator
+                if isinstance(message, (str, Warning)):
+                    msg_str = str(message)
+                    filename_str = str(filename).lower() if filename else ""
+                    if 'cholesky' in filename_str or 'linear_operator' in filename_str or 'jitter' in msg_str.lower():
+                        patterns = [
+                            r'added jitter of ([\d.]+e[+-]?\d+)',
+                            r'added jitter of ([\d.]+)',
+                            r'jitter of ([\d.]+e[+-]?\d+)',
+                        ]
+                        for pattern in patterns:
+                            match = re.search(pattern, msg_str, re.IGNORECASE)
+                            if match:
+                                try:
+                                    jitter_value = float(match.group(1))
+                                    callback_instance._last_actual_jitter = jitter_value
+                                    if callback_instance._max_actual_jitter is None or jitter_value > callback_instance._max_actual_jitter:
+                                        callback_instance._max_actual_jitter = jitter_value
+                                except (ValueError, AttributeError):
+                                    pass
+                                break
+            except Exception:
+                pass
+        
+        return jitter_warning_handler
+    
+    def _get_current_jitter(self) -> float:
+        """Get current jitter value from settings, trainer, or captured warnings.
+        
+        Priority (same as JitterTrackingCallback):
+        1. Last actual jitter captured from linear_operator warnings (most accurate)
+        2. Trainer's current_jitter (updated on NotPSDError)
+        3. gpytorch settings cholesky_jitter
+        4. Trainer's initial cholesky_jitter
+        """
+        # First, check if we captured an actual jitter value from warnings
+        # Use max jitter if available (most accurate), otherwise use last
+        if self._max_actual_jitter is not None:
+            return float(self._max_actual_jitter)
+        if self._last_actual_jitter is not None:
+            return float(self._last_actual_jitter)
+        
+        # Fallback: try to get from trainer's current_jitter attribute if it exists
+        if self._trainer is not None and hasattr(self._trainer, "current_jitter"):
+            return float(self._trainer.current_jitter)
+        
+        try:
+            # Try to get from gpytorch settings
+            import gpytorch
+            if hasattr(gpytorch.settings, "cholesky_jitter"):
+                jitter_value = gpytorch.settings.cholesky_jitter.value
+                if jitter_value is not None:
+                    return float(jitter_value)
+        except Exception:
+            pass
+        
+        # Final fallback: get from trainer's cholesky_jitter (initial value)
+        if self._trainer is not None and hasattr(self._trainer, "cholesky_jitter"):
+            return float(self._trainer.cholesky_jitter)
+        
+        return None
+    
+    def _on_iteration(self, iteration: int, loss: float = None, flat_params=None):
+        """Called by LBFGSScipy optimizer at each iteration."""
+        if not self._is_active or self._model is None:
+            return
+        
+        try:
+            
+            # Extract parameters using the extractor
+            params = self.extractor.extract_all_parameters(self._model, trainer=self._trainer)
+            
+            # Get current jitter
+            jitter = self._get_current_jitter()
+            
+            # Create record
+            record = {
+                "epoch": self._current_epoch,
+                "iteration": iteration,
+                "loss": loss,
+                "jitter": jitter,
+                "parameters": params,
+            }
+            
+            # Add run_index and fold_index to record
+            record["run_index"] = self._run_index
+            record["fold_index"] = self._fold_index
+            self.recorded_parameters.append(record)
+            
+            if self.verbose and iteration % 250 == 0:  # Print every 250 iterations
+                run_str = f"Run {self._run_index}, " if self._run_index is not None else ""
+                print(f"{run_str}Iteration {iteration} (Epoch {self._current_epoch}) - Loss: {loss:.6f}" if loss else f"{run_str}Iteration {iteration} (Epoch {self._current_epoch})")
+            
+            # Save to file periodically based on save_every_n_iterations
+            if self.save_file is not None:
+                should_save = False
+                if self.save_every_n_iterations is None:
+                    # Only save at end (handled in on_train_end)
+                    should_save = False
+                elif iteration == 1:
+                    # Always save first iteration
+                    should_save = True
+                elif iteration % self.save_every_n_iterations == 0:
+                    should_save = True
+                
+                if should_save:
+                    self._save_parameters()
+        
+        except Exception as e:
+            if self.verbose:
+                print(f"Error recording parameters at iteration {iteration}: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def on_epoch_end(self, context: dict):
+        """Save parameters at end of each epoch."""
+        if self.save_file is not None and self.recorded_parameters:
+            self._save_parameters()
+    
+    def on_train_end(self, context: dict):
+        """Final save at end of training."""
+        # Restore original warning handler
+        if self._warning_handler is not None:
+            import warnings
+            if hasattr(warnings, '_showwarning_orig'):
+                warnings.showwarning = warnings._showwarning_orig
+        
+        if self.save_file is not None and self.recorded_parameters:
+            self._save_parameters()
+            if self.verbose:
+                run_str = f" (run_index={self._run_index})" if self._run_index is not None else ""
+                print(f"IterationParameterCallback: Saved {len(self.recorded_parameters)} iteration records{run_str}")
+    
+    def _save_parameters(self):
+        """Save recorded parameters to JSON file.
+        
+        For single runs, saves directly to save_file.
+        For multiple runs (when run_index is set), saves to a temporary file
+        that will be aggregated later.
+        """
+        try:
+            import json
+            import os
+            
+            if self.save_file is None:
+                return
+            
+            # Create directory if it doesn't exist
+            os.makedirs(os.path.dirname(self.save_file) if os.path.dirname(self.save_file) else ".", exist_ok=True)
+            
+            # Prepare output data
+            output_data = {
+                "initial_parameters": self._initial_parameters,
+                "records": self.recorded_parameters,
+            }
+            
+            # If run_index is set, we're in a multi-run scenario - save to temp file
+            if self._run_index is not None:
+                # Save to temporary file: {base_path}_temp_run_{run_index}.json
+                base_path, ext = os.path.splitext(self.save_file)
+                temp_file = f"{base_path}_temp_run_{self._run_index}{ext}"
+                with open(temp_file, "w") as f:
+                    json.dump(output_data, f, indent=2)
+                if self.verbose:
+                    print(f"IterationParameterCallback: Saved {len(self.recorded_parameters)} records to temp file: {temp_file}")
+            else:
+                # Single run - save directly to main file
+                with open(self.save_file, "w") as f:
+                    json.dump(output_data, f, indent=2)
+        except Exception as e:
+            if self.verbose:
+                print(f"Error saving parameters to file: {e}")
+    
+    def get_stored_parameters(self):
+        """Get the stored parameters for external use.
+        
+        Returns the full structure including initial_parameters and records,
+        matching the format saved to files.
+        """
+        return {
+            "initial_parameters": self._initial_parameters,
+            "records": self.recorded_parameters.copy(),
+        }
+    
+    @staticmethod
+    def aggregate_parameters_from_results(results, save_file: str, verbose: bool = True):
+        """
+        Aggregate parameter data from multiple training runs into a single file.
+        
+        This method should be called after all runs complete to collect parameter data
+        from all runs and save it to a single file organized by run_index.
+        
+        Args:
+            results: List of result dictionaries from GPTrainer.train(), each containing
+                    'run_index' and 'callback_data' with 'IterationParameterCallback' data
+            save_file: Path to save the aggregated parameter data
+            verbose: Whether to print aggregation status
+        """
+        import json
+        import os
+        import glob
+        
+        if save_file is None:
+            return
+        
+        # Collect parameter data from all folds and runs
+        # Structure: {fold_index: {run_index: {"initial_parameters": {...}, "records": [...]}}}
+        aggregated_data = {}  # Will be organized by fold, then by run
+        
+        # First, check for temporary files (they have the most complete data)
+        base_path, ext = os.path.splitext(save_file)
+        # Look for both patterns: with fold_index and without
+        temp_pattern_with_fold = f"{base_path}_temp_fold_*_run_*{ext}"
+        temp_pattern_no_fold = f"{base_path}_temp_run_*{ext}"
+        temp_files = glob.glob(temp_pattern_with_fold) + glob.glob(temp_pattern_no_fold)
+        
+        if verbose:
+            print(f"IterationParameterCallback: Aggregating data from {len(results)} results...")
+            print(f"  Looking for temp files with patterns: {temp_pattern_with_fold}, {temp_pattern_no_fold}")
+            print(f"  Found {len(temp_files)} temp files: {[os.path.basename(f) for f in temp_files]}")
+        
+        for temp_file in temp_files:
+            try:
+                # Extract fold_index and run_index from filename
+                filename = os.path.basename(temp_file)
+                base_name = os.path.basename(base_path)
+                
+                # Try pattern with fold: {base_path}_temp_fold_{fold_index}_run_{run_index}{ext}
+                if f"_temp_fold_" in filename:
+                    # Extract fold_index and run_index
+                    fold_match = filename.replace(f"{base_name}_temp_fold_", "").replace(ext, "")
+                    parts = fold_match.split("_run_")
+                    if len(parts) == 2:
+                        fold_idx_str = parts[0]
+                        run_idx_str = parts[1]
+                    else:
+                        # Fallback: treat as run_index only
+                        fold_idx_str = None
+                        run_idx_str = fold_match.replace("_run_", "")
+                else:
+                    # Pattern without fold: {base_path}_temp_run_{run_index}{ext}
+                    fold_idx_str = None
+                    match = filename.replace(f"{base_name}_temp_run_", "").replace(ext, "")
+                    run_idx_str = match
+                
+                with open(temp_file, "r") as f:
+                    temp_data = json.load(f)
+                
+                # Organize by fold, then by run
+                if fold_idx_str is None:
+                    fold_idx_str = "0"  # Default fold if not specified
+                
+                if fold_idx_str not in aggregated_data:
+                    aggregated_data[fold_idx_str] = {}
+                
+                aggregated_data[fold_idx_str][run_idx_str] = temp_data
+                if verbose:
+                    num_records = len(temp_data.get("records", [])) if isinstance(temp_data, dict) else len(temp_data) if isinstance(temp_data, list) else 0
+                    has_initial = temp_data.get("initial_parameters") is not None if isinstance(temp_data, dict) else False
+                    print(f"  Fold {fold_idx_str}, Run {run_idx_str}: Loaded {num_records} records from temp file (initial_parameters: {'present' if has_initial else 'null'})")
+            except Exception as e:
+                if verbose:
+                    print(f"  Warning: Could not load temp file {temp_file}: {e}")
+        
+        # Then, try to get data from results (callback_data) for runs not found in temp files
+        for result in results:
+            run_index = result.get("run_index")
+            fold_index = result.get("fold_index")  # May not be present in old format
+            if run_index is None:
+                if verbose:
+                    print(f"  Warning: Result missing run_index: {list(result.keys())}")
+                continue
+            
+            run_idx_str = str(run_index)
+            fold_idx_str = str(fold_index) if fold_index is not None else "0"
+            
+            # Only use callback_data if we don't already have data from temp files
+            if fold_idx_str not in aggregated_data or run_idx_str not in aggregated_data.get(fold_idx_str, {}):
+                if fold_idx_str not in aggregated_data:
+                    aggregated_data[fold_idx_str] = {}
+                
+                callback_data = result.get("callback_data", {})
+                param_data = callback_data.get("IterationParameterCallback")
+                
+                if param_data is not None:
+                    # Data is already in the correct format from callback_data
+                    if isinstance(param_data, dict) and "initial_parameters" in param_data and "records" in param_data:
+                        aggregated_data[fold_idx_str][run_idx_str] = param_data
+                        if verbose:
+                            has_initial = param_data.get("initial_parameters") is not None
+                            print(f"  Fold {fold_idx_str}, Run {run_index}: Found {len(param_data.get('records', []))} records in callback_data (initial_parameters: {'present' if has_initial else 'null'})")
+                    elif isinstance(param_data, list):
+                        # Old format: just a list of records
+                        aggregated_data[fold_idx_str][run_idx_str] = {
+                            "initial_parameters": None,
+                            "records": param_data
+                        }
+                        if verbose:
+                            print(f"  Fold {fold_idx_str}, Run {run_index}: Found {len(param_data)} records in callback_data (old format)")
+        
+        # Save aggregated data organized by folds
+        if aggregated_data:
+            # Read existing aggregated data if file exists (to merge with previous folds)
+            existing_data = {"folds": {}}
+            if os.path.exists(save_file):
+                try:
+                    with open(save_file, "r") as f:
+                        existing_data = json.load(f)
+                        if "folds" not in existing_data:
+                            existing_data = {"folds": {}}
+                except Exception as e:
+                    if verbose:
+                        print(f"  Warning: Could not read existing aggregated file: {e}")
+                    existing_data = {"folds": {}}
+            
+            # Merge new fold data with existing data
+            for fold_idx, runs_dict in aggregated_data.items():
+                fold_key = f"fold_{fold_idx}"
+                if fold_key not in existing_data["folds"]:
+                    existing_data["folds"][fold_key] = {"runs": {}}
+                # Merge runs for this fold (new runs overwrite old ones if same run_index)
+                existing_data["folds"][fold_key]["runs"].update(runs_dict)
+            
+            # Write merged data back
+            os.makedirs(os.path.dirname(save_file) if os.path.dirname(save_file) else ".", exist_ok=True)
+            with open(save_file, "w") as f:
+                json.dump(existing_data, f, indent=2)
+            
+            output_data = existing_data
+            
+            if verbose:
+                total_records = 0
+                total_folds = len(output_data["folds"])
+                total_runs = 0
+                for fold_data in output_data["folds"].values():
+                    runs = fold_data.get("runs", {})
+                    total_runs += len(runs)
+                    for run_data in runs.values():
+                        total_records += len(run_data.get("records", [])) if isinstance(run_data, dict) else len(run_data) if isinstance(run_data, list) else 0
+                print(f"IterationParameterCallback: Aggregated {total_folds} folds, {total_runs} runs with {total_records} total records")
+                print(f"  Saved to: {save_file}")
+            
+            # Clean up temporary files
+            for temp_file in temp_files:
+                try:
+                    os.remove(temp_file)
+                    if verbose:
+                        print(f"  Removed temp file: {os.path.basename(temp_file)}")
+                except Exception as e:
+                    if verbose:
+                        print(f"  Warning: Could not remove temp file {temp_file}: {e}")
+        else:
+            if verbose:
+                print(f"IterationParameterCallback: WARNING - No parameter data found in results or temp files!")
+                print(f"  Checked {len(results)} results")
+                print(f"  Checked {len(temp_files)} temp files")
+                print(f"  Save file path: {save_file}")
+            # Save empty structure
+            output_data = {"runs": {}}
+            os.makedirs(os.path.dirname(save_file) if os.path.dirname(save_file) else ".", exist_ok=True)
+            with open(save_file, "w") as f:
+                json.dump(output_data, f, indent=2)
+            if verbose:
+                print(f"IterationParameterCallback: WARNING - Saved empty aggregation file to {save_file}")
+
+
+class EpochParameterCallback(Callback):
+    """
+    Callback to record parameters at each epoch for Adam and other non-LBFGS optimizers.
+    Only activates when Adam (or specified optimizers) is used.
+    
+    This callback records parameters from every run (not just the best one),
+    making it useful for analyzing parameter evolution across multiple initializations.
+    
+    Args:
+        save_file (str): Path to save the parameters JSON file. If None, parameters are still tracked
+                        but not saved to file.
+        verbose (bool): Whether to print parameter values when storing
+        optimizer_classes (list): List of optimizer classes that should trigger this callback.
+                                 Defaults to [torch.optim.Adam]
+        save_every_n_epochs (int): Save to file every N epochs. Defaults to 10.
+                                  Set to 1 to save every epoch, or None to only save at end.
+    """
+    
+    def __init__(self, save_file: str = None, verbose: bool = True, optimizer_classes=None, save_every_n_epochs: int = 10):
+        self.save_file = save_file
+        self.verbose = verbose
+        self.save_every_n_epochs = save_every_n_epochs
+        self.recorded_parameters = []
+        self.extractor = KernelParameterExtractor(verbose=verbose)
+        self._is_active = False
+        self._optimizer_classes = optimizer_classes or [torch.optim.Adam]
+        # Jitter tracking (warning-capture) fields are always initialized so tests / inactive callbacks don't crash
+        self._trainer = None
+        self._last_actual_jitter = None
+        self._max_actual_jitter = None
+        self._warning_handler = None
+        self._initial_parameters = None  # Store initial parameters from ParameterInitializer
+        self._run_index = None  # Will be set via set_run_index() by GPTrainer
+        self._fold_index = None  # Will be set via set_fold_index() by experiment script
+    
+    def set_run_index(self, run_index: int):
+        """Set the run index for this callback instance. Called by GPTrainer."""
+        self._run_index = run_index
+    
+    def set_fold_index(self, fold_index: int):
+        """Set the fold index for this callback instance. Called by experiment script."""
+        self._fold_index = fold_index
+    
+    def on_train_start(self, context: dict):
+        """Check if we should activate based on optimizer type."""
+        trainer = context.get("trainer", None)
+        self._trainer = trainer
+        # Check if run_index is in context (set by GPTrainer via set_run_index)
+        self._run_index = context.get("run_index", self._run_index)
+        
+        if trainer is not None and hasattr(trainer, "optimizer_class"):
+            optimizer_class = trainer.optimizer_class
+            # Check if optimizer class matches any in our list
+            self._is_active = any(
+                optimizer_class == opt_class or 
+                (isinstance(optimizer_class, type) and issubclass(optimizer_class, opt_class))
+                for opt_class in self._optimizer_classes
+            )
+            
+            if self.verbose:
+                if self._is_active:
+                    print(f"EpochParameterCallback: Activated for optimizer {optimizer_class.__name__}")
+                else:
+                    print(f"EpochParameterCallback: Not activated (optimizer: {optimizer_class.__name__})")
+        else:
+            self._is_active = False
+        
+        # Capture initial parameters (set by ParameterInitializer before training starts)
+        try:
+            model = context.get("model", None)
+            if model is not None:
+                self._initial_parameters = self.extractor.extract_all_parameters(model, trainer=self._trainer)
+                if self.verbose:
+                    print(f"EpochParameterCallback: Captured initial parameters")
+        except Exception as e:
+            if self.verbose:
+                print(f"EpochParameterCallback: Warning - Could not capture initial parameters: {e}")
+            self._initial_parameters = None
+        
+        # Set up warning handler to capture jitter values (same as JitterTrackingCallback)
+        if self._is_active:
+            try:
+                import warnings
+                if not hasattr(warnings, '_showwarning_orig'):
+                    warnings._showwarning_orig = warnings.showwarning
+                self._warning_handler = self._create_jitter_warning_handler()
+                warnings.showwarning = self._warning_handler
+            except Exception as e:
+                if self.verbose:
+                    print(f"EpochParameterCallback: Warning - Could not set up warning handler: {e}")
+                self._warning_handler = None
+    
+    def _create_jitter_warning_handler(self):
+        """Create a warning handler that captures jitter values from linear_operator warnings."""
+        import warnings
+        import re
+        callback_instance = self  # Capture self for use in closure
+        
+        def jitter_warning_handler(message, category, filename, lineno, file=None, line=None):
+            """Intercept warnings to capture jitter values from linear_operator."""
+            try:
+                # Call original handler first
+                if hasattr(warnings, '_showwarning_orig'):
+                    warnings._showwarning_orig(message, category, filename, lineno, file, line)
+                else:
+                    import sys
+                    sys.stderr.write(warnings.formatwarning(message, category, filename, lineno))
+                
+                # Check if this is a jitter-related warning from linear_operator
+                if isinstance(message, (str, Warning)):
+                    msg_str = str(message)
+                    filename_str = str(filename).lower() if filename else ""
+                    if 'cholesky' in filename_str or 'linear_operator' in filename_str or 'jitter' in msg_str.lower():
+                        patterns = [
+                            r'added jitter of ([\d.]+e[+-]?\d+)',
+                            r'added jitter of ([\d.]+)',
+                            r'jitter of ([\d.]+e[+-]?\d+)',
+                        ]
+                        for pattern in patterns:
+                            match = re.search(pattern, msg_str, re.IGNORECASE)
+                            if match:
+                                try:
+                                    jitter_value = float(match.group(1))
+                                    callback_instance._last_actual_jitter = jitter_value
+                                    if callback_instance._max_actual_jitter is None or jitter_value > callback_instance._max_actual_jitter:
+                                        callback_instance._max_actual_jitter = jitter_value
+                                except (ValueError, AttributeError):
+                                    pass
+                                break
+            except Exception:
+                pass
+        
+        return jitter_warning_handler
+    
+    def _get_current_jitter(self) -> float:
+        """Get current jitter value from settings, trainer, or captured warnings.
+        
+        Priority (same as JitterTrackingCallback):
+        1. Last actual jitter captured from linear_operator warnings (most accurate)
+        2. Trainer's current_jitter (updated on NotPSDError)
+        3. gpytorch settings cholesky_jitter
+        4. Trainer's initial cholesky_jitter
+        """
+        # First, check if we captured an actual jitter value from warnings
+        # Use max jitter if available (most accurate), otherwise use last
+        if self._max_actual_jitter is not None:
+            return float(self._max_actual_jitter)
+        if self._last_actual_jitter is not None:
+            return float(self._last_actual_jitter)
+        
+        # Fallback: try to get from trainer's current_jitter attribute if it exists
+        if self._trainer is not None and hasattr(self._trainer, "current_jitter"):
+            return float(self._trainer.current_jitter)
+        
+        try:
+            # Try to get from gpytorch settings
+            import gpytorch
+            if hasattr(gpytorch.settings, "cholesky_jitter"):
+                jitter_value = gpytorch.settings.cholesky_jitter.value
+                if jitter_value is not None:
+                    return float(jitter_value)
+        except Exception:
+            pass
+        
+        # Final fallback: get from trainer's cholesky_jitter (initial value)
+        if self._trainer is not None and hasattr(self._trainer, "cholesky_jitter"):
+            return float(self._trainer.cholesky_jitter)
+        
+        return None
+    
+    def on_epoch_end(self, context: dict):
+        """Record parameters at end of each epoch."""
+        if not self._is_active:
+            return
+        
+        model = context["model"]
+        epoch = context.get("epoch", 0)
+        loss = context.get("loss", None)
+        jitter = context.get("jitter", None)  # Get jitter from context
+        
+        # Fallback to getting jitter from warning handler if not in context
+        if jitter is None:
+            jitter = self._get_current_jitter()
+        
+        try:
+            # Extract parameters using the extractor
+            params = self.extractor.extract_all_parameters(model, trainer=self._trainer)
+            
+            # Create record
+            record = {
+                "epoch": epoch,
+                "loss": loss,
+                "jitter": jitter,
+                "parameters": params,
+            }
+            
+            # Add run_index to record
+            record["run_index"] = self._run_index
+            record["fold_index"] = self._fold_index
+            self.recorded_parameters.append(record)
+
+            if self.verbose and epoch % 10 == 0:  # Print every 10 epochs
+                run_str = f"Run {self._run_index}, " if self._run_index is not None else ""
+                print(f"{run_str}Epoch {epoch} - Loss: {loss:.6f}" if loss else f"{run_str}Epoch {epoch}")
+            
+            # Save to file periodically based on save_every_n_epochs
+            if self.save_file is not None:
+                should_save = False
+                if self.save_every_n_epochs is None:
+                    # Only save at end (handled in on_train_end)
+                    should_save = False
+                elif epoch == 0:
+                    # Always save first epoch
+                    should_save = True
+                elif epoch % self.save_every_n_epochs == 0:
+                    should_save = True
+                
+                if should_save:
+                    self._save_parameters()
+        
+        except Exception as e:
+            if self.verbose:
+                print(f"Error recording parameters at epoch {epoch}: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def on_train_end(self, context: dict):
+        """Final save at end of training."""
+        # Restore original warning handler
+        if hasattr(self, "_warning_handler") and self._warning_handler is not None:
+            import warnings
+            if hasattr(warnings, '_showwarning_orig'):
+                warnings.showwarning = warnings._showwarning_orig
+        
+        if self.save_file is not None and self.recorded_parameters:
+            self._save_parameters()
+            if self.verbose:
+                run_str = f" (run_index={self._run_index})" if self._run_index is not None else ""
+                print(f"EpochParameterCallback: Saved {len(self.recorded_parameters)} epoch records{run_str}")
+    
+    def _save_parameters(self):
+        """Save recorded parameters to JSON file.
+        
+        For single runs, saves directly to save_file.
+        For multiple runs (when run_index is set), saves to a temporary file
+        that will be aggregated later.
+        """
+        try:
+            import json
+            import os
+            
+            if self.save_file is None:
+                return
+            
+            # Create directory if it doesn't exist
+            os.makedirs(os.path.dirname(self.save_file) if os.path.dirname(self.save_file) else ".", exist_ok=True)
+            
+            # Prepare output data
+            output_data = {
+                "initial_parameters": self._initial_parameters,
+                "records": self.recorded_parameters,
+            }
+            
+            # If run_index is set, we're in a multi-run scenario - save to temp file
+            # Include fold_index in filename if available
+            if self._run_index is not None:
+                # Save to temporary file: {base_path}_temp_fold_{fold_index}_run_{run_index}.json
+                base_path, ext = os.path.splitext(self.save_file)
+                if self._fold_index is not None:
+                    temp_file = f"{base_path}_temp_fold_{self._fold_index}_run_{self._run_index}{ext}"
+                else:
+                    temp_file = f"{base_path}_temp_run_{self._run_index}{ext}"
+                with open(temp_file, "w") as f:
+                    json.dump(output_data, f, indent=2)
+                if self.verbose:
+                    print(f"EpochParameterCallback: Saved {len(self.recorded_parameters)} records to temp file: {temp_file}")
+            else:
+                # Single run - save directly to main file
+                with open(self.save_file, "w") as f:
+                    json.dump(output_data, f, indent=2)
+        except Exception as e:
+            if self.verbose:
+                print(f"Error saving parameters to file: {e}")
+    
+    def get_stored_parameters(self):
+        """Get the stored parameters for external use.
+        
+        Returns the full structure including initial_parameters and records,
+        matching the format saved to files.
+        """
+        return {
+            "initial_parameters": self._initial_parameters,
+            "records": self.recorded_parameters.copy(),
+        }
+    
+    @staticmethod
+    def aggregate_parameters_from_results(results, save_file: str, verbose: bool = True):
+        """
+        Aggregate parameter data from multiple training runs into a single file.
+        
+        This method should be called after all runs complete to collect parameter data
+        from all runs and save it to a single file organized by run_index.
+        
+        Args:
+            results: List of result dictionaries from GPTrainer.train(), each containing
+                    'run_index' and 'callback_data' with 'EpochParameterCallback' data
+            save_file: Path to save the aggregated parameter data
+            verbose: Whether to print aggregation status
+        """
+        import json
+        import os
+        import glob
+        
+        if save_file is None:
+            return
+        
+        # Collect parameter data from all folds and runs
+        # Structure: {fold_index: {run_index: {"initial_parameters": {...}, "records": [...]}}}
+        aggregated_data = {}  # Will be organized by fold, then by run
+        
+        # First, check for temporary files (they have the most complete data, saved after on_train_start)
+        base_path, ext = os.path.splitext(save_file)
+        # Look for both patterns: with fold_index and without
+        temp_pattern_with_fold = f"{base_path}_temp_fold_*_run_*{ext}"
+        temp_pattern_no_fold = f"{base_path}_temp_run_*{ext}"
+        temp_files = glob.glob(temp_pattern_with_fold) + glob.glob(temp_pattern_no_fold)
+        
+        if verbose:
+            print(f"EpochParameterCallback: Aggregating data from {len(results)} results...")
+            print(f"  Looking for temp files with patterns: {temp_pattern_with_fold}, {temp_pattern_no_fold}")
+            print(f"  Found {len(temp_files)} temp files: {[os.path.basename(f) for f in temp_files]}")
+        
+        for temp_file in temp_files:
+            try:
+                # Extract fold_index and run_index from filename
+                filename = os.path.basename(temp_file)
+                base_name = os.path.basename(base_path)
+                
+                # Try pattern with fold: {base_path}_temp_fold_{fold_index}_run_{run_index}{ext}
+                if f"_temp_fold_" in filename:
+                    # Extract fold_index and run_index
+                    fold_match = filename.replace(f"{base_name}_temp_fold_", "").replace(ext, "")
+                    parts = fold_match.split("_run_")
+                    if len(parts) == 2:
+                        fold_idx_str = parts[0]
+                        run_idx_str = parts[1]
+                    else:
+                        # Fallback: treat as run_index only
+                        fold_idx_str = None
+                        run_idx_str = fold_match.replace("_run_", "")
+                else:
+                    # Pattern without fold: {base_path}_temp_run_{run_index}{ext}
+                    fold_idx_str = None
+                    match = filename.replace(f"{base_name}_temp_run_", "").replace(ext, "")
+                    run_idx_str = match
+                
+                with open(temp_file, "r") as f:
+                    temp_data = json.load(f)
+                
+                # Organize by fold, then by run
+                if fold_idx_str is None:
+                    fold_idx_str = "0"  # Default fold if not specified
+                
+                if fold_idx_str not in aggregated_data:
+                    aggregated_data[fold_idx_str] = {}
+                
+                aggregated_data[fold_idx_str][run_idx_str] = temp_data
+                if verbose:
+                    num_records = len(temp_data.get("records", [])) if isinstance(temp_data, dict) else len(temp_data) if isinstance(temp_data, list) else 0
+                    has_initial = temp_data.get("initial_parameters") is not None if isinstance(temp_data, dict) else False
+                    print(f"  Fold {fold_idx_str}, Run {run_idx_str}: Loaded {num_records} records from temp file (initial_parameters: {'present' if has_initial else 'null'})")
+            except Exception as e:
+                if verbose:
+                    print(f"  Warning: Could not load temp file {temp_file}: {e}")
+        
+        # Then, try to get data from results (callback_data) for runs not found in temp files
+        for result in results:
+            run_index = result.get("run_index")
+            fold_index = result.get("fold_index")  # May not be present in old format
+            if run_index is None:
+                if verbose:
+                    print(f"  Warning: Result missing run_index: {list(result.keys())}")
+                continue
+            
+            run_idx_str = str(run_index)
+            fold_idx_str = str(fold_index) if fold_index is not None else "0"
+            
+            # Only use callback_data if we don't already have data from temp files
+            if fold_idx_str not in aggregated_data or run_idx_str not in aggregated_data.get(fold_idx_str, {}):
+                if fold_idx_str not in aggregated_data:
+                    aggregated_data[fold_idx_str] = {}
+                
+                callback_data = result.get("callback_data", {})
+                param_data = callback_data.get("EpochParameterCallback")
+                
+                if param_data is not None:
+                    # Data is already in the correct format from callback_data
+                    if isinstance(param_data, dict) and "initial_parameters" in param_data and "records" in param_data:
+                        aggregated_data[fold_idx_str][run_idx_str] = param_data
+                        if verbose:
+                            has_initial = param_data.get("initial_parameters") is not None
+                            print(f"  Fold {fold_idx_str}, Run {run_index}: Found {len(param_data.get('records', []))} records in callback_data (initial_parameters: {'present' if has_initial else 'null'})")
+                    elif isinstance(param_data, list):
+                        # Old format: just a list of records
+                        aggregated_data[fold_idx_str][run_idx_str] = {
+                            "initial_parameters": None,
+                            "records": param_data
+                        }
+                        if verbose:
+                            print(f"  Fold {fold_idx_str}, Run {run_index}: Found {len(param_data)} records in callback_data (old format)")
+        
+        # Save aggregated data organized by folds
+        if aggregated_data:
+            # Read existing aggregated data if file exists (to merge with previous folds)
+            existing_data = {"folds": {}}
+            if os.path.exists(save_file):
+                try:
+                    with open(save_file, "r") as f:
+                        existing_data = json.load(f)
+                        if "folds" not in existing_data:
+                            existing_data = {"folds": {}}
+                except Exception as e:
+                    if verbose:
+                        print(f"  Warning: Could not read existing aggregated file: {e}")
+                    existing_data = {"folds": {}}
+            
+            # Merge new fold data with existing data
+            for fold_idx, runs_dict in aggregated_data.items():
+                fold_key = f"fold_{fold_idx}"
+                if fold_key not in existing_data["folds"]:
+                    existing_data["folds"][fold_key] = {"runs": {}}
+                # Merge runs for this fold (new runs overwrite old ones if same run_index)
+                existing_data["folds"][fold_key]["runs"].update(runs_dict)
+            
+            # Write merged data back
+            os.makedirs(os.path.dirname(save_file) if os.path.dirname(save_file) else ".", exist_ok=True)
+            with open(save_file, "w") as f:
+                json.dump(existing_data, f, indent=2)
+            
+            output_data = existing_data
+            
+            if verbose:
+                total_records = 0
+                total_folds = len(output_data["folds"])
+                total_runs = 0
+                for fold_data in output_data["folds"].values():
+                    runs = fold_data.get("runs", {})
+                    total_runs += len(runs)
+                    for run_data in runs.values():
+                        total_records += len(run_data.get("records", [])) if isinstance(run_data, dict) else len(run_data) if isinstance(run_data, list) else 0
+                print(f"EpochParameterCallback: Aggregated {total_folds} folds, {total_runs} runs with {total_records} total records")
+                print(f"  Saved to: {save_file}")
+            
+            # Clean up temporary files
+            for temp_file in temp_files:
+                try:
+                    os.remove(temp_file)
+                    if verbose:
+                        print(f"  Removed temp file: {os.path.basename(temp_file)}")
+                except Exception as e:
+                    if verbose:
+                        print(f"  Warning: Could not remove temp file {temp_file}: {e}")
+        else:
+            if verbose:
+                print(f"EpochParameterCallback: WARNING - No parameter data found in results or temp files!")
+                print(f"  Checked {len(results)} results")
+                print(f"  Checked {len(temp_files)} temp files")
+                print(f"  Save file path: {save_file}")
+            # Save empty structure
+            output_data = {"runs": {}}
+            os.makedirs(os.path.dirname(save_file) if os.path.dirname(save_file) else ".", exist_ok=True)
+            with open(save_file, "w") as f:
+                json.dump(output_data, f, indent=2)
+            if verbose:
+                print(f"EpochParameterCallback: WARNING - Saved empty aggregation file to {save_file}")
+
+
+class JitterTrackingCallback(Callback):
+    """
+    Callback to track jitter values at each iteration/epoch for all runs.
+    
+    This callback records jitter values from every run (not just the best one),
+    making it useful for analyzing jitter behavior across multiple initializations.
+    The callback works with both LBFGS (iteration-based) and Adam (epoch-based) optimizers.
+    
+    Args:
+        save_file (str): Path to save the jitter tracking JSON file. If None, jitter is still tracked
+                        but not saved to file.
+        verbose (bool): Whether to print jitter values when storing
+    """
+    
+    def __init__(self, save_file: str = None, verbose: bool = True):
+        self.save_file = save_file
+        self.verbose = verbose
+        self.recorded_jitter = []  # List of jitter records
+        self._optimizer = None
+        self._model = None
+        self._trainer = None
+        self._current_epoch = 0
+        self._is_active = False
+        self._run_index = None  # Will be set via set_run_index() by GPTrainer
+        self._current_iteration = 0
+        self._last_actual_jitter = None  # Track the last (highest) jitter value from warnings
+        self._max_actual_jitter = None  # Track the maximum jitter value seen from warnings
+        self._warning_handler = None  # Warning handler to capture jitter from linear_operator
+    
+    def set_run_index(self, run_index: int):
+        """Set the run index for this callback instance. Called by GPTrainer."""
+        self._run_index = run_index
+    
+    def on_train_start(self, context: dict):
+        """Store model and trainer references, and check for run_index in context."""
+        self._model = context["model"]
+        self._trainer = context.get("trainer", None)
+        # Check if run_index is in context (set by GPTrainer via set_run_index)
+        self._run_index = context.get("run_index", self._run_index)
+        self._is_active = True
+        
+        # Store original warning handler and set up our custom one
+        # Wrap in try-except to ensure it doesn't break training if something goes wrong
+        try:
+            import warnings
+            # Ensure warnings are not filtered (we want to capture all warnings)
+            # Don't filter - just intercept all warnings via showwarning
+            if not hasattr(warnings, '_showwarning_orig'):
+                warnings._showwarning_orig = warnings.showwarning
+            self._warning_handler = self._create_jitter_warning_handler()
+            warnings.showwarning = self._warning_handler
+            if self.verbose:
+                print(f"JitterTrackingCallback: Warning handler installed")
+        except Exception as e:
+            # If warning handler setup fails, just log and continue without it
+            if self.verbose:
+                print(f"JitterTrackingCallback: Warning - Could not set up warning handler: {e}")
+                import traceback
+                traceback.print_exc()
+            self._warning_handler = None
+        
+        if self.verbose:
+            run_str = f" (run_index={self._run_index})" if self._run_index is not None else ""
+            print(f"JitterTrackingCallback: Activated{run_str}")
+    
+    def on_epoch_start(self, context: dict):
+        """Update current epoch."""
+        self._current_epoch = context.get("epoch", 0)
+    
+    def _create_jitter_warning_handler(self):
+        """Create a warning handler that captures jitter values from linear_operator warnings."""
+        import warnings
+        import re
+        callback_instance = self  # Capture self for use in closure
+        
+        def jitter_warning_handler(message, category, filename, lineno, file=None, line=None):
+            """Intercept warnings to capture jitter values from linear_operator."""
+            try:
+                # Call original handler first
+                if hasattr(warnings, '_showwarning_orig'):
+                    warnings._showwarning_orig(message, category, filename, lineno, file, line)
+                else:
+                    # Fallback to default behavior
+                    import sys
+                    sys.stderr.write(warnings.formatwarning(message, category, filename, lineno))
+                
+                # Check if this is a jitter-related warning from linear_operator
+                if isinstance(message, (str, Warning)):
+                    msg_str = str(message)
+                    # Check if this is from linear_operator cholesky (to reduce noise)
+                    filename_str = str(filename).lower() if filename else ""
+                    if 'cholesky' in filename_str or 'linear_operator' in filename_str or 'jitter' in msg_str.lower():
+                        # Pattern: "A not p.d., added jitter of 1.0e-06 to the diagonal"
+                        # Try multiple patterns to catch different formats
+                        patterns = [
+                            r'added jitter of ([\d.]+e[+-]?\d+)',  # Scientific notation: 1.0e-06 (e is required)
+                            r'added jitter of ([\d.]+)',  # Decimal fallback
+                            r'jitter of ([\d.]+e[+-]?\d+)',  # Alternative format
+                        ]
+                        matched = False
+                        for pattern in patterns:
+                            match = re.search(pattern, msg_str, re.IGNORECASE)
+                            if match:
+                                try:
+                                    jitter_value = float(match.group(1))
+                                    # Update both last and max jitter
+                                    old_max = callback_instance._max_actual_jitter
+                                    callback_instance._last_actual_jitter = jitter_value
+                                    if callback_instance._max_actual_jitter is None or jitter_value > callback_instance._max_actual_jitter:
+                                        callback_instance._max_actual_jitter = jitter_value
+                                    
+                                    # If jitter increased significantly, immediately record it (in case training crashes)
+                                    # This ensures we capture the jitter even if _on_iteration isn't called
+                                    if callback_instance._is_active:
+                                        # Get current iteration (may be stale if _on_iteration hasn't been called yet)
+                                        current_iter = callback_instance._current_iteration if hasattr(callback_instance, '_current_iteration') else None
+                                        
+                                        # Check if jitter increased significantly (by at least 10x, or reached a threshold)
+                                        jitter_increased = old_max is None or jitter_value >= old_max * 10.0
+                                        reached_threshold = jitter_value >= 1e-3  # Reached at least 1e-3
+                                        
+                                        if jitter_increased or reached_threshold:
+                                            # Use the last known iteration, or estimate based on last record
+                                            if current_iter is None and callback_instance.recorded_jitter:
+                                                # Estimate: use last iteration + 1 (or last iteration if we can't determine)
+                                                last_iter = callback_instance.recorded_jitter[-1].get("iteration")
+                                                if last_iter is not None:
+                                                    current_iter = last_iter + 1
+                                                else:
+                                                    current_iter = 0  # Fallback
+                                            elif current_iter is None:
+                                                current_iter = 0  # Fallback
+                                            
+                                            # Immediately record this jitter value
+                                            # (This is a safety measure in case training crashes before _on_iteration is called)
+                                            try:
+                                                record = {
+                                                    "run_index": callback_instance._run_index,
+                                                    "epoch": callback_instance._current_epoch,
+                                                    "iteration": current_iter,
+                                                    "loss": None,  # Loss not available yet
+                                                    "jitter": jitter_value,
+                                                }
+                                                # Always append when jitter increases significantly (don't check for duplicates here)
+                                                # The _on_iteration method will handle updating existing records
+                                                callback_instance.recorded_jitter.append(record)
+                                                
+                                                # Save immediately if jitter increased significantly
+                                                # This ensures we capture data even if training crashes before _on_iteration is called
+                                                should_save = False
+                                                if jitter_value >= 1e-2:  # Very high - always save
+                                                    should_save = True
+                                                elif jitter_value >= 1e-3 and (old_max is None or old_max < 1e-3):  # First time reaching 1e-3
+                                                    should_save = True
+                                                elif jitter_increased:  # Increased by 10x or more
+                                                    should_save = True
+                                                
+                                                if should_save and callback_instance.save_file is not None:
+                                                    try:
+                                                        callback_instance._save_jitter()
+                                                        if callback_instance.verbose:
+                                                            print(f"JitterTracking: Saved immediately due to jitter increase to {jitter_value:.2e} (iter {current_iter})")
+                                                    except Exception as save_err:
+                                                        if callback_instance.verbose:
+                                                            print(f"JitterTracking: Warning - Could not save immediately: {save_err}")
+                                            except Exception as record_error:
+                                                # Don't break training if recording fails
+                                                if callback_instance.verbose:
+                                                    print(f"JitterTracking: Warning - Could not record jitter immediately: {record_error}")
+                                    
+                                    # Always print when captured to verify it's working (helps debug)
+                                    if callback_instance.verbose:
+                                        run_str = f"Run {callback_instance._run_index}, " if callback_instance._run_index is not None else ""
+                                        iter_str = f" (iter {callback_instance._current_iteration})" if hasattr(callback_instance, '_current_iteration') else ""
+                                        print(f"JitterTracking: {run_str}Captured actual jitter from warning: {jitter_value:.2e}{iter_str}")
+                                    matched = True
+                                except (ValueError, AttributeError) as e:
+                                    if callback_instance.verbose:
+                                        print(f"JitterTracking: Warning - Could not parse jitter from warning: {e}, message: {msg_str[:100]}")
+                                break  # Found a match, no need to try other patterns
+                        
+                        # Debug: if we didn't match but it looks like a jitter warning, print it
+                        if not matched and callback_instance.verbose and 'jitter' in msg_str.lower():
+                            print(f"JitterTracking: Warning handler called but no match - message: {msg_str[:150]}")
+            except Exception as e:
+                # If anything goes wrong in the warning handler, just pass to avoid breaking training
+                # But log it if verbose
+                if callback_instance.verbose:
+                    print(f"JitterTracking: Error in warning handler: {e}")
+                pass
+        
+        return jitter_warning_handler
+    
+    def register_with_optimizer(self, optimizer, model=None, trainer=None):
+        """Register this callback with the LBFGSScipy optimizer for iteration tracking.
+        
+        Note: The actual callback registration is handled by the trainer which chains
+        multiple callbacks together. This method just stores references.
+        """
+        from .optimizers import LBFGSScipy
+        
+        if model is not None:
+            self._model = model
+        if trainer is not None:
+            self._trainer = trainer
+        
+        if isinstance(optimizer, LBFGSScipy):
+            self._optimizer = optimizer
+            # Don't set iteration_callback directly here - the trainer will chain callbacks
+            # Just mark that we're using LBFGS so we know to use _on_iteration
+            if self.verbose:
+                run_str = f" (run_index={self._run_index})" if self._run_index is not None else ""
+                print(f"JitterTrackingCallback: Registered with LBFGSScipy optimizer{run_str}")
+        else:
+            # For non-LBFGS optimizers, we'll track jitter at epoch end instead
+            if self.verbose:
+                run_str = f" (run_index={self._run_index})" if self._run_index is not None else ""
+                print(f"JitterTrackingCallback: Not LBFGS optimizer, will track at epoch end{run_str}")
+    
+    def _get_current_jitter(self) -> float:
+        """Get current jitter value from settings, trainer, or captured warnings.
+        
+        Priority:
+        1. Last actual jitter captured from linear_operator warnings (most accurate)
+        2. Trainer's current_jitter (updated on NotPSDError)
+        3. gpytorch settings cholesky_jitter
+        4. Trainer's initial cholesky_jitter
+        """
+        # First, check if we captured an actual jitter value from warnings
+        # Use max jitter if available (most accurate), otherwise use last
+        if self._max_actual_jitter is not None:
+            return float(self._max_actual_jitter)
+        if self._last_actual_jitter is not None:
+            return float(self._last_actual_jitter)
+        
+        # Fallback: try to get from trainer's current_jitter attribute if it exists
+        if self._trainer is not None and hasattr(self._trainer, "current_jitter"):
+            return float(self._trainer.current_jitter)
+        
+        try:
+            # Try to get from gpytorch settings
+            import gpytorch
+            if hasattr(gpytorch.settings, "cholesky_jitter"):
+                jitter_value = gpytorch.settings.cholesky_jitter.value
+                if jitter_value is not None:
+                    return float(jitter_value)
+        except Exception:
+            pass
+        
+        # Final fallback: get from trainer's cholesky_jitter (initial value)
+        if self._trainer is not None and hasattr(self._trainer, "cholesky_jitter"):
+            return float(self._trainer.cholesky_jitter)
+        
+        return None
+    
+    def _on_iteration(self, iteration: int, loss: float = None):
+        """Called by LBFGSScipy optimizer at each iteration."""
+        if not self._is_active:
+            return
+        
+        try:
+            # Update current iteration first (needed for warning handler to know which iteration we're on)
+            self._current_iteration = iteration
+            
+            # Get current jitter (this will use _max_actual_jitter or _last_actual_jitter if available from warnings)
+            # The warnings from the CURRENT iteration's closure should have updated these values
+            # (since _on_iteration is called AFTER the closure completes)
+            jitter = self._get_current_jitter()
+            
+            # Check if we already have a record for this iteration (created by warning handler)
+            # If so, update it with the loss value; otherwise create a new record
+            existing_record = None
+            if self.recorded_jitter:
+                # Check the last few records to see if this iteration was already recorded
+                for i in range(len(self.recorded_jitter) - 1, max(-1, len(self.recorded_jitter) - 5), -1):
+                    if i >= 0 and self.recorded_jitter[i].get("iteration") == iteration:
+                        existing_record = self.recorded_jitter[i]
+                        break
+            
+            if existing_record is not None:
+                # Update existing record with loss and potentially updated jitter
+                existing_record["loss"] = loss
+                existing_record["jitter"] = jitter  # Update with latest jitter value
+            else:
+                # Create new record
+                record = {
+                    "run_index": self._run_index,
+                    "epoch": self._current_epoch,
+                    "iteration": iteration,
+                    "loss": loss,
+                    "jitter": jitter,
+                }
+                self.recorded_jitter.append(record)
+            
+            if self.verbose and iteration % 50 == 0:  # Print every 50 iterations
+                run_str = f"Run {self._run_index}, " if self._run_index is not None else ""
+                # Show debug info about captured jitter
+                debug_info = ""
+                if self._last_actual_jitter is not None:
+                    debug_info = f" (last captured: {self._last_actual_jitter:.2e})"
+                print(f"JitterTracking: {run_str}Iteration {iteration} (Epoch {self._current_epoch}) - Jitter: {jitter:.2e}{debug_info}")
+            
+            # Save to file periodically
+            # Save more frequently when jitter is high (to catch data before potential crashes)
+            save_frequency = 100  # Default: every 100 iterations
+            should_save_immediately = False
+            
+            if jitter is not None:
+                if jitter >= 1e-2:  # Very high jitter - save every iteration
+                    save_frequency = 1
+                    should_save_immediately = True
+                elif jitter >= 1e-3:  # High jitter - save every 10 iterations
+                    save_frequency = 10
+                elif jitter >= 1e-4:  # Medium-high jitter - save every 25 iterations
+                    save_frequency = 25
+                elif jitter >= 1e-5:  # Medium jitter - save every 50 iterations
+                    save_frequency = 50
+            
+            # Save immediately if jitter reached a critical threshold, or periodically
+            if self.save_file is not None:
+                if should_save_immediately or iteration % save_frequency == 0 or iteration == 1:
+                    self._save_jitter()
+        
+        except Exception as e:
+            if self.verbose:
+                print(f"Error recording jitter at iteration {iteration}: {e}")
+            import traceback
+            traceback.print_exc()
+            # Try to save data even if there was an error (to preserve what we have)
+            if self.save_file is not None and self.recorded_jitter:
+                try:
+                    self._save_jitter()
+                except Exception as save_error:
+                    if self.verbose:
+                        print(f"Error saving jitter data after exception: {save_error}")
+    
+    def on_epoch_end(self, context: dict):
+        """Record jitter at end of each epoch (for non-LBFGS optimizers)."""
+        if not self._is_active:
+            return
+        
+        # Only record at epoch end if we're not using LBFGS (which uses _on_iteration)
+        # Check if we have an optimizer registered (LBFGS uses iteration callback)
+        if self._optimizer is not None:
+            # LBFGS optimizer - jitter is tracked via _on_iteration
+            return
+        
+        epoch = context.get("epoch", 0)
+        loss = context.get("loss", None)
+        jitter = context.get("jitter", None)  # Get jitter from context
+        
+        # Fallback to getting jitter from trainer if not in context
+        if jitter is None:
+            jitter = self._get_current_jitter()
+        
+        try:
+            # Create record
+            record = {
+                "run_index": self._run_index,
+                "epoch": epoch,
+                "iteration": None,  # No iteration for epoch-based optimizers
+                "loss": loss,
+                "jitter": jitter,
+            }
+            
+            self.recorded_jitter.append(record)
+            
+            if self.verbose and epoch % 100 == 0:  # Print every 10 epochs
+                run_str = f"Run {self._run_index}, " if self._run_index is not None else ""
+                print(f"JitterTracking: {run_str}Epoch {epoch} - Jitter: {jitter:.2e}")
+            
+            # Save to file periodically (every 10 epochs) or at start
+            if self.save_file is not None and (epoch % 10 == 0 or epoch == 0):
+                self._save_jitter()
+        
+        except Exception as e:
+            if self.verbose:
+                print(f"Error recording jitter at epoch {epoch}: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def on_train_end(self, context: dict):
+        """Final save at end of training."""
+        # Restore original warning handler
+        if self._warning_handler is not None:
+            import warnings
+            if hasattr(warnings, '_showwarning_orig'):
+                warnings.showwarning = warnings._showwarning_orig
+        
+        # Always save if we have a save_file, even if recorded_jitter is empty
+        # (this ensures temp files are created for aggregation, and we can see if callback ran but didn't record)
+        if self.save_file is not None:
+            self._save_jitter()  # Save even if empty - aggregation will handle it
+            if self.verbose:
+                run_str = f"Run {self._run_index}, " if self._run_index is not None else ""
+                if self.recorded_jitter:
+                    print(f"JitterTrackingCallback: Saved {len(self.recorded_jitter)} jitter records for {run_str}")
+                else:
+                    print(f"JitterTrackingCallback: No jitter records recorded for {run_str} (saved empty list)")
+    
+    def _save_jitter(self):
+        """Save recorded jitter values to JSON file.
+        
+        For single runs, saves directly. For multiple runs (when run_index is set),
+        saves to a temporary per-run file that will be aggregated later.
+        """
+        if self.save_file is None:
+            return
+        
+        try:
+            import json
+            import os
+            
+            # Use absolute path to ensure consistency across processes
+            save_file_abs = os.path.abspath(self.save_file)
+            
+            # If run_index is set, we're in a multi-run scenario
+            # Save to a temporary file that will be aggregated later
+            if self._run_index is not None:
+                # Save to temp file for this run
+                base_path = os.path.splitext(save_file_abs)[0]
+                ext = os.path.splitext(save_file_abs)[1] or ".json"
+                temp_file = f"{base_path}_temp_run_{self._run_index}{ext}"
+                
+                os.makedirs(os.path.dirname(temp_file) if os.path.dirname(temp_file) else ".", exist_ok=True)
+                with open(temp_file, "w") as f:
+                    json.dump(self.recorded_jitter, f, indent=2)
+                
+                if self.verbose:
+                    print(f"JitterTrackingCallback: Saved {len(self.recorded_jitter)} records to temp file: {temp_file}")
+            else:
+                # Single run - save directly
+                os.makedirs(os.path.dirname(save_file_abs) if os.path.dirname(save_file_abs) else ".", exist_ok=True)
+                with open(save_file_abs, "w") as f:
+                    json.dump(self.recorded_jitter, f, indent=2)
+        except Exception as e:
+            if self.verbose:
+                print(f"Error saving jitter to file: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    @staticmethod
+    def aggregate_jitter_from_results(results, save_file: str, verbose: bool = True):
+        """
+        Aggregate jitter data from multiple training runs into a single file.
+        
+        This method should be called after all runs complete to collect jitter data
+        from all runs and save it to a single file organized by run_index.
+        
+        Args:
+            results: List of result dictionaries from GPTrainer.train(), each containing
+                    'run_index' and 'callback_data' with 'JitterTrackingCallback' data
+            save_file: Path to save the aggregated jitter data
+            verbose: Whether to print aggregation status
+        """
+        import json
+        import os
+        import glob
+        
+        if save_file is None:
+            return
+        
+        # Collect jitter data from all runs
+        aggregated_data = {}  # {run_index: [records]}
+        
+        # First, try to get data from results (callback_data)
+        if verbose:
+            print(f"JitterTrackingCallback: Aggregating data from {len(results)} results...")
+        
+        for result in results:
+            run_index = result.get("run_index")
+            if run_index is None:
+                if verbose:
+                    print(f"  Warning: Result missing run_index: {list(result.keys())}")
+                continue
+            
+            callback_data = result.get("callback_data", {})
+            if verbose:
+                print(f"  Run {run_index}: callback_data keys = {list(callback_data.keys())}")
+            
+            jitter_data = callback_data.get("JitterTrackingCallback", None)
+            
+            # Debug: print what we actually got
+            if verbose:
+                if jitter_data is not None:
+                    print(f"  Run {run_index}: JitterTrackingCallback data type = {type(jitter_data)}, length = {len(jitter_data) if isinstance(jitter_data, (list, tuple)) else 'N/A'}")
+                else:
+                    print(f"  Run {run_index}: JitterTrackingCallback key not found or value is None")
+            
+            # Check if jitter_data exists and is not None (could be empty list, which is valid)
+            if jitter_data is not None:
+                # jitter_data could be a list (even if empty) or other data structure
+                if isinstance(jitter_data, list):
+                    if len(jitter_data) > 0:
+                        if verbose:
+                            print(f"  Run {run_index}: Found {len(jitter_data)} jitter records in callback_data")
+                        aggregated_data[run_index] = jitter_data
+                    else:
+                        if verbose:
+                            print(f"  Run {run_index}: JitterTrackingCallback data is empty list (no records) - will check temp files")
+                else:
+                    # Not a list, but data exists - use it
+                    if verbose:
+                        print(f"  Run {run_index}: Found jitter data (type: {type(jitter_data)}) in callback_data")
+                    aggregated_data[run_index] = jitter_data
+            else:
+                if verbose:
+                    print(f"  Run {run_index}: No JitterTrackingCallback key in callback_data")
+        
+        # Also check for temporary files (in case callback_data wasn't collected)
+        # Use absolute path to ensure we find files regardless of working directory
+        save_file_abs = os.path.abspath(save_file)
+        base_path = os.path.splitext(save_file_abs)[0]
+        ext = os.path.splitext(save_file_abs)[1] or ".json"
+        temp_pattern = f"{base_path}_temp_run_*{ext}"
+        
+        if verbose:
+            print(f"  Looking for temp files with pattern: {temp_pattern}")
+        
+        temp_files = glob.glob(temp_pattern)
+        
+        if verbose:
+            print(f"  Found {len(temp_files)} temp files: {temp_files}")
+        
+        for temp_file in temp_files:
+            try:
+                # Extract run_index from filename
+                import re
+                match = re.search(r'_temp_run_(\d+)', temp_file)
+                if match:
+                    run_index = int(match.group(1))
+                    
+                    # Only load if we don't already have data for this run
+                    if run_index not in aggregated_data:
+                        with open(temp_file, "r") as f:
+                            jitter_data = json.load(f)
+                            aggregated_data[run_index] = jitter_data
+                        if verbose:
+                            print(f"  Run {run_index}: Loaded {len(jitter_data)} records from temp file {temp_file}")
+                    
+                    # Clean up temp file
+                    os.remove(temp_file)
+                    if verbose:
+                        print(f"  Removed temp file: {temp_file}")
+            except Exception as e:
+                if verbose:
+                    print(f"Warning: Could not process temp file {temp_file}: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # If no data was collected, warn the user
+        if not aggregated_data:
+            if verbose:
+                print(f"JitterTrackingCallback: WARNING - No jitter data found in results or temp files!")
+                print(f"  Checked {len(results)} results")
+                print(f"  Checked {len(temp_files)} temp files")
+                print(f"  Save file path: {save_file_abs}")
+        
+        # Organize data by run_index
+        # Format: {"runs": {"run_index": [records]}}
+        # Note: JSON keys must be strings, so we use string keys
+        output_data = {
+            "runs": {}
+        }
+        
+        for run_index in sorted(aggregated_data.keys()):
+            output_data["runs"][str(run_index)] = aggregated_data[run_index]
+        
+        # Save aggregated data (even if empty, so user knows aggregation ran)
+        try:
+            save_file_abs = os.path.abspath(save_file)
+            os.makedirs(os.path.dirname(save_file_abs) if os.path.dirname(save_file_abs) else ".", exist_ok=True)
+            with open(save_file_abs, "w") as f:
+                json.dump(output_data, f, indent=2)
+            
+            if verbose:
+                total_runs = len(output_data["runs"])
+                total_records = sum(len(records) for records in output_data["runs"].values())
+                if total_records > 0:
+                    print(f"JitterTrackingCallback: Aggregated {total_records} jitter records from {total_runs} runs to {save_file_abs}")
+                else:
+                    print(f"JitterTrackingCallback: WARNING - Saved empty aggregation file to {save_file_abs}")
+        except Exception as e:
+            if verbose:
+                print(f"Error saving aggregated jitter data: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def get_stored_jitter(self):
+        """Get the stored jitter records for external use."""
+        return self.recorded_jitter.copy()
+    
+    def get_stored_parameters(self):
+        """Alias for get_stored_jitter for compatibility with GPTrainer."""
+        return self.get_stored_jitter()

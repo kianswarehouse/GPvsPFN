@@ -43,10 +43,14 @@ def rosenbrock_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         pfn_dtype = defaults.DTYPE_PFN,
         trainer_info=True,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
+<<<<<<< HEAD
         optimization_loss=defaults.TRAINER_OPTIMIZATION_LOSS,  # "nll", "nll_plus_kf", etc.
         log_lbfgs_inner=defaults.TRAINER_LOG_LBFGS_INNER,
         log_lbfgs_inner_full=defaults.TRAINER_LOG_LBFGS_INNER_FULL,
         log_lbfgs_inner_full_T_mon=defaults.TRAINER_LOG_LBFGS_INNER_FULL_T_MON,
+=======
+        kernel_type=None,  # None=default, 'Gaussian', 'PowerExponential', 'Matern'
+>>>>>>> c53566e8b87f921c11aeefba62fb08629afe0a48
     ):
 
     if run_models == 'pfn':

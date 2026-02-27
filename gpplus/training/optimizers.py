@@ -33,7 +33,7 @@ class LBFGSScipy(torch.optim.Optimizer):
     """
 
     def __init__(
-        self, params, max_iter=2000, max_eval=5000, tolerance_grad=1e-5, tolerance_change=1e-9, history_size=10
+        self, params, max_iter=2000, max_eval=5000, tolerance_grad=1e-5, tolerance_change=1e-9, history_size=10, iteration_callback=None
     ):
         if max_eval is None:
             max_eval = max_iter * 5 // 4
@@ -53,6 +53,7 @@ class LBFGSScipy(torch.optim.Optimizer):
         self._numel_cache = None
         self._n_iter = 0
         self._last_loss = None
+        self.iteration_callback = iteration_callback
 
         # Numerical epsilon for scipy
         self.eps = np.finfo("double").eps
@@ -120,6 +121,24 @@ class LBFGSScipy(torch.optim.Optimizer):
 
         def callback(flat_params):
             self._n_iter += 1
+            # Optional: print progress (can be disabled)
+            # print('Iter %i Loss %.5f' % (self._n_iter, self._last_loss.item()))
+            
+            # Update model parameters to current candidate values from scipy
+            # This allows iteration callbacks to extract the current parameter state
+            # The parameters will be updated again at the end of the step with the final result
+            flat_params_tensor = torch.from_numpy(flat_params).to(self._params[0].device)
+            self._distribute_flat_params(flat_params_tensor)
+            
+            # Call external iteration callback if provided
+            if self.iteration_callback is not None:
+                try:
+                    # Pass flat_params to the callback so it can track changes
+                    self.iteration_callback(iteration=self._n_iter, loss=self._last_loss.item() if self._last_loss is not None else None, flat_params=flat_params_tensor)
+                except Exception as e:
+                    # Don't let callback errors break optimization
+                    import warnings
+                    warnings.warn(f"Iteration callback raised an error: {e}")
             # Optional: invoke trainer inner callback for per-iteration logging (e.g. NLL, NIS)
             inner_cb = getattr(self, "_inner_callback", None)
             if inner_cb is not None and self._last_loss is not None:
