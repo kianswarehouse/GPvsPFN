@@ -224,10 +224,6 @@ class GPTrainer:
         # Train the model
         # Create isolated callback instances per run to avoid cross-run state mixing
         callbacks_copy = [copy.deepcopy(cb) for cb in self.callbacks] if self.callbacks else []
-        # Set run_index on callbacks that support it
-        for cb in callbacks_copy:
-            if hasattr(cb, "set_run_index"):
-                cb.set_run_index(run_index)
         # Create isolated stop condition instances per run to avoid cross-run state mixing
         stop_conditions_copy = [copy.deepcopy(sc) for sc in self.stop_conditions] if self.stop_conditions else None
 
@@ -259,14 +255,9 @@ class GPTrainer:
         for cb in callbacks_copy:
             if hasattr(cb, 'get_stored_parameters'):
                 cb_name = cb.__class__.__name__
-                try:
-                    stored_params = cb.get_stored_parameters()
-                    # For JitterTrackingCallback, always include data even if empty list
-                    # (empty list is falsy but we want to track that the callback ran)
-                    if stored_params is not None:  # Changed from 'if stored_params' to handle empty lists
-                        callback_data[cb_name] = stored_params
-                except Exception as e:
-                    logger.warning(f"Error getting stored parameters from {cb_name}: {e}")
+                stored_params = cb.get_stored_parameters()
+                if stored_params:  # Only add if there's data
+                    callback_data[cb_name] = stored_params
 
         # Merge callback_data from train_result (if any) with callbacks_copy data
         if "callback_data" in train_result:
@@ -342,17 +333,12 @@ class GPTrainer:
         elif str(self.device).startswith("cuda"):
             torch.cuda.empty_cache()
             num_gpus = torch.cuda.device_count()
-            # Calculate total number of SMs (Streaming Multiprocessors) across all GPUs
-            num_sms = sum(
-                torch.cuda.get_device_properties(i).multi_processor_count
-                for i in range(num_gpus)
-            )
             # For GPU tasks, use threading backend (multiprocessing doesn't work well with CUDA)
-            # Limit parallel jobs based on number of SMs
-            max_jobs = min(num_runs_to_train, num_sms)
+            # Allow as many parallel jobs as there are GPUs
+            max_jobs = min(num_runs_to_train, num_gpus)
             logger.info(
                 f"Running {num_runs_to_train} runs distributed across {num_gpus} GPUs "
-                f"(using joblib 'threading' backend with verbose=0, max_jobs={max_jobs} based on {num_sms} total SMs)."
+                f"(using joblib 'threading' backend with verbose=0)."
             )
             # Use threading backend for GPU (CUDA doesn't work with multiprocessing)
             # verbose=0 minimizes logging overhead (time.sleep still present but reduced)
@@ -363,47 +349,6 @@ class GPTrainer:
 
         logger.info("Training completed.")
         return results
-    
-    def _aggregate_jitter_callbacks(self, results):
-        """Aggregate jitter tracking data from all runs into a single file."""
-        from .callbacks import JitterTrackingCallback
-        
-        # Find JitterTrackingCallback instances in callbacks
-        jitter_callbacks = [cb for cb in (self.callbacks or []) if isinstance(cb, JitterTrackingCallback)]
-        
-        for jitter_cb in jitter_callbacks:
-            if jitter_cb.save_file is not None:
-                JitterTrackingCallback.aggregate_jitter_from_results(
-                    results=results,
-                    save_file=jitter_cb.save_file,
-                    verbose=jitter_cb.verbose
-                )
-    
-    def _aggregate_parameter_callbacks(self, results):
-        """Aggregate parameter tracking data from all runs into a single file."""
-        from .callbacks import IterationParameterCallback, EpochParameterCallback
-        
-        # Find IterationParameterCallback instances in callbacks
-        iteration_callbacks = [cb for cb in (self.callbacks or []) if isinstance(cb, IterationParameterCallback)]
-        
-        for iter_cb in iteration_callbacks:
-            if iter_cb.save_file is not None:
-                IterationParameterCallback.aggregate_parameters_from_results(
-                    results=results,
-                    save_file=iter_cb.save_file,
-                    verbose=iter_cb.verbose
-                )
-        
-        # Find EpochParameterCallback instances in callbacks
-        epoch_callbacks = [cb for cb in (self.callbacks or []) if isinstance(cb, EpochParameterCallback)]
-        
-        for epoch_cb in epoch_callbacks:
-            if epoch_cb.save_file is not None:
-                EpochParameterCallback.aggregate_parameters_from_results(
-                    results=results,
-                    save_file=epoch_cb.save_file,
-                    verbose=epoch_cb.verbose
-                )
 
     def train(self):
         # ------------------------------------------------------
@@ -479,16 +424,6 @@ class GPTrainer:
             run_indices = None  # Will default to range(num_runs)
         
         results = self.train_multiple_process_parallel(run_indices=run_indices)
-        
-        # ------------------------------------------------------
-        #  Aggregate jitter tracking data from all runs
-        # ------------------------------------------------------
-        self._aggregate_jitter_callbacks(results)
-        
-        # ------------------------------------------------------
-        #  Aggregate parameter tracking data from all runs
-        # ------------------------------------------------------
-        self._aggregate_parameter_callbacks(results)
 
         # ------------------------------------------------------
         #  Select the best run by comparing the 'loss' values
