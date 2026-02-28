@@ -159,6 +159,24 @@ class LBFGSScipy(torch.optim.Optimizer):
             callback=callback,
         )
 
+        # Store stop reason for on_train_end logging (result is (x, f, d) with d = info dict)
+        info = result[2] if len(result) > 2 else {}
+        self._lbfgs_info = info
+        task = info.get("task", b"")
+        if isinstance(task, bytes):
+            task = task.decode("ascii", errors="replace")
+        else:
+            task = str(task)
+        warnflag = info.get("warnflag", -1)
+        if warnflag == 0:
+            self._lbfgs_stop_reason = task or "CONVERGED"
+        elif warnflag == 1:
+            self._lbfgs_stop_reason = task or "TOO_MANY_FEVALS"
+        elif warnflag == 2:
+            self._lbfgs_stop_reason = task or "ABNORMAL_TERMINATION"
+        else:
+            self._lbfgs_stop_reason = task or "UNKNOWN"
+
         # Update parameters with final result
         target_device = self._params[0].device
         final_params = torch.from_numpy(result[0]).to(target_device)
