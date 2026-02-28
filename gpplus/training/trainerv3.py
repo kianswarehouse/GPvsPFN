@@ -1,5 +1,6 @@
 import copy
 import os
+import time
 from typing import List, Optional
 
 import gpytorch
@@ -41,8 +42,9 @@ class GPTrainer:
         device: str = "cpu",
         stop_conditions: Optional[List[StopCondition]] = None,
         min_epochs: int = 0,
-        # Per–L-BFGS-iteration logging (inner-iteration callback)
-        log_lbfgs_inner: bool = False,
+        # Per–L-BFGS-iteration logging (inner-iteration callback).
+        # None = auto: enabled when any callback implements `on_lbfgs_iteration`.
+        log_lbfgs_inner: bool | None = None,
         # If set, build trainer analysis (inits, best_parameters, average_final_parameters) and save to this path after train()
         trainer_analysis_save_path: Optional[str] = None,
     ):
@@ -266,7 +268,6 @@ class GPTrainer:
         else:
             results = [safe_single_process(init_index) for init_index in init_indices]
 
-        logger.info("Training completed.")
         return results
 
     def _aggregate_jitter_callbacks(self, results):
@@ -309,7 +310,23 @@ class GPTrainer:
         # ------------------------------------------------------
         #  TRAINING (no prescreening in v3)
         # ------------------------------------------------------
+        t_full_start = time.perf_counter()
         results = self.train_multiple_process_parallel(init_indices=None)
+        full_train_time = time.perf_counter() - t_full_start
+
+        # Time breakdown: inits run in parallel so use max(log_time) across inits (wall-clock), not sum
+        log_times = [float(r.get("log_time", 0)) for r in results if r.get("log_time") is not None]
+        log_time = max(log_times) if log_times else 0.0
+        train_time = max(0.0, full_train_time - log_time)
+        self.full_train_time = full_train_time
+        self.log_time = log_time
+        self.train_time = train_time
+
+        logger.info("Training completed.")
+        logger.info(
+            "Timing summary: full_train_time=%.3fs | train_time=%.3fs | log_time=%.3fs",
+            full_train_time, train_time, log_time,
+        )
 
         # Aggregate jitter and parameter tracking across runs (from original trainer)
         self._aggregate_jitter_callbacks(results)
@@ -357,6 +374,9 @@ class GPTrainer:
             from .trainer_analysis import build_trainer_analysis_from_results, save_trainer_analysis
             payload = build_trainer_analysis_from_results(results, self.num_epochs)
             if payload is not None:
+                payload["full_train_time"] = getattr(self, "full_train_time", None)
+                payload["train_time"] = getattr(self, "train_time", None)
+                payload["log_time"] = getattr(self, "log_time", None)
                 try:
                     save_trainer_analysis(payload, self.trainer_analysis_save_path)
                     logger.info("Saved trainer analysis to %s", self.trainer_analysis_save_path)

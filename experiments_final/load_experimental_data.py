@@ -424,13 +424,13 @@ def buckling_mixed_variables(X: torch.Tensor, source: str = "s0") -> torch.Tenso
 
 
 def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], test_samples_per_source: list[int], 
-                                         num_folds: int = 4, seed: int = None, train_noise: list[float] = None, 
+                                         num_runs: int = 4, seed: int = None, train_noise: list[float] = None, 
                                          test_noise: list[float] = None, noise_type: str = 'gaussian', 
                                          return_categorical: bool = True) -> tuple[list[torch.Tensor], list[torch.Tensor], torch.Tensor, torch.Tensor]:
     """
     Generate multi-fidelity Buckling data with pre-stratified folds:
       - Use Sobol sequences to produce EVEN amounts of E, I, and K categorical inputs
-      - Generate train data directly as num_folds with even categorical distributions
+      - Generate train data directly as num_runs with even categorical distributions
       - Generate test data with even categorical distributions
       - Each fold has perfectly balanced categorical distributions
     """
@@ -492,7 +492,7 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
     total_train_samples = sum(train_samples_per_source)
     if total_train_samples > 0:
         # Pre-allocate lists for all folds
-        for _ in range(num_folds):
+        for _ in range(num_runs):
             X_train_folds.append([])
             y_train_folds.append([])
     
@@ -546,13 +546,13 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
         
         # Generate train categorical assignments (per fold with exact distributions)
         if n_train > 0:
-            target_per_fold = n_train // num_folds
-            remainder = n_train % num_folds
+            target_per_fold = n_train // num_runs
+            remainder = n_train % num_runs
             num_E = len(E_values)
             num_K = len(K_values)
             num_I = len(I_values)
             
-            for fold in range(num_folds):
+            for fold in range(num_runs):
                 fold_target = target_per_fold + (1 if fold < remainder else 0)
                 
                 # Calculate EXACT counts for each categorical value in this fold
@@ -566,7 +566,7 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
                 
                 I_base = fold_target // num_I
                 I_rem = fold_target % num_I
-                rotation_offset = (fold + src_idx * num_folds) % num_I
+                rotation_offset = (fold + src_idx * num_runs) % num_I
                 I_counts = [I_base + (1 if (i + rotation_offset) % num_I < I_rem else 0) for i in range(num_I)]
                 
                 # Build assignments for this fold
@@ -665,10 +665,10 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
                 y_train_all = y_train_all + noise
             
             # Split train into folds
-            target_per_fold = n_train // num_folds
-            remainder = n_train % num_folds
+            target_per_fold = n_train // num_runs
+            remainder = n_train % num_runs
             fold_start = 0
-            for fold in range(num_folds):
+            for fold in range(num_runs):
                 fold_target = target_per_fold + (1 if fold < remainder else 0)
                 fold_end = fold_start + fold_target
                 
@@ -688,7 +688,7 @@ def generate_mf_buckling_data_with_folds(train_samples_per_source: list[int], te
     y_test_all = torch.cat(y_test_list, dim=0)
     
     # Concatenate folds from all sources
-    for fold in range(num_folds):
+    for fold in range(num_runs):
         X_train_folds[fold] = torch.cat(X_train_folds[fold], dim=0)
         y_train_folds[fold] = torch.cat(y_train_folds[fold], dim=0)
     

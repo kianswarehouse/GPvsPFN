@@ -85,7 +85,7 @@ def train_eval_gp(
                 epoch_save_file = None
                 jitter_save_file = None
 
-            # LBFGSScipy: log per-iteration parameters and metrics (in-memory; saved in GP_Trainer_Analysis.json)
+            # LBFGSScipy: log per-iteration parameters and (optionally) inner metrics via callbacks
             if optimizer_class is LBFGSScipy or (
                 isinstance(optimizer_class, type) and issubclass(optimizer_class, LBFGSScipy)
             ):
@@ -93,21 +93,22 @@ def train_eval_gp(
                     IterationParameterCallback(
                         save_file=None,
                         verbose=False,
-                        save_every_n_iterations=10,
+                        save_every_n_iterations=20,
                     )
                 )
-                callbacks.append(
-                    LBFGSInnerMetricsCallbackV3(
-                        log_record_every_n_iters=1,
-                        log_metrics_every_n_iters=5,
-                        log_nll=True,
-                        log_nis=True,
-                        log_loo=True,
-                        log_kf=True,
-                        log_residual_mse=True,
-                        extra_metrics=lbfgs_inner_extra_metrics or [],
+                if log_lbfgs_inner:
+                    callbacks.append(
+                        LBFGSInnerMetricsCallbackV3(
+                            log_record_every_n_iters=1,
+                            log_metrics_every_n_iters=1,
+                            log_nll=True,
+                            log_nis=True,
+                            log_loo=True,
+                            log_kf=True,
+                            log_residual_mse=True,
+                            extra_metrics=lbfgs_inner_extra_metrics or [],
+                        )
                     )
-                )
             # Adam: log per-epoch parameters
             elif optimizer_class is torch.optim.Adam or (
                 isinstance(optimizer_class, type) and issubclass(optimizer_class, torch.optim.Adam)
@@ -155,13 +156,11 @@ def train_eval_gp(
         initializer_class=initializer_class,
         initializer_kwargs=initializer_kwargs,
         cholesky_jitter=cholesky_jitter,
-        log_lbfgs_inner=log_lbfgs_inner,
     )
 
-    # Measure training time
-    t_train_start = time.time()
+    # Training (use trainer's full_train_time for training_time when available)
     train_results = trainer.train()
-    training_time = time.time() - t_train_start
+    training_time = float(getattr(trainer, "full_train_time", 0.0) or 0.0)
 
     # Measure prediction time
     t_pred_start = time.time()
@@ -319,6 +318,28 @@ def train_eval_gp(
         training_time=training_time,
         prediction_time=prediction_time,
     )
+    # When trainer provides timing breakdown: report exactly Total_Time, Full_Train_Time, Train_Time, Log_Time, Prediction_Time at top (no duplicates)
+    if (
+        hasattr(trainer, "full_train_time")
+        and trainer.full_train_time is not None
+        and hasattr(trainer, "train_time")
+        and trainer.train_time is not None
+        and hasattr(trainer, "log_time")
+        and trainer.log_time is not None
+    ):
+        _time_keys = ("Total_Time", "Full_Train_Time", "Train_Time", "Log_Time", "Prediction_Time")
+        _skip = ("Total_Time", "Training_Time", "Prediction_Time")
+        new_metric = {
+            "Total_Time": gp_metric["Total_Time"],
+            "Full_Train_Time": float(trainer.full_train_time),
+            "Train_Time": float(trainer.train_time),
+            "Log_Time": float(trainer.log_time),
+            "Prediction_Time": gp_metric["Prediction_Time"],
+        }
+        for k, v in gp_metric.items():
+            if k not in _skip:
+                new_metric[k] = v
+        gp_metric = new_metric
 
     # Extract noise and noise_std (will be added in correct order later)
     noise_std = None
@@ -666,6 +687,14 @@ def train_eval_gp(
                     "best_parameters": None,
                     "average_final_parameters": {},
                 }
+        # Add trainer timing to gp_trainer_info for JSON output
+        if gp_trainer_info is not None and hasattr(trainer, "full_train_time"):
+            if trainer.full_train_time is not None:
+                gp_trainer_info["full_train_time"] = float(trainer.full_train_time)
+            if trainer.train_time is not None:
+                gp_trainer_info["train_time"] = float(trainer.train_time)
+            if trainer.log_time is not None:
+                gp_trainer_info["log_time"] = float(trainer.log_time)
 
     # Always return 4 values (gp_trainer_info may be None)
     return gp_metric, y_pred_np, output_std_np, gp_trainer_info

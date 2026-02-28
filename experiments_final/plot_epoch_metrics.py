@@ -3,7 +3,7 @@ Plot epoch vs training metrics from GP_Trainer_Analysis.json files.
 
 Reads epoch_metrics from each run (list of {epoch, loss, NLL, NIS, LOO_NLL, KF, MSE, R2})
 and plots one subplot per metric: epoch (x) vs metric value (y).
-All runs as thin grey lines; chosen run (lowest loss per fold) in green; best RRMSE run in red.
+All inits as thin grey lines; chosen init (lowest loss per run) in green; best RRMSE init in red.
 
 Usage:
   python plot_epoch_metrics.py path/to/gpVpfn_*_GP_Trainer_Analysis.json   # single file
@@ -75,18 +75,39 @@ def _get_iter_metric_arrays(run: dict) -> dict[str, tuple[list[float], list[floa
     return _get_metric_arrays(run, entry_key="lbfgs_inner_metrics", x_field="lbfgs_iter", metric_keys=ITER_METRIC_KEYS)
 
 
-def _split_title_and_fold(title: str) -> tuple[str, str]:
+def _group_key_to_suffix(group_key: str) -> str:
+    """Convert _group_key (e.g. run_1) to a short suffix for filenames: run1."""
+    if not group_key:
+        return ""
+    if group_key.startswith("run_"):
+        try:
+            return f"run{group_key.replace('run_', '')}"
+        except ValueError:
+            return group_key
+    if group_key.startswith("fold_"):
+        try:
+            return f"run{group_key.replace('fold_', '')}"  # legacy: treat fold_N as run N
+        except ValueError:
+            return group_key
+    return group_key.replace("_", "")
+
+
+def _split_title_and_run_suffix(title: str) -> tuple[str, str]:
     """
-    Split a title like 'wing_SF_10Dn_..._x1_fold1' into:
-    - base title: 'wing_SF_10Dn_..._x1'
-    - fold suffix: 'fold1'
-    If there is no '_fold' suffix, return (title, '').
+    Split a title like 'wing_SF_10Dn_..._run1' (or legacy '..._fold1') into:
+    - base title: 'wing_SF_10Dn_...'
+    - suffix: 'run1'
+    If there is no _run or _fold suffix, return (title, '').
     """
+    if "_run" in title and title[-1].isdigit():
+        base, run_part = title.rsplit("_run", 1)
+        if run_part.isdigit():
+            return base, f"run{run_part}"
     if "_fold" in title:
         base, fold_part = title.rsplit("_fold", 1)
         fold_part = fold_part.strip()
         if fold_part:
-            return base, f"fold{fold_part}"
+            return base, f"run{fold_part}"  # legacy: foldN -> runN
     return title, ""
 
 
@@ -140,7 +161,7 @@ def _plot_iter_metrics_for_runs(
                     alpha=0.95,
                     linewidth=2.5,
                     zorder=6,
-                    label="Best RRMSE (run)" if not labeled_best else None,
+                    label="Best RRMSE (init)" if not labeled_best else None,
                 )
                 labeled_best = True
             elif r.get("_chosen"):
@@ -151,7 +172,7 @@ def _plot_iter_metrics_for_runs(
                     alpha=0.85,
                     linewidth=2,
                     zorder=5,
-                    label="Chosen (run)" if not labeled_chosen else None,
+                    label="Chosen init" if not labeled_chosen else None,
                 )
                 labeled_chosen = True
             else:
@@ -162,7 +183,7 @@ def _plot_iter_metrics_for_runs(
                     alpha=0.45,
                     linewidth=0.9,
                     zorder=1,
-                    label="All runs" if not labeled_all else None,
+                    label="All inits" if not labeled_all else None,
                 )
                 labeled_all = True
         ax.set_xlabel("LBFGS iteration")
@@ -177,11 +198,11 @@ def _plot_iter_metrics_for_runs(
     fig.tight_layout()
 
     # Save iter-metrics plots into a per-experiment folder:
-    #   <out_dir>/iter_metrics_<experiment>/iter_metrics[_foldN].png
-    base_title, fold_suffix = _split_title_and_fold(title)
+    #   <out_dir>/iter_metrics_<experiment>/iter_metrics[_runN].png
+    base_title, run_suffix = _split_title_and_run_suffix(title)
     iter_dir = Path(out_dir) / f"iter_metrics_{base_title}"
     iter_dir.mkdir(parents=True, exist_ok=True)
-    file_suffix = f"_{fold_suffix}" if fold_suffix else ""
+    file_suffix = f"_{run_suffix}" if run_suffix else ""
     save_path = iter_dir / f"iter_metrics{file_suffix}.png"
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -195,17 +216,17 @@ def plot_iter_metrics_all_from_data(
     title: str | None = None,
 ) -> Path:
     """
-    Plot LBFGS inner-iteration metrics for all runs (all folds combined) on a single figure.
+    Plot LBFGS inner-iteration metrics for all inits (all runs combined) on a single figure.
     Saved alongside the trainer_hyperparams PNG in the same plots directory.
     """
     all_runs, _ = extract_runs_and_chosen(data)
-    runs_with_metrics = [r for r in all_runs if (r.get("lbfgs_inner_metrics") or [])]
-    if not runs_with_metrics:
-        raise ValueError("No runs with lbfgs_inner_metrics")
+    inits_with_metrics = [r for r in all_runs if (r.get("lbfgs_inner_metrics") or [])]
+    if not inits_with_metrics:
+        raise ValueError("No inits with lbfgs_inner_metrics")
 
     metric_keys: list[str] = []
     for key in ITER_METRIC_KEYS:
-        if any(_get_iter_metric_arrays(r).get(key) for r in runs_with_metrics):
+        if any(_get_iter_metric_arrays(r).get(key) for r in inits_with_metrics):
             metric_keys.append(key)
     if not metric_keys:
         raise ValueError("No inner-iteration metric data found")
@@ -243,7 +264,7 @@ def plot_iter_metrics_all_from_data(
                     alpha=0.95,
                     linewidth=2.5,
                     zorder=6,
-                    label="Best RRMSE (run)" if not labeled_best else None,
+                    label="Best RRMSE (init)" if not labeled_best else None,
                 )
                 labeled_best = True
                 chosen_vals.extend(val_v.tolist())
@@ -255,7 +276,7 @@ def plot_iter_metrics_all_from_data(
                     alpha=0.85,
                     linewidth=2,
                     zorder=5,
-                    label="Chosen (run)" if not labeled_chosen else None,
+                    label="Chosen init" if not labeled_chosen else None,
                 )
                 labeled_chosen = True
                 chosen_vals.extend(val_v.tolist())
@@ -267,7 +288,7 @@ def plot_iter_metrics_all_from_data(
                     alpha=0.45,
                     linewidth=0.9,
                     zorder=1,
-                    label="All runs" if not labeled_all else None,
+                    label="All inits" if not labeled_all else None,
                 )
                 labeled_all = True
         ax.set_xlabel("LBFGS iteration")
@@ -275,7 +296,7 @@ def plot_iter_metrics_all_from_data(
         ax.set_title(key.replace("_", " "))
         ax.legend(loc="best", fontsize=8)
         ax.grid(True, alpha=0.3)
-        # iter2 style: scale y-axis to chosen + best RRMSE runs so convergence is visible
+        # iter2 style: scale y-axis to chosen + best RRMSE inits so convergence is visible
         if chosen_vals:
             arr = np.array(chosen_vals)
             arr = arr[np.isfinite(arr)]
@@ -288,12 +309,14 @@ def plot_iter_metrics_all_from_data(
         fig.delaxes(axes[j])
 
     title = title or data.get("title", "trainer_analysis")
-    fig.suptitle(f"Iteration vs metrics (y: chosen runs) — {title} (all runs)", fontsize=11, y=1.02)
+    fig.suptitle(f"Iteration vs metrics (y: chosen inits) — {title} (all inits)", fontsize=11, y=1.02)
     fig.tight_layout()
 
     out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    save_path = out_dir / f"iter_metrics_all_{title}.png"
+    base_title, _ = _split_title_and_run_suffix(title)
+    iter_dir = out_dir / f"iter_metrics_{base_title}"
+    iter_dir.mkdir(parents=True, exist_ok=True)
+    save_path = iter_dir / "iter_metrics_all.png"
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return save_path
@@ -363,15 +386,15 @@ def _plot_epoch_metrics_impl(
             val_v = np.array(val_v)
             if r.get("_best_rrmse"):
                 ax.plot(ep_v, val_v, c="red", alpha=0.95, linewidth=2.5, zorder=6,
-                        label="Best RRMSE (run)" if not labeled_best else None)
+                        label="Best RRMSE (init)" if not labeled_best else None)
                 labeled_best = True
             elif r.get("_chosen"):
                 ax.plot(ep_v, val_v, c="C2", alpha=0.85, linewidth=2, zorder=5,
-                        label="Chosen (run)" if not labeled_chosen else None)
+                        label="Chosen init" if not labeled_chosen else None)
                 labeled_chosen = True
             else:
                 ax.plot(ep_v, val_v, c="gray", alpha=0.45, linewidth=0.9, zorder=1,
-                        label="All runs" if not labeled_all else None)
+                        label="All inits" if not labeled_all else None)
                 labeled_all = True
         ax.set_xlabel("Epoch")
         ax.set_ylabel(key.replace("_", " "))
@@ -427,7 +450,7 @@ def plot_iter_metrics_from_data(
 ) -> Path:
     """
     Plot iteration vs metrics from in-memory trainer_info data (same structure as saved JSON).
-    Produces both iter_metrics_*.png (full y-range) and iter2_metrics_*.png (y scaled to chosen runs).
+    Produces both iter_metrics_*.png (full y-range) and iter2_metrics_*.png (y scaled to chosen inits).
     Use this right after saving the trainer_analysis JSON. Returns the path to the iter_metrics figure.
     Raises ValueError if no runs have lbfgs_inner_metrics.
     """
@@ -437,18 +460,23 @@ def plot_iter_metrics_from_data(
     if not all_runs:
         raise ValueError("No runs in trainer_info data")
 
-    fold_indices = sorted({r.get("_fold_idx", 0) for r in all_runs})
+    # Group by _group_key (run_1, run_2, ...) so we get one plot per run with correct naming
+    group_keys = sorted(
+        {r.get("_group_key", f"run_{r.get('_run_idx', 0) + 1}") for r in all_runs},
+        key=lambda k: (0 if k.startswith("run_") else 1, int(k.split("_")[-1]) if k.split("_")[-1].isdigit() else 0),
+    )
     first_path: Path | None = None
-    for fold_idx in fold_indices:
-        runs_fold = [r for r in all_runs if r.get("_fold_idx", 0) == fold_idx]
-        if not any(r.get("lbfgs_inner_metrics") for r in runs_fold):
+    for group_key in group_keys:
+        runs_group = [r for r in all_runs if r.get("_group_key", f"run_{r.get('_run_idx', 0) + 1}") == group_key]
+        if not any(r.get("lbfgs_inner_metrics") for r in runs_group):
             continue
-        fold_title = f"{title}_fold{fold_idx + 1}"
-        path_iter = _plot_iter_metrics_for_runs(runs_fold, out_dir, fold_title, figsize_per_subplot)
+        suffix = _group_key_to_suffix(group_key)
+        group_title = f"{title}_{suffix}" if suffix else title
+        path_iter = _plot_iter_metrics_for_runs(runs_group, out_dir, group_title, figsize_per_subplot)
         _plot_iter2_metrics_impl(
-            {"trainer_info": None, "title": fold_title, "all_runs_override": runs_fold},
+            {"trainer_info": None, "title": group_title, "all_runs_override": runs_group},
             out_dir,
-            fold_title,
+            group_title,
             figsize_per_subplot,
         )
         if first_path is None:
@@ -464,7 +492,7 @@ def plot_iter_metrics_from_data(
             title=title,
         )
     except ValueError:
-        # If for some reason there are no lbfgs metrics, don't fail the per-fold plots.
+        # If for some reason there are no lbfgs metrics, don't fail the per-run plots.
         pass
 
     if first_path is None:
@@ -491,14 +519,18 @@ def plot_iter_metrics(
     if not all_runs:
         raise ValueError("No runs in trainer_info data")
 
-    fold_indices = sorted({r.get("_fold_idx", 0) for r in all_runs})
+    group_keys = sorted(
+        {r.get("_group_key", f"run_{r.get('_run_idx', 0) + 1}") for r in all_runs},
+        key=lambda k: (0 if k.startswith("run_") else 1, int(k.split("_")[-1]) if k.split("_")[-1].isdigit() else 0),
+    )
     first_path: Path | None = None
-    for fold_idx in fold_indices:
-        runs_fold = [r for r in all_runs if r.get("_fold_idx", 0) == fold_idx]
-        if not any(r.get("lbfgs_inner_metrics") for r in runs_fold):
+    for group_key in group_keys:
+        runs_group = [r for r in all_runs if r.get("_group_key", f"run_{r.get('_run_idx', 0) + 1}") == group_key]
+        if not any(r.get("lbfgs_inner_metrics") for r in runs_group):
             continue
-        fold_title = f"{title}_fold{fold_idx + 1}"
-        path_iter = _plot_iter_metrics_for_runs(runs_fold, out_dir, fold_title, figsize_per_subplot)
+        suffix = _group_key_to_suffix(group_key)
+        group_title = f"{title}_{suffix}" if suffix else title
+        path_iter = _plot_iter_metrics_for_runs(runs_group, out_dir, group_title, figsize_per_subplot)
         if first_path is None:
             first_path = path_iter
 
@@ -514,10 +546,10 @@ def _plot_iter2_metrics_impl(
     figsize_per_subplot: tuple[float, float],
 ) -> Path:
     """
-    Same as iter_metrics but y-axis scaled to min/max of chosen runs (and best RRMSE run)
+    Same as iter_metrics but y-axis scaled to min/max of chosen inits (and best RRMSE init)
     so convergence is visible instead of squashed by high-loss runs.
     """
-    # Allow callers to override the runs list (used for per-fold plots).
+    # Allow callers to override the inits list (used for per-run plots).
     if "all_runs_override" in data:
         all_runs = data["all_runs_override"]
     else:
@@ -559,17 +591,17 @@ def _plot_iter2_metrics_impl(
             val_v = np.array(val_v)
             if r.get("_best_rrmse"):
                 ax.plot(it_v, val_v, c="red", alpha=0.95, linewidth=2.5, zorder=6,
-                        label="Best RRMSE (run)" if not labeled_best else None)
+                        label="Best RRMSE (init)" if not labeled_best else None)
                 labeled_best = True
                 chosen_vals.extend(val_v.tolist())
             elif r.get("_chosen"):
                 ax.plot(it_v, val_v, c="C2", alpha=0.85, linewidth=2, zorder=5,
-                        label="Chosen (run)" if not labeled_chosen else None)
+                        label="Chosen init" if not labeled_chosen else None)
                 labeled_chosen = True
                 chosen_vals.extend(val_v.tolist())
             else:
                 ax.plot(it_v, val_v, c="gray", alpha=0.45, linewidth=0.9, zorder=1,
-                        label="All runs" if not labeled_all else None)
+                        label="All inits" if not labeled_all else None)
                 labeled_all = True
         ax.set_xlabel("LBFGS iteration")
         ax.set_ylabel(key.replace("_", " "))
@@ -588,15 +620,15 @@ def _plot_iter2_metrics_impl(
 
     for j in range(len(metric_keys), len(axes)):
         fig.delaxes(axes[j])
-    fig.suptitle(f"Iteration vs metrics (y: chosen runs) — {title}", fontsize=11, y=1.02)
+    fig.suptitle(f"Iteration vs metrics (y: chosen inits) — {title}", fontsize=11, y=1.02)
     fig.tight_layout()
 
     # Save iter2-metrics plots into the same per-experiment folder as iter-metrics:
-    #   <out_dir>/iter_metrics_<experiment>/iter2_metrics[_foldN].png
-    base_title, fold_suffix = _split_title_and_fold(title)
+    #   <out_dir>/iter_metrics_<experiment>/iter2_metrics[_runN].png
+    base_title, run_suffix = _split_title_and_run_suffix(title)
     iter_dir = Path(out_dir) / f"iter_metrics_{base_title}"
     iter_dir.mkdir(parents=True, exist_ok=True)
-    file_suffix = f"_{fold_suffix}" if fold_suffix else ""
+    file_suffix = f"_{run_suffix}" if run_suffix else ""
     save_path = iter_dir / f"iter2_metrics{file_suffix}.png"
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -609,7 +641,7 @@ def plot_iter2_metrics(
     figsize_per_subplot: tuple[float, float] = (5, 3.5),
 ) -> Path:
     """
-    Same as plot_iter_metrics but y-axis is scaled to min/max of chosen runs (and best RRMSE run)
+    Same as plot_iter_metrics but y-axis is scaled to min/max of chosen inits (and best RRMSE init)
     so loss convergence is visible.
     """
     data = load_trainer_analysis(json_path)
@@ -621,17 +653,21 @@ def plot_iter2_metrics(
     if not all_runs:
         raise ValueError("No runs in trainer_info data")
 
-    fold_indices = sorted({r.get("_fold_idx", 0) for r in all_runs})
+    group_keys = sorted(
+        {r.get("_group_key", f"run_{r.get('_run_idx', 0) + 1}") for r in all_runs},
+        key=lambda k: (0 if k.startswith("run_") else 1, int(k.split("_")[-1]) if k.split("_")[-1].isdigit() else 0),
+    )
     first_path: Path | None = None
-    for fold_idx in fold_indices:
-        runs_fold = [r for r in all_runs if r.get("_fold_idx", 0) == fold_idx]
-        if not any(r.get("lbfgs_inner_metrics") for r in runs_fold):
+    for group_key in group_keys:
+        runs_group = [r for r in all_runs if r.get("_group_key", f"run_{r.get('_run_idx', 0) + 1}") == group_key]
+        if not any(r.get("lbfgs_inner_metrics") for r in runs_group):
             continue
-        fold_title = f"{title}_fold{fold_idx + 1}"
+        suffix = _group_key_to_suffix(group_key)
+        group_title = f"{title}_{suffix}" if suffix else title
         path_iter2 = _plot_iter2_metrics_impl(
-            {"trainer_info": None, "title": fold_title, "all_runs_override": runs_fold},
+            {"trainer_info": None, "title": group_title, "all_runs_override": runs_group},
             out_dir,
-            fold_title,
+            group_title,
             figsize_per_subplot,
         )
         if first_path is None:
