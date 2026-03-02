@@ -1,12 +1,12 @@
 """
-Plot hyperparameter vs epochs from GP_Trainer_Analysis.json files.
+Plot hyperparameter vs total optimization steps from GP_Trainer_Analysis.json files.
 
 For each trainer_analysis JSON:
 - One subplot per hyperparameter: raw_noise, raw_outputscale, then one per dimension for
   raw_lengthscale_0, raw_lengthscale_1, ... and raw_cat_lengthscale_0, raw_cat_lengthscale_1, ...
-- X = epoch (0 = start, value = when run ended), Y = hyperparameter value.
-- All runs: small gray points; lines from (0, initial) to (num_epochs, final).
-- Chosen runs (lowest loss per fold): thicker green line; circle = start, star = end.
+- X = total steps (0 = start, value = when run ended), Y = hyperparameter value.
+- All runs: small gray points; lines from (0, initial) to (num_steps, final).
+- Chosen init (lowest loss per run): thicker green line; circle = start, star = end.
 """
 
 from __future__ import annotations
@@ -34,8 +34,37 @@ def _scalar_from_param(value: Any) -> float | None:
     return None
 
 
+def _params_flat_view(params: dict) -> dict:
+    """Return a flat view of params for plotting. Supports nested (covar_module, mean_module, likelihood) and flat formats."""
+    if not params:
+        return {}
+    if "covar_module" in params or "likelihood" in params:
+        flat: dict[str, Any] = {}
+        lik = params.get("likelihood") or {}
+        flat["raw_noise"] = lik.get("raw_noise")
+        flat["noise"] = lik.get("noise")
+        cov = params.get("covar_module") or {}
+        flat["raw_outputscale"] = cov.get("raw_outputscale")
+        flat["outputscale"] = cov.get("outputscale")
+        base = cov.get("base_kernel") or cov
+        raw_ls = base.get("raw_lengthscale")
+        flat["raw_lengthscales"] = raw_ls if isinstance(raw_ls, (list, tuple)) else ([raw_ls] if raw_ls is not None else None)
+        flat["lengthscales"] = base.get("lengthscale")
+        mean = params.get("mean_module") or {}
+        flat["raw_constant"] = mean.get("raw_constant")
+        flat["constant"] = mean.get("constant")
+        flat["raw_cat_lengthscales"] = params.get("raw_cat_lengthscales")
+        flat["raw_source_lengthscales"] = params.get("raw_source_lengthscales")
+        for k, v in params.items():
+            if k not in ("covar_module", "mean_module", "likelihood") and v is not None:
+                flat[k] = v
+        return flat
+    return dict(params)
+
+
 def _get_hyperparameter_value(params: dict, key: str) -> float | None:
     """Get scalar value for a hyperparameter key (scalar keys or raw_lengthscale_i, raw_cat_lengthscale_i, mean_weight_i)."""
+    params = _params_flat_view(params)
     if key.startswith("raw_lengthscale_"):
         try:
             idx = int(key.split("_")[-1])
@@ -112,7 +141,7 @@ def _infer_hyperparameter_keys(all_runs: list[dict]) -> list[str]:
     max_mean_weights = 0
     has_mean_bias = False
     for r in all_runs:
-        init = r.get("initial_parameters") or {}
+        init = _params_flat_view(r.get("initial_parameters") or {})
         if "raw_noise" in init:
             has_noise = True
         if "raw_outputscale" in init:
@@ -155,82 +184,118 @@ def load_trainer_analysis(path: Path) -> dict:
         return json.load(f)
 
 
-def _trainer_info_fold_iter(data: dict):
-    """Yield (fold_idx_0based, fold_entry) for trainer_info as either list or dict (fold_1, fold_2, ...)."""
+def _trainer_info_run_iter(data: dict):
+    """Yield (run_idx_0based, run_entry, group_key) for trainer_info. group_key is the dict key (run_1, run_2, ...) for naming."""
     trainer_info = data.get("trainer_info")
     if trainer_info is None:
         return
     if isinstance(trainer_info, dict):
-        def _fold_sort_key(k):
-            if isinstance(k, str) and k.startswith("fold_"):
-                try:
-                    return int(k.replace("fold_", ""))
-                except ValueError:
-                    return 0
+        def _group_sort_key(k):
+            if isinstance(k, str):
+                if k.startswith("run_"):
+                    try:
+                        return int(k.replace("run_", ""))
+                    except ValueError:
+                        return 0
+                if k.startswith("fold_"):
+                    try:
+                        return int(k.replace("fold_", ""))
+                    except ValueError:
+                        return 0
             return 0
-        for fold_key in sorted(trainer_info.keys(), key=_fold_sort_key):
-            fold_entry = trainer_info[fold_key]
+        for group_key in sorted(trainer_info.keys(), key=_group_sort_key):
+            run_entry = trainer_info[group_key]
             try:
-                fold_idx = int(fold_key.replace("fold_", "")) - 1 if (isinstance(fold_key, str) and fold_key.startswith("fold_")) else 0
+                if isinstance(group_key, str) and group_key.startswith("run_"):
+                    group_idx = int(group_key.replace("run_", "")) - 1
+                elif isinstance(group_key, str) and group_key.startswith("fold_"):
+                    group_idx = int(group_key.replace("fold_", "")) - 1
+                else:
+                    group_idx = 0
             except ValueError:
-                fold_idx = 0
-            yield fold_idx, fold_entry
+                group_idx = 0
+            yield group_idx, run_entry, group_key
     else:
-        for fold_idx, fold_entry in enumerate(trainer_info):
-            yield fold_idx, fold_entry
+        for group_idx, run_entry in enumerate(trainer_info):
+            group_key = f"run_{group_idx + 1}"
+            yield group_idx, run_entry, group_key
 
 
 def extract_runs_and_chosen(data: dict) -> tuple[list[dict], list[dict]]:
     """
-    From trainer_info (list of folds or dict fold_1, fold_2, ...), return flat list of runs and list of chosen runs (one per fold).
-    Chosen = run with minimum loss in that fold.
-    Also marks _best_rrmse on the chosen run from the fold that achieved the best RRMSE over all folds.
+    From trainer_info (dict run_1, run_2, ...), return flat list of inits and list of chosen inits (one per run).
+    Chosen = init with minimum loss in that run. Sets _group_key (e.g. run_1) and _run_idx on each init.
+    Also marks _best_rrmse on the chosen init from the run that achieved the best RRMSE.
     """
-    all_runs: list[dict] = []
+    all_inits: list[dict] = []
     chosen_list: list[dict] = []
-    fold_rrmse: list[float] = []
+    run_rrmse: list[float] = []
 
-    for fold_idx, fold_entry in _trainer_info_fold_iter(data):
-        runs = fold_entry.get("runs", [])
-        if not runs:
+    for run_idx, run_entry, group_key in _trainer_info_run_iter(data):
+        inits = run_entry.get("inits", run_entry.get("runs", []))  # inits = list of inits for this run
+        if not inits:
             continue
-        valid = [r for r in runs if r.get("loss") is not None and np.isfinite(r.get("loss", np.nan))]
-        best = min(valid, key=lambda r: r["loss"]) if valid else runs[0]
+        valid = [r for r in inits if r.get("loss") is not None and np.isfinite(r.get("loss", np.nan))]
+        best = min(valid, key=lambda r: r["loss"]) if valid else inits[0]
         chosen_list.append(best)
-        metrics = fold_entry.get("metrics") or {}
+        metrics = run_entry.get("metrics") or {}
         rrmse = metrics.get("RRMSE")
-        fold_rrmse.append(float(rrmse) if rrmse is not None and np.isfinite(rrmse) else float("inf"))
-        for r in runs:
+        run_rrmse.append(float(rrmse) if rrmse is not None and np.isfinite(rrmse) else float("inf"))
+        for r in inits:
             rec = dict(r)
-            rec["_fold_idx"] = fold_idx
+            rec["_run_idx"] = run_idx
+            rec["_group_key"] = group_key  # e.g. run_1 for file naming
             rec["_chosen"] = r is best or (
                 r.get("loss") == best.get("loss") and r.get("num_epochs") == best.get("num_epochs")
             )
             rec["_best_rrmse"] = False  # set below
-            all_runs.append(rec)
+            all_inits.append(rec)
 
-    # Mark the chosen run from the fold with best (lowest) RRMSE
-    if fold_rrmse and chosen_list:
-        best_fold_idx = int(np.argmin(fold_rrmse))
-        for r in all_runs:
-            if r.get("_chosen") and r.get("_fold_idx") == best_fold_idx:
+    # Mark the chosen init from the run with best (lowest) RRMSE
+    if run_rrmse and chosen_list:
+        best_run_idx = int(np.argmin(run_rrmse))
+        for r in all_inits:
+            if r.get("_chosen") and r.get("_run_idx") == best_run_idx:
                 r["_best_rrmse"] = True
                 break
 
-    return all_runs, chosen_list
+    return all_inits, chosen_list
+
+
+def _get_per_iteration_records(run: dict) -> list[dict] | None:
+    """
+    Get per-iteration parameter records for a run from iteration_parameters.records
+    or lbfgs_parameters. Each record has 'iteration' and 'parameters' (nested dict).
+    Returns None if no per-iteration data.
+    """
+    ip = run.get("iteration_parameters")
+    if ip and isinstance(ip, dict):
+        recs = ip.get("records")
+        if recs and isinstance(recs, list):
+            return recs
+    lp = run.get("lbfgs_parameters")
+    if lp and isinstance(lp, list):
+        return lp
+    return None
 
 
 def build_arrays_per_hyperparameter(
     all_runs: list[dict], param_keys: list[str]
-) -> dict[str, dict[str, np.ndarray]]:
+) -> dict[str, dict[str, Any]]:
     """
     For each hyperparameter key, build:
-    - num_epochs, best_epoch, initial_value, final_value, is_chosen, is_best_rrmse
-    best_epoch = epoch when best loss occurred (checkpoint we use); num_epochs = when run ended.
+    - num_iters (treated as total LBFGS iterations), best_iter, initial_value, final_value,
+      is_chosen, is_best_rrmse.
+    - iter_series: list of length n_runs; each element is None or (x_array, y_array) for
+      iteration indices and param values when run has iteration_parameters or lbfgs_parameters.
+    best_iter = LBFGS iteration when best loss occurred (checkpoint we use);
+    num_iters = total number of LBFGS iterations when the run ended.
+    If no inner-iteration metrics are available, falls back to epoch-based counts.
     """
-    out: dict[str, dict[str, np.ndarray]] = {}
+    out: dict[str, dict[str, Any]] = {}
     for key in param_keys:
-        epochs, best_epochs, init_vals, final_vals, is_chosen, is_best_rrmse = [], [], [], [], [], []
+        iters, best_iters, init_vals, final_vals, is_chosen, is_best_rrmse = [], [], [], [], [], []
+        iter_series_list: list[tuple[np.ndarray, np.ndarray] | None] = []
         for r in all_runs:
             init = r.get("initial_parameters") or {}
             fin = r.get("final_parameters") or {}
@@ -238,37 +303,77 @@ def build_arrays_per_hyperparameter(
             vf = _get_hyperparameter_value(fin, key)
             if vi is None and vf is None:
                 continue
-            epochs.append(r.get("num_epochs", 0))
-            # best_epoch = epoch when best loss occurred (checkpoint we use); at run level or in final_parameters
-            be = r.get("best_epoch") if r.get("best_epoch") is not None else fin.get("best_epoch")
-            if be is not None and isinstance(be, (int, float)) and np.isfinite(be):
-                best_epochs.append(float(be))
+            # Per-iteration series when available (iteration_parameters.records or lbfgs_parameters)
+            recs = _get_per_iteration_records(r)
+            if recs:
+                x_vals, y_vals = [], []
+                for rec in recs:
+                    it = rec.get("iteration")
+                    params = rec.get("parameters") or {}
+                    val = _get_hyperparameter_value(params, key)
+                    if it is not None and val is not None and np.isfinite(val):
+                        x_vals.append(float(it))
+                        y_vals.append(float(val))
+                if x_vals and y_vals:
+                    iter_series_list.append((np.array(x_vals), np.array(y_vals)))
+                else:
+                    iter_series_list.append(None)
             else:
-                best_epochs.append(np.nan)
+                iter_series_list.append(None)
+            # Prefer record's best_iter (from trainer when LBFGS); else from inner metrics or epochs.
+            r_best_iter = r.get("best_iter")
+            if r_best_iter is not None and isinstance(r_best_iter, (int, float)) and np.isfinite(r_best_iter):
+                best_iter = float(r_best_iter)
+            else:
+                best_iter = np.nan
+            inner = r.get("lbfgs_inner_metrics") or []
+            if inner:
+                # Total iterations = max lbfgs_iter.
+                valid_inner = [m for m in inner if m.get("lbfgs_iter") is not None and np.isfinite(m.get("loss", np.nan))]
+                if valid_inner:
+                    num_iters = float(max(m["lbfgs_iter"] for m in valid_inner))
+                    if np.isnan(best_iter):
+                        best_entry = min(valid_inner, key=lambda m: m.get("loss", np.inf))
+                        best_iter = float(best_entry.get("lbfgs_iter", num_iters))
+                else:
+                    num_iters = float(len(inner))
+            else:
+                # Fallback: epochs
+                num_iters = float(r.get("num_epochs", 0))
+                if np.isnan(best_iter):
+                    be = r.get("best_epoch") if r.get("best_epoch") is not None else fin.get("best_epoch")
+                    if be is not None and isinstance(be, (int, float)) and np.isfinite(be):
+                        best_iter = float(be)
+
+            iters.append(num_iters)
+            best_iters.append(best_iter)
             init_vals.append(vi if vi is not None else np.nan)
             final_vals.append(vf if vf is not None else np.nan)
             is_chosen.append(r.get("_chosen", False))
             is_best_rrmse.append(r.get("_best_rrmse", False))
         out[key] = {
-            "num_epochs": np.array(epochs, dtype=float),
-            "best_epoch": np.array(best_epochs, dtype=float),
+            "num_iters": np.array(iters, dtype=float),
+            "best_iter": np.array(best_iters, dtype=float),
             "initial_value": np.array(init_vals, dtype=float),
             "final_value": np.array(final_vals, dtype=float),
             "is_chosen": np.array(is_chosen, dtype=bool),
             "is_best_rrmse": np.array(is_best_rrmse, dtype=bool),
+            "iter_series": iter_series_list,
         }
     return out
 
 
 def plot_hyperparameter_epochs(
-    arrays_per_param: dict[str, dict[str, np.ndarray]],
+    arrays_per_param: dict[str, dict[str, Any]],
     title: str,
     save_path: Path | None = None,
     figsize_per_subplot: tuple[float, float] = (5, 4),
 ) -> None:
     """
-    One subplot per hyperparameter. X = epoch (0 = start, num_epochs = end). Y = hyperparameter value.
-    Each run shows 2 or 3 points: start (epoch 0), best epoch (if distinct), and final (num_epochs).
+    One subplot per hyperparameter. X = iterations (0 = start, num_iters = end).
+    Y = hyperparameter value.
+    When iteration_parameters or lbfgs_parameters are present (per-iteration data),
+    the actual trajectory is plotted; otherwise 2 points: start and end.
     Same for gray, green (chosen), and red (best RRMSE) runs.
     """
     def _run_line_points(epochs_i: float, best_epoch_i: float, init_i: float, final_i: float):
@@ -301,14 +406,15 @@ def plot_hyperparameter_epochs(
     for idx, key in enumerate(param_keys):
         ax = axes[idx]
         d = arrays_per_param[key]
-        epochs = d["num_epochs"]
-        best_epochs = d.get("best_epoch", np.full_like(epochs, np.nan))
+        epochs = d["num_iters"]
+        best_epochs = d.get("best_iter", np.full_like(epochs, np.nan))
         init_v = d["initial_value"]
         final_v = d["final_value"]
         chosen = d["is_chosen"]
         best_rrmse = d.get("is_best_rrmse", np.zeros(len(epochs), dtype=bool))
+        iter_series_list = d.get("iter_series") or [None] * len(epochs)
 
-        # Lines and points: 2 or 3 points per run (start, best epoch if distinct, final)
+        # Lines: use per-iteration series when available, else 2-point (start, end)
         labeled_chosen_line = False
         labeled_all_line = False
         labeled_best_rrmse_line = False
@@ -321,64 +427,71 @@ def plot_hyperparameter_epochs(
                 continue
             init_i = init_v[i] if np.isfinite(init_v[i]) else final_v[i]
             final_i = final_v[i] if np.isfinite(final_v[i]) else init_v[i]
-            x_pts, y_pts = _run_line_points(epochs[i], best_epochs[i], init_i, final_i)
-            mx, my = _run_marker_points(epochs[i], best_epochs[i], init_i, final_i)
+            series = iter_series_list[i] if i < len(iter_series_list) else None
+            if series is not None and len(series[0]) > 0 and len(series[1]) > 0:
+                x_pts, y_pts = series[0], series[1]
+                mx = np.array([x_pts[0], x_pts[-1]])
+                my = np.array([y_pts[0], y_pts[-1]])
+            else:
+                x_pts, y_pts = _run_line_points(epochs[i], best_epochs[i], init_i, final_i)
+                mx, my = _run_marker_points(epochs[i], best_epochs[i], init_i, final_i)
             if best_rrmse[i]:
                 ax.plot(x_pts, y_pts, c="red", alpha=0.95, linewidth=2.5, zorder=6,
                         label="Best RRMSE (line)" if not labeled_best_rrmse_line else None)
                 labeled_best_rrmse_line = True
-                best_x.append(mx)
-                best_y.append(my)
+                best_x.append((mx, my))
             elif chosen[i]:
                 ax.plot(x_pts, y_pts, c="C2", alpha=0.8, linewidth=2, zorder=2,
                         label="Chosen (line)" if not labeled_chosen_line else None)
                 labeled_chosen_line = True
-                chosen_x.append(mx)
-                chosen_y.append(my)
+                chosen_x.append((mx, my))
             else:
                 ax.plot(x_pts, y_pts, c="gray", alpha=0.4, linewidth=0.8, zorder=1,
                         label="All runs (line)" if not labeled_all_line else None)
                 labeled_all_line = True
-                all_x.append(mx)
-                all_y.append(my)
+                all_x.append((mx, my))
 
-        # Scatter: 2 or 3 points per run — start (circle), best epoch if distinct, end (star)
+        # Scatter: start (circle) and end (star) for each run
         if all_x:
-            ax.scatter(
-                np.concatenate(all_x), np.concatenate(all_y),
-                s=20, c="gray", alpha=0.6, label="All runs", zorder=3,
-            )
+            all_mx = np.concatenate([a[0] for a in all_x])
+            all_my = np.concatenate([a[1] for a in all_x])
+            ax.scatter(all_mx, all_my, s=20, c="gray", alpha=0.6, label="All runs", zorder=3)
         if chosen_x:
-            starts_x = np.concatenate([a[0:1] for a in chosen_x])
-            starts_y = np.concatenate([a[0:1] for a in chosen_y])
-            ends_x = np.concatenate([a[1:] for a in chosen_x])
-            ends_y = np.concatenate([a[1:] for a in chosen_y])
+            starts_x = np.concatenate([a[0][0:1] for a in chosen_x])
+            starts_y = np.concatenate([a[1][0:1] for a in chosen_x])
+            ends_x = np.concatenate([a[0][1:] for a in chosen_x])
+            ends_y = np.concatenate([a[1][1:] for a in chosen_x])
             ax.scatter(starts_x, starts_y, s=120, c="C2", alpha=0.9, marker="o",
                        edgecolors="darkgreen", linewidths=1.5, label="Chosen (start)", zorder=4)
             ax.scatter(ends_x, ends_y, s=180, c="C0", alpha=0.9, marker="*",
                        edgecolors="darkblue", linewidths=1, label="Chosen (end)", zorder=5)
         if best_x:
-            starts_x = np.concatenate([a[0:1] for a in best_x])
-            starts_y = np.concatenate([a[0:1] for a in best_y])
-            ends_x = np.concatenate([a[1:] for a in best_x])
-            ends_y = np.concatenate([a[1:] for a in best_y])
+            starts_x = np.concatenate([a[0][0:1] for a in best_x])
+            starts_y = np.concatenate([a[1][0:1] for a in best_x])
+            ends_x = np.concatenate([a[0][1:] for a in best_x])
+            ends_y = np.concatenate([a[1][1:] for a in best_x])
             ax.scatter(starts_x, starts_y, s=150, c="red", alpha=0.95, marker="o",
                        edgecolors="darkred", linewidths=2, label="Best RRMSE (start)", zorder=7)
             ax.scatter(ends_x, ends_y, s=220, c="red", alpha=0.95, marker="*",
                        edgecolors="darkred", linewidths=1.5, label="Best RRMSE (end)", zorder=8)
 
-        ax.set_xlabel("Epoch")
+        ax.set_xlabel("Iterations")
         ax.set_ylabel(key.replace("_", " ").title())
         ax.set_title(key.replace("_", " ").title())
         ax.legend(loc="best", fontsize=8)
         ax.grid(True, alpha=0.3)
-        ax.set_xlim(left=-0.2)  # small gap before epoch 0 (max 0.2)
-        ax.xaxis.set_major_locator(MaxNLocator(integer=True))  # epochs are integers only
+        ax.set_xlim(left=-0.2)  # small gap before step 0 (max 0.2)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))  # steps are integers only
 
-        # Y-axis: bounds from FINAL CHOSEN RUNS only (one per fold, lowest loss; initial + final values) + padding
+        # Y-axis: bounds from chosen inits (initial + final) and from per-iteration series when present
         final_chosen_init = init_v[chosen]
         final_chosen_final = final_v[chosen]
         final_chosen_vals = np.concatenate([final_chosen_init, final_chosen_final])
+        for i in range(len(chosen)):
+            if chosen[i] and i < len(iter_series_list):
+                ser = iter_series_list[i]
+                if ser is not None and len(ser[1]) > 0:
+                    final_chosen_vals = np.concatenate([final_chosen_vals, ser[1]])
         chosen_finite = final_chosen_vals[np.isfinite(final_chosen_vals)]
         if len(chosen_finite) > 0:
             y_min, y_max = np.min(chosen_finite), np.max(chosen_finite)
@@ -418,8 +531,8 @@ def _collect_embedding_by_category(
     by_cat: dict[int, tuple[list[float], list[float], list[float], list[float]]] = {}
 
     for r in runs:
-        init_params = r.get("initial_parameters") or {}
-        final_params = r.get("final_parameters") or {}
+        init_params = _params_flat_view(r.get("initial_parameters") or {})
+        final_params = _params_flat_view(r.get("final_parameters") or {})
         M_init = _embedding_matrix_from_params(init_params, key)
         M_final = _embedding_matrix_from_params(final_params, key)
         if M_init is None and M_final is None:
@@ -607,7 +720,8 @@ def plot_embedding_2d(
 
 def plot_trainer_analysis_from_data(data: dict, out_dir: Path) -> None:
     """
-    Generate hyperparameter vs epochs plot from in-memory trainer_info data (same structure as saved JSON).
+    Generate hyperparameter vs total-step plot from in-memory trainer_info data
+    (same structure as saved JSON).
     Use this right after saving the trainer_analysis JSON so plots are created automatically.
     If encoder_embedding_* keys exist, also generates 2D embedding plots (initial vs final).
     """

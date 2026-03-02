@@ -93,7 +93,8 @@ class LBFGSScipy(torch.optim.Optimizer):
             p.data = params[offset : offset + numel].view_as(p.data)
             offset += numel
 
-    def step(self, closure):
+
+    def step(self, closure=None):
         """Performs a single optimization step.
 
         Arguments:
@@ -138,6 +139,10 @@ class LBFGSScipy(torch.optim.Optimizer):
                     # Don't let callback errors break optimization
                     import warnings
                     warnings.warn(f"Iteration callback raised an error: {e}")
+            # Optional: invoke trainer inner callback for per-iteration logging (e.g. NLL, NIS)
+            inner_cb = getattr(self, "_inner_callback", None)
+            if inner_cb is not None and self._last_loss is not None:
+                inner_cb(self._n_iter, self._last_loss)
 
         initial_params = self._gather_flat_params().cpu().numpy()
 
@@ -153,6 +158,24 @@ class LBFGSScipy(torch.optim.Optimizer):
             m=history_size,
             callback=callback,
         )
+
+        # Store stop reason for on_train_end logging (result is (x, f, d) with d = info dict)
+        info = result[2] if len(result) > 2 else {}
+        self._lbfgs_info = info
+        task = info.get("task", b"")
+        if isinstance(task, bytes):
+            task = task.decode("ascii", errors="replace")
+        else:
+            task = str(task)
+        warnflag = info.get("warnflag", -1)
+        if warnflag == 0:
+            self._lbfgs_stop_reason = task or "CONVERGED"
+        elif warnflag == 1:
+            self._lbfgs_stop_reason = task or "TOO_MANY_FEVALS"
+        elif warnflag == 2:
+            self._lbfgs_stop_reason = task or "ABNORMAL_TERMINATION"
+        else:
+            self._lbfgs_stop_reason = task or "UNKNOWN"
 
         # Update parameters with final result
         target_device = self._params[0].device

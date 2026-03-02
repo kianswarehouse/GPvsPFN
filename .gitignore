@@ -172,6 +172,15 @@ cython_debug/
 /examples
 /experiments_kian
 /experiments
+/experiments_final/results_v2.0
+/experiments_final/results_check
+/experiments_final/results_v5.0
+/experiments_final/results_v6.0
+/experiments_final/results_v2
+/experiments_final/results_v3.0
+/experiments_final/results_v4.0
+/experiments_kian
+/results
 dixon_price_initial_guesses_results_N_200_D_5_num_100/loss_distributions.png
 dixon_price_initial_guesses_results_N_200_D_5_num_100/losses_by_index.png
 dixon_price_initial_guesses_results_N_200_D_5_num_100/nll_vs_loocv_scatter.png

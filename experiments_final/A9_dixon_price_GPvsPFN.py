@@ -18,18 +18,19 @@ import defaults
 
 # import warnings
 # warnings.filterwarnings("ignore")
-def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
+def dixon_price_GPvsPFN(num_runs=defaults.NUM_RUNS,
         num_test=5000,
-        train_size=10, # total training size is train_size * number of X input dimensions
+        train_size=10,  # total training size is train_size * number of X input dimensions
         dimensions=2,
         x_bounds=[-10, 10],
-        num_runs=defaults.TRAINER_NUM_RUNS, 
+        num_inits=defaults.TRAINER_NUM_INITS,
         num_epochs=defaults.TRAINER_NUM_EPOCHS, 
         min_epochs=defaults.TRAINER_MIN_EPOCHS,
         lr=defaults.TRAINER_LR, 
         convergence_patience=defaults.TRAINER_CONVERGENCE_PATIENCE,
         min_loss_change=defaults.TRAINER_MIN_LOSS_CHANGE,
         optimizer_class=defaults.TRAINER_OPTIMIZER_CLASS,
+        optimizer_kwargs=defaults.TRAINER_OPTIMIZER_KWARGS,
         initializer_class=defaults.TRAINER_INITIALIZER_CLASS,
         gp_device=defaults.TRAINER_GP_DEVICE,
         amp_device=defaults.TRAINER_AMP_DEVICE,
@@ -47,31 +48,35 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
         pfn_dtype = defaults.DTYPE_PFN,
         trainer_info=True,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
+        log_lbfgs_inner=defaults.TRAINER_LOG_LBFGS_INNER,
         kernel_type=None,  # None=default, 'Gaussian', 'PowerExponential', 'Matern'
     ):
 
     if run_models == 'pfn':
-        num_runs = 0
+        num_inits = 0
 
     if title is None:
-        title = f"DixonPrice_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_folds}"
-    else: 
-        title = f"DixonPrice_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_folds}"
+        title = f"DixonPrice_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
+    else:
+        title = f"DixonPrice_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
     regressor = TabPFNRegressor(device=amp_device)
     if save_path is not None:
         plot_save_path = f"{save_path}/plots"
+        callback_save_path = f"{save_path}/trainer_analysis/plots"
     else:
         plot_save_path = None
+        callback_save_path = None
 
     # Generate data
     set_seed(seed)
     
     # Calculate total samples needed
-    train_per_fold = train_size * dimensions  # train_size * dimensions for Dixon-Price
-    total_train = num_folds * train_per_fold
+    train_per_run = train_size * dimensions  # train_size * dimensions for Dixon-Price
+    num_runs_gen = max(num_runs, 20)
+    total_train = num_runs_gen * train_per_run
     total_samples = num_test + total_train
     
     print(f"Generating {total_samples} unique Sobol samples for {dimensions}D Dixon-Price function\n\tTest samples: {num_test} / Train samples: {total_train}")
@@ -101,23 +106,22 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
     # print(cat_cols)
     TabPFN_metrics = []
     GPPlus_metrics = []
-    GPTrainer_info = []  # Accumulate trainer logs across folds
+    GPTrainer_info = []  # Accumulate trainer logs across runs
 
-    # Randomize across the single source, then split across folds
-    # Use seed to ensure consistent fold splits
+    # Randomize across the single source, then split across runs
     torch.manual_seed(seed)
     all_indices = torch.randperm(total_train)
-    train_indices_2d = all_indices.reshape(num_folds, train_per_fold)
+    train_indices_2d = all_indices.reshape(num_runs_gen, train_per_run)
         
     total_start_time = time.time()
-    for i in range(num_folds):
-        fold_seed = seed_trainer if seed_trainer is not None else (seed + i)
-        print(f"\n{'='*20} {title} FOLD {i+1}/{num_folds}: {fold_seed} {'='*20}")
+    for i in range(num_runs):
+        run_seed = seed_trainer if seed_trainer is not None else (seed + i)
+        print(f"\n{'='*20} {title} RUN {i+1}/{num_runs}: {run_seed} {'='*20}")
 
-        # Get training indices for this fold
-        fold_train_indices = train_indices_2d[i]
-        X_train = X_train_all[fold_train_indices]
-        y_train = y_train_all[fold_train_indices]
+        # Get training indices for this run
+        run_train_indices = train_indices_2d[i]
+        X_train = X_train_all[run_train_indices]
+        y_train = y_train_all[run_train_indices]
 
         # Prepare data (standardization) - ALWAYS DO THIS for both GP and PFN
         # Reuse PFN split, convert to torch (unified)
@@ -179,7 +183,7 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 mean_module=defaults.SF_mean,
                 likelihood=defaults.SF_likelihood,
             )
-            if (i == 0) or (i == num_folds - 1):
+            if (i == 0) or (i == num_runs - 1):
                 print(f"X_train: {X_train.shape}")
                 print(f"X_test: {X_test.shape}")
                 print(f"y_test mean: {y_test.mean().item()} / y_test std: {y_test.std().item()}")
@@ -191,32 +195,35 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 X_test,
                 y_test,
                 num_epochs=num_epochs,
-                seed=fold_seed,
-                num_runs=num_runs,
+                seed=run_seed,
+                num_inits=num_inits,
                 lr=lr,
                 convergence_patience=convergence_patience,
                 # min_epochs=min_epochs,
                 min_loss_change=min_loss_change,
                 optimizer_class=optimizer_class,
+                optimizer_kwargs=optimizer_kwargs,
                 initializer_class=initializer_class,
                 device=gp_device,
                 y_train_mean=y_train_mean if standardize_y else None,
                 y_train_std=y_train_std if standardize_y else None,
                 source_cols=source_cols,
                 trainer_info=trainer_info,
+                callback_save_path=callback_save_path,
+                log_lbfgs_inner=log_lbfgs_inner,
             )
             GPPlus_metrics.append(gp_metric)
             
             # Accumulate trainer info if available
             if gp_trainer_info:
-                # Add fold information to trainer log
-                gp_trainer_info["fold"] = i + 1
-                gp_trainer_info["metrics"] = gp_metric  # Include metrics for this fold
+                # Add run information to trainer log
+                gp_trainer_info["run"] = i + 1
+                gp_trainer_info["metrics"] = gp_metric  # Include metrics for this run
                 GPTrainer_info.append(gp_trainer_info)
 
-            print(f"\nGP Results (Fold {i+1}/{num_folds})")
+            print(f"\nGP Results (Run {i+1}/{num_runs})")
             for k, v in gp_metric.items():
-                print(f"  {k}: {v:.4f}")
+                print(f"  {k}: {v:.4f}" if v is not None and isinstance(v, (int, float)) else f"  {k}: {v}")
 
         # =============================================================================
         # TabPFN Section
@@ -238,12 +245,12 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
             )
             TabPFN_metrics.append(tabpfn_metric)
 
-            # Print results for this fold
-            print(f"\nTabPFN Results (Fold {i+1}/{num_folds})")
+            # Print results for this run
+            print(f"\nTabPFN Results (Run {i+1}/{num_runs})")
             for k, v in tabpfn_metric.items():
-                print(f"  {k}: {v:.4f}")
+                print(f"  {k}: {v:.4f}" if v is not None and isinstance(v, (int, float)) else f"  {k}: {v}")
         
-        # Collect model info from first fold
+        # Collect model info from first run
         if i == 0:
             y_test_stats = {
                 "y_test_mean": float(y_test_all.mean().item()),
@@ -269,14 +276,14 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 "dtype": str(gp_dtype),
                 "device": str(gp_device),
                 "num_epochs": num_epochs,
-                "num_runs": num_runs,
+                "num_inits": num_inits,
                 "lr": lr,
                 "optimizer": optimizer_class.__name__,
                 "convergence_patience": convergence_patience,
                 "initializer": initializer_class.__name__ if initializer_class else None,
                 "x_bounds": x_bounds,
                 **y_test_stats,
-                "num_folds": num_folds,
+                "num_runs": num_runs,
                     "seed": seed,
                     "seed_trainer": seed_trainer,
                 }
@@ -351,11 +358,15 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                 trainer_analysis_dir.mkdir(parents=True, exist_ok=True)
                 
                 # Save raw trainer info (just the parameter info)
+                trainer_info_by_run = {
+                    f"run_{entry.get('run', i + 1)}": entry
+                    for i, entry in enumerate(GPTrainer_info)
+                }
                 trainer_info_data = {
                     "title": title,
-                    "num_folds": num_folds,
-                    "num_runs_per_fold": num_runs,
-                    "trainer_info": GPTrainer_info,
+                    "num_runs": num_runs,
+                    "num_inits_per_run": num_inits,
+                    "trainer_info": trainer_info_by_run,
                 }
                 
                 # Save trainer info JSON (always use "gp" prefix for GP trainer info)
@@ -367,20 +378,27 @@ def dixon_price_GPvsPFN(num_folds=defaults.NUM_FOLDS,
                     plot_trainer_analysis_from_data(trainer_info_data, trainer_analysis_dir / "plots")
                 except Exception as plot_e:
                     print(f"Trainer analysis plotting skipped: {plot_e}")
+                try:
+                    from plot_epoch_metrics import plot_iter_metrics_from_data
+                    plot_iter_metrics_from_data(trainer_info_data, trainer_analysis_dir / "plots")
+                except ValueError:
+                    pass  # no epoch_metrics in data
+                except Exception as e:
+                    print(f"Epoch metrics plotting skipped: {e}")
                 
             except Exception as e:
                 print(f"Error saving trainer info: {e}")
                 import traceback
                 traceback.print_exc()
-    print(f"\nTotal experiment time for {num_folds} folds: {time.time() - total_start_time:.2f}s")
+    print(f"\nTotal experiment time for {num_runs} runs: {time.time() - total_start_time:.2f}s")
     print("="*60)
-    print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\tX_standardize: {standardize_X}\n\tX_scaling_type: {X_scaling_type}\n\ty_standardize: {standardize_y}")
-    print(f"Experiment details: \n\t{len(X_test_all)} test samples, {len(X_train)} train samples\n\tfolds: {num_folds}")
+    print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of inits: {num_inits}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\tX_standardize: {standardize_X}\n\tX_scaling_type: {X_scaling_type}\n\ty_standardize: {standardize_y}")
+    print(f"Experiment details: \n\t{len(X_test_all)} test samples, {len(X_train)} train samples\n\truns: {num_runs}")
 
     return GPPlus_metrics, TabPFN_metrics
 
 
 if __name__ == "__main__":
-    dixon_price_GPvsPFN(num_folds=20, train_size=40, dimensions=20, num_runs=16, noise_train=0.005, noise_test=0.005, save_path='./results/kernel_test/dixon_price/power_exponential', run_models='gp', kernel_type='PowerExponential')
-    dixon_price_GPvsPFN(num_folds=20, train_size=40, dimensions=20, num_runs=16, noise_train=0.05, noise_test=0.05, save_path='./results/kernel_test/dixon_price/power_exponential', run_models='gp', kernel_type='PowerExponential')
+    dixon_price_GPvsPFN(num_runs=20, train_size=40, dimensions=20, num_inits=16, noise_train=0.005, noise_test=0.005, save_path='./results/kernel_test/dixon_price/power_exponential', run_models='gp', kernel_type='PowerExponential')
+    dixon_price_GPvsPFN(num_runs=20, train_size=40, dimensions=20, num_inits=16, noise_train=0.05, noise_test=0.05, save_path='./results/kernel_test/dixon_price/power_exponential', run_models='gp', kernel_type='PowerExponential')
 
