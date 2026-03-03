@@ -6,6 +6,7 @@ import torch
 from ..config import logger
 from ..kernels import GaussianKernel, LogScaleKernel
 from ..likelihoods import LogGaussianLikelihood
+from ..constraints import SoftClamp
 
 
 class GPR(gpytorch.models.ExactGP):
@@ -50,7 +51,7 @@ class GPR(gpytorch.models.ExactGP):
             logger.warning("No likelihood provided. Using LogGaussianLikelihood as default.")
 
         if mean_module is None:
-            mean_module = gpytorch.means.ConstantMean()
+            mean_module = gpytorch.means.ConstantMean(constant_constraint=SoftClamp(lower_bound=1.5*min(train_y), upper_bound=1.5*max(train_y)))
             logger.warning("No mean_module provided. Using ConstantMean as default.")
 
         if kernel_module is None:

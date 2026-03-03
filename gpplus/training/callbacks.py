@@ -2044,17 +2044,62 @@ class IterationParameterCallback(Callback):
         if self._last_actual_jitter is not None:
             return float(self._last_actual_jitter)
         
-        # Fallback: try to get from trainer's current_jitter attribute if it exists
-        if self._trainer is not None and hasattr(self._trainer, "current_jitter"):
-            return float(self._trainer.current_jitter)
+        # Fallback: try to get from trainer's current_jitter (preferred) / _current_run_jitter (v3)
+        if self._trainer is not None:
+            for attr in ("current_jitter", "_current_run_jitter"):
+                if hasattr(self._trainer, attr):
+                    j = getattr(self._trainer, attr)
+                    if hasattr(j, "item"):
+                        try:
+                            j = j.item()
+                        except Exception:
+                            pass
+                    if j is not None:
+                        try:
+                            return float(j)
+                        except (TypeError, ValueError):
+                            pass
+
+        # Next: try to get jitter stored on the model (persisted at end of training, may be set elsewhere too)
+        if self._model is not None and hasattr(self._model, "cholesky_jitter"):
+            j = getattr(self._model, "cholesky_jitter")
+            if hasattr(j, "item"):
+                try:
+                    j = j.item()
+                except Exception:
+                    pass
+            if j is not None:
+                try:
+                    return float(j)
+                except (TypeError, ValueError):
+                    pass
         
         try:
             # Try to get from gpytorch settings
             import gpytorch
             if hasattr(gpytorch.settings, "cholesky_jitter"):
-                jitter_value = gpytorch.settings.cholesky_jitter.value
+                jitter_obj = gpytorch.settings.cholesky_jitter
+                # Prefer a simple numeric/tensor "value" attribute if present and NOT callable.
+                jitter_value = getattr(jitter_obj, "value", None)
+                if callable(jitter_value):
+                    # In some gpytorch versions this is a context method that
+                    # requires arguments (e.g. dtype). We avoid calling it and
+                    # instead fall back to trainer-level settings.
+                    jitter_value = None
+                # Handle tensors or numpy types
+                if hasattr(jitter_value, "item"):
+                    try:
+                        jitter_value = jitter_value.item()
+                    except Exception:
+                        pass
                 if jitter_value is not None:
-                    return float(jitter_value)
+                    try:
+                        return float(jitter_value)
+                    except (TypeError, ValueError):
+                        # If it's still not directly convertible, ignore and fall back
+                        pass
+            if self.verbose:
+                print(f"IterationParameterCallback: Could not get jitter value from gpytorch settings")
         except Exception:
             pass
         
@@ -2871,9 +2916,35 @@ class EpochParameterCallback(Callback):
         if self._last_actual_jitter is not None:
             return float(self._last_actual_jitter)
         
-        # Fallback: try to get from trainer's current_jitter attribute if it exists
-        if self._trainer is not None and hasattr(self._trainer, "current_jitter"):
-            return float(self._trainer.current_jitter)
+        # Fallback: try to get from trainer's current_jitter (preferred) / _current_run_jitter (v3)
+        if self._trainer is not None:
+            for attr in ("current_jitter", "_current_run_jitter"):
+                if hasattr(self._trainer, attr):
+                    j = getattr(self._trainer, attr)
+                    if hasattr(j, "item"):
+                        try:
+                            j = j.item()
+                        except Exception:
+                            pass
+                    if j is not None:
+                        try:
+                            return float(j)
+                        except (TypeError, ValueError):
+                            pass
+
+        # Next: try to get jitter stored on the model (persisted at end of training, may be set elsewhere too)
+        if self._model is not None and hasattr(self._model, "cholesky_jitter"):
+            j = getattr(self._model, "cholesky_jitter")
+            if hasattr(j, "item"):
+                try:
+                    j = j.item()
+                except Exception:
+                    pass
+            if j is not None:
+                try:
+                    return float(j)
+                except (TypeError, ValueError):
+                    pass
         
         try:
             # Try to get from gpytorch settings
@@ -3432,9 +3503,35 @@ class JitterTrackingCallback(Callback):
         if self._last_actual_jitter is not None:
             return float(self._last_actual_jitter)
         
-        # Fallback: try to get from trainer's current_jitter attribute if it exists
-        if self._trainer is not None and hasattr(self._trainer, "current_jitter"):
-            return float(self._trainer.current_jitter)
+        # Fallback: try to get from trainer's current_jitter (preferred) / _current_run_jitter (v3)
+        if self._trainer is not None:
+            for attr in ("current_jitter", "_current_run_jitter"):
+                if hasattr(self._trainer, attr):
+                    j = getattr(self._trainer, attr)
+                    if hasattr(j, "item"):
+                        try:
+                            j = j.item()
+                        except Exception:
+                            pass
+                    if j is not None:
+                        try:
+                            return float(j)
+                        except (TypeError, ValueError):
+                            pass
+
+        # Next: try to get jitter stored on the model (persisted at end of training, may be set elsewhere too)
+        if self._model is not None and hasattr(self._model, "cholesky_jitter"):
+            j = getattr(self._model, "cholesky_jitter")
+            if hasattr(j, "item"):
+                try:
+                    j = j.item()
+                except Exception:
+                    pass
+            if j is not None:
+                try:
+                    return float(j)
+                except (TypeError, ValueError):
+                    pass
         
         try:
             # Try to get from gpytorch settings
