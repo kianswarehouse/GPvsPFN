@@ -57,8 +57,7 @@ borehole_SF_GPvsPFN(title=title, num_runs=num_runs, train_size=20, save_path=sav
 borehole_SF_GPvsPFN(title=title, num_runs=num_runs, train_size=5, save_path=save_path_borehole, noise_train=0.08, noise_test=0.08, num_test=num_test, run_models=run_models)
 borehole_SF_GPvsPFN(title=title, num_runs=num_runs, train_size=20, save_path=save_path_borehole, noise_train=0.08, noise_test=0.08, num_test=num_test, run_models=run_models)
 
-// 20D analytic problems
-# %% 20 Dx Problems ------------------------------------------------------------------------------------------------
+# # %% 20 Dx Problems ------------------------------------------------------------------------------------------------
 # %% Ackley -------------------------------------------------------------
 ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=5, dimensions=20, save_path=save_path_ackley, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)
 ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_ackley, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)
@@ -95,7 +94,6 @@ griewank_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=20, s
 # dixon_price_GPvsPFN(title=title, num_runs=num_runs, train_size=5, dimensions=20, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 # dixon_price_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_dixon_price, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
-// 40D analytic problems
 # %% 40 Dx Problems ------------------------------------------------------------------------------------------------
 # %% Ackley -------------------------------------------------------------
 ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=5, dimensions=40, save_path=save_path_ackley, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)
