@@ -184,6 +184,9 @@ class GPTrainerSingleProcess:
         # Jitter can increase on NotPSDError; track current value for this run
         run_jitter = float(self.cholesky_jitter)
         max_jitter = 1e-3
+        # Expose current jitter as a stable attribute for callbacks/metrics.
+        # (Callbacks historically look for trainer.current_jitter.)
+        self.current_jitter = run_jitter
 
         # Set the model to training mode
         self.model.train()
@@ -221,6 +224,7 @@ class GPTrainerSingleProcess:
             epoch_successful = False
             while not epoch_successful:
                 self._current_run_jitter = run_jitter  # for callbacks to read
+                self.current_jitter = run_jitter
                 with (
                     gpytorch.settings.cholesky_jitter(run_jitter),
                     linear_operator.settings.cholesky_jitter(
@@ -233,6 +237,8 @@ class GPTrainerSingleProcess:
                     except NotPSDError:
                         if run_jitter < max_jitter:
                             run_jitter = min(run_jitter * 10.0, max_jitter)
+                            self._current_run_jitter = run_jitter
+                            self.current_jitter = run_jitter
                             logger.warning(
                                 "NotPSDError detected. Increasing jitter to %.1e.", run_jitter
                             )
@@ -250,6 +256,8 @@ class GPTrainerSingleProcess:
                         ):
                             if run_jitter < max_jitter:
                                 run_jitter = min(run_jitter * 10.0, max_jitter)
+                                self._current_run_jitter = run_jitter
+                                self.current_jitter = run_jitter
                                 logger.warning(
                                     "NotPSD error detected. Increasing jitter to %.1e.", run_jitter
                                 )
