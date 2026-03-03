@@ -104,58 +104,58 @@ def compute_kf_metric(
         return float("nan")
 
 
-def compute_kf_metric_tensor(
-    model,
-    train_x: torch.Tensor,
-    train_y: torch.Tensor,
-    *,
-    Nf: int,
-    cholesky_jitter: Optional[float] = None,
-    seed: Optional[int] = None,
-    likelihood=None,
-) -> torch.Tensor:
-    """
-    Differentiable Kernel Flows metric ρ_t = 1 - (||v||_K^2 / ||u||_K^2) as a 0-dim tensor.
-    Same formula as compute_kf_metric but keeps the computation in the graph for use as a loss.
-    Use loss = -rho to maximize KF, or loss = nll + rho / nll - rho for composites.
+# def compute_kf_metric_tensor(
+#     model,
+#     train_x: torch.Tensor,
+#     train_y: torch.Tensor,
+#     *,
+#     Nf: int,
+#     cholesky_jitter: Optional[float] = None,
+#     seed: Optional[int] = None,
+#     likelihood=None,
+# ) -> torch.Tensor:
+#     """
+#     Differentiable Kernel Flows metric ρ_t = 1 - (||v||_K^2 / ||u||_K^2) as a 0-dim tensor.
+#     Same formula as compute_kf_metric but keeps the computation in the graph for use as a loss.
+#     Use loss = -rho to maximize KF, or loss = nll + rho / nll - rho for composites.
 
-    Returns:
-        0-dim tensor ρ_t on the same device as train_x. Returns zeros (no gradient) if N>2000 or Nf invalid.
-    """
-    jitter = cholesky_jitter if cholesky_jitter is not None else getattr(model, "cholesky_jitter", 1e-6)
-    N = train_x.size(0)
-    if Nf >= N or Nf < 1 or N > 2000:
-        return torch.tensor(0.0, device=train_x.device, dtype=train_x.dtype)
-    try:
-        with gpytorch.settings.cholesky_jitter(jitter):
-            prior = model(train_x)
-            r = (train_y - prior.mean).view(-1)
-            K_prior = getattr(prior, "lazy_covariance_matrix", None) or getattr(prior, "lazy_covar", None)
-            if K_prior is None:
-                return torch.tensor(0.0, device=train_x.device, dtype=train_x.dtype)
-            noise_var = torch.tensor(1e-6, device=train_x.device, dtype=train_x.dtype)
-            if likelihood is not None and hasattr(likelihood, "noise"):
-                n = likelihood.noise
-                noise_var = n.clamp(min=1e-12) if n.numel() == 1 else n.flatten()[0].clamp(min=1e-12)
-            K_prior_dense = K_prior.to_dense()
-            K_dense = K_prior_dense + noise_var * torch.eye(
-                N, device=K_prior_dense.device, dtype=K_prior_dense.dtype
-            )
-            K_inv_r = torch.linalg.solve(K_dense, r.unsqueeze(-1)).squeeze(-1)
-            u_sq = (r * K_inv_r).sum()
-            u_sq_safe = u_sq.clamp(min=1e-12)
-            gen = torch.Generator(device=train_x.device)
-            if seed is not None:
-                gen.manual_seed(seed)
-            inds = torch.randperm(N, device=train_x.device, generator=gen)[:Nf]
-            r_sub = r[inds]
-            K_sub = K_dense[inds][:, inds]
-            K_sub_inv_r = torch.linalg.solve(K_sub, r_sub.unsqueeze(-1)).squeeze(-1)
-            v_sq = (r_sub * K_sub_inv_r).sum()
-            rho = 1.0 - (v_sq / u_sq_safe)
-            return rho
-    except Exception:
-        return torch.tensor(0.0, device=train_x.device, dtype=train_x.dtype)
+#     Returns:
+#         0-dim tensor ρ_t on the same device as train_x. Returns zeros (no gradient) if N>2000 or Nf invalid.
+#     """
+#     jitter = cholesky_jitter if cholesky_jitter is not None else getattr(model, "cholesky_jitter", 1e-6)
+#     N = train_x.size(0)
+#     if Nf >= N or Nf < 1 or N > 2000:
+#         return torch.tensor(0.0, device=train_x.device, dtype=train_x.dtype)
+#     try:
+#         with gpytorch.settings.cholesky_jitter(jitter):
+#             prior = model(train_x)
+#             r = (train_y - prior.mean).view(-1)
+#             K_prior = getattr(prior, "lazy_covariance_matrix", None) or getattr(prior, "lazy_covar", None)
+#             if K_prior is None:
+#                 return torch.tensor(0.0, device=train_x.device, dtype=train_x.dtype)
+#             noise_var = torch.tensor(1e-6, device=train_x.device, dtype=train_x.dtype)
+#             if likelihood is not None and hasattr(likelihood, "noise"):
+#                 n = likelihood.noise
+#                 noise_var = n.clamp(min=1e-12) if n.numel() == 1 else n.flatten()[0].clamp(min=1e-12)
+#             K_prior_dense = K_prior.to_dense()
+#             K_dense = K_prior_dense + noise_var * torch.eye(
+#                 N, device=K_prior_dense.device, dtype=K_prior_dense.dtype
+#             )
+#             K_inv_r = torch.linalg.solve(K_dense, r.unsqueeze(-1)).squeeze(-1)
+#             u_sq = (r * K_inv_r).sum()
+#             u_sq_safe = u_sq.clamp(min=1e-12)
+#             gen = torch.Generator(device=train_x.device)
+#             if seed is not None:
+#                 gen.manual_seed(seed)
+#             inds = torch.randperm(N, device=train_x.device, generator=gen)[:Nf]
+#             r_sub = r[inds]
+#             K_sub = K_dense[inds][:, inds]
+#             K_sub_inv_r = torch.linalg.solve(K_sub, r_sub.unsqueeze(-1)).squeeze(-1)
+#             v_sq = (r_sub * K_sub_inv_r).sum()
+#             rho = 1.0 - (v_sq / u_sq_safe)
+#             return rho
+#     except Exception:
+#         return torch.tensor(0.0, device=train_x.device, dtype=train_x.dtype)
 
 
 def compute_rrmse(

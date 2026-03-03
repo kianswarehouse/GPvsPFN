@@ -4,7 +4,7 @@ import gpytorch
 import torch
 
 from ..config import logger
-from ..kernels import GaussianKernel, LogScaleKernel
+from ..kernels import GaussianKernel, LogScaleKernel, PowerExponentialKernel
 from ..likelihoods import LogGaussianLikelihood
 
 
@@ -55,7 +55,8 @@ class GPR(gpytorch.models.ExactGP):
 
         if kernel_module is None:
             input_dim = train_x.shape[-1]
-            kernel_module = LogScaleKernel(GaussianKernel(ard_num_dims=input_dim))  # Uses one lengthscale per dimension
+            # kernel_module = LogScaleKernel(GaussianKernel(ard_num_dims=input_dim))  # Uses one lengthscale per dimension
+            kernel_module = LogScaleKernel(PowerExponentialKernel(ard_num_dims=input_dim))  # Uses one lengthscale per dimension
             logger.warning(
                 f"No kernel_module provided. Using Gaussian Kernel with ARD (ard_num_dims={input_dim}) as default."
             )
