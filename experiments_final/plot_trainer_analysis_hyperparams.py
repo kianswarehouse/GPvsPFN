@@ -50,6 +50,11 @@ def _params_flat_view(params: dict) -> dict:
         raw_ls = base.get("raw_lengthscale")
         flat["raw_lengthscales"] = raw_ls if isinstance(raw_ls, (list, tuple)) else ([raw_ls] if raw_ls is not None else None)
         flat["lengthscales"] = base.get("lengthscale")
+        # PowerExponentialKernel: expose raw_power/power at top level so they can be plotted
+        if "raw_power" in base:
+            flat["raw_power"] = base.get("raw_power")
+        if "power" in base:
+            flat["power"] = base.get("power")
         mean = params.get("mean_module") or {}
         flat["raw_constant"] = mean.get("raw_constant")
         flat["constant"] = mean.get("constant")
@@ -63,8 +68,28 @@ def _params_flat_view(params: dict) -> dict:
 
 
 def _get_hyperparameter_value(params: dict, key: str) -> float | None:
-    """Get scalar value for a hyperparameter key (scalar keys or raw_lengthscale_i, raw_cat_lengthscale_i, mean_weight_i)."""
+    """Get scalar value for a hyperparameter key (scalar keys or raw_lengthscale_i, lengthscale_i, raw_cat_lengthscale_i, mean_weight_i)."""
     params = _params_flat_view(params)
+    # Actual (transformed) keys used in the model
+    if key == "noise":
+        return _scalar_from_param(params.get("noise"))
+    if key == "outputscale":
+        return _scalar_from_param(params.get("outputscale"))
+    if key == "constant":
+        return _scalar_from_param(params.get("constant"))
+    if key == "power":
+        return _scalar_from_param(params.get("power"))
+    if key.startswith("lengthscale_") and not key.startswith("lengthscale_s"):  # lengthscale_0, lengthscale_1, ...
+        try:
+            idx = int(key.split("_")[-1])
+        except ValueError:
+            return None
+        ls = params.get("lengthscales")
+        if not ls or not isinstance(ls, (list, tuple)) or len(ls) <= idx:
+            return None
+        val = ls[idx]
+        return float(val) if val is not None and (isinstance(val, (int, float)) or hasattr(val, "item")) else None
+    # Raw keys
     if key.startswith("raw_lengthscale_"):
         try:
             idx = int(key.split("_")[-1])
@@ -175,6 +200,48 @@ def _infer_hyperparameter_keys(all_runs: list[dict]) -> list[str]:
         keys.append("mean_bias")
     keys.extend(f"raw_lengthscale_{i}" for i in range(max_cont))
     keys.extend(f"raw_cat_lengthscale_{i}" for i in range(max_cat))
+    return keys
+
+
+def _infer_hyperparameter_keys_actual(all_runs: list[dict]) -> list[str]:
+    """Infer which actual (transformed) hyperparameter keys exist for plotting.
+    Same structure as raw but keys: noise, outputscale, constant, power, lengthscale_0, ...
+    """
+    has_noise = has_outputscale = has_constant = has_power = False
+    max_cont, max_cat = 0, 0
+    max_mean_weights = 0
+    has_mean_bias = False
+    for r in all_runs:
+        init = _params_flat_view(r.get("initial_parameters") or {})
+        if init.get("noise") is not None:
+            has_noise = True
+        if init.get("outputscale") is not None:
+            has_outputscale = True
+        if init.get("constant") is not None:
+            has_constant = True
+        if init.get("power") is not None:
+            has_power = True
+        mw = init.get("mean_weights")
+        if mw is not None and isinstance(mw, (list, tuple)):
+            max_mean_weights = max(max_mean_weights, len(mw))
+        if init.get("mean_bias") is not None:
+            has_mean_bias = True
+        ls = init.get("lengthscales")
+        if ls is not None and isinstance(ls, (list, tuple)):
+            max_cont = max(max_cont, len(ls))
+    keys = []
+    if has_noise:
+        keys.append("noise")
+    if has_outputscale:
+        keys.append("outputscale")
+    if has_constant:
+        keys.append("constant")
+    if has_power:
+        keys.append("power")
+    keys.extend(f"mean_weight_{i}" for i in range(max_mean_weights))
+    if has_mean_bias:
+        keys.append("mean_bias")
+    keys.extend(f"lengthscale_{i}" for i in range(max_cont))
     return keys
 
 
@@ -363,11 +430,23 @@ def build_arrays_per_hyperparameter(
     return out
 
 
+def _param_display_label(key: str, is_raw_keys: bool) -> str:
+    """Return axis/title label for a hyperparameter key."""
+    if (not is_raw_keys) and key == "noise_log":
+        return "Noise (log scale)"
+    if is_raw_keys and key.startswith("raw_"):
+        return "Raw " + key.replace("raw_", "", 1).replace("_", " ").title()
+    return key.replace("_", " ").title()
+
+
 def plot_hyperparameter_epochs(
     arrays_per_param: dict[str, dict[str, Any]],
     title: str,
     save_path: Path | None = None,
     figsize_per_subplot: tuple[float, float] = (5, 4),
+    is_raw_keys: bool = True,
+    log_y: bool = False,
+    only_keys: list[str] | None = None,
 ) -> None:
     """
     One subplot per hyperparameter. X = iterations (0 = start, num_iters = end).
@@ -375,6 +454,7 @@ def plot_hyperparameter_epochs(
     When iteration_parameters or lbfgs_parameters are present (per-iteration data),
     the actual trajectory is plotted; otherwise 2 points: start and end.
     Same for gray, green (chosen), and red (best RRMSE) runs.
+    is_raw_keys: if True, keys are raw_* and displayed as "Raw Noise", etc.; if False, displayed as "Noise", "Power", etc.
     """
     def _run_line_points(epochs_i: float, best_epoch_i: float, init_i: float, final_i: float):
         """Return (x_list, y_list) for polyline: 2 points if best==start or best==end, else 3 points."""
@@ -392,7 +472,13 @@ def plot_hyperparameter_epochs(
             return np.array([x0, be, x_end]), np.array([init_i, final_i, final_i])
         return np.array([x0, x_end]), np.array([init_i, final_i])
 
-    param_keys = [k for k in arrays_per_param if np.any(np.isfinite(arrays_per_param[k]["initial_value"]))]
+    base_keys = [k for k in arrays_per_param if np.any(np.isfinite(arrays_per_param[k]["initial_value"]))]
+    if only_keys is not None:
+        # Respect the explicit ordering in only_keys, but drop keys that
+        # are not present or have no finite values.
+        param_keys = [k for k in only_keys if k in base_keys]
+    else:
+        param_keys = base_keys
     n = len(param_keys)
     if n == 0:
         return
@@ -475,9 +561,10 @@ def plot_hyperparameter_epochs(
             ax.scatter(ends_x, ends_y, s=220, c="red", alpha=0.95, marker="*",
                        edgecolors="darkred", linewidths=1.5, label="Best RRMSE (end)", zorder=8)
 
+        label = _param_display_label(key, is_raw_keys)
         ax.set_xlabel("Iterations")
-        ax.set_ylabel(key.replace("_", " ").title())
-        ax.set_title(key.replace("_", " ").title())
+        ax.set_ylabel(label)
+        ax.set_title(label)
         ax.legend(loc="best", fontsize=8)
         ax.grid(True, alpha=0.3)
         ax.set_xlim(left=-0.2)  # small gap before step 0 (max 0.2)
@@ -493,17 +580,52 @@ def plot_hyperparameter_epochs(
                 if ser is not None and len(ser[1]) > 0:
                     final_chosen_vals = np.concatenate([final_chosen_vals, ser[1]])
         chosen_finite = final_chosen_vals[np.isfinite(final_chosen_vals)]
+        use_log = log_y or ((not is_raw_keys) and key == "noise_log")
         if len(chosen_finite) > 0:
-            y_min, y_max = np.min(chosen_finite), np.max(chosen_finite)
-            pad = max((y_max - y_min) * 0.1, 0.2)
-            ax.set_ylim(y_min - pad, y_max + pad)
+            if use_log:
+                # Log-scale: only use positive values and multiplicative padding.
+                pos = chosen_finite[chosen_finite > 0]
+                if len(pos) > 0:
+                    y_min, y_max = np.min(pos), np.max(pos)
+                    if y_min > 0 and np.isfinite(y_min) and np.isfinite(y_max) and y_min < y_max:
+                        ax.set_yscale("log")
+                        factor = 0.2
+                        ax.set_ylim(y_min * (1 - factor), y_max * (1 + factor))
+                    else:
+                        # Fall back to default scaling if values are not suitable
+                        y_min, y_max = np.min(chosen_finite), np.max(chosen_finite)
+                        base_min_pad = 0.01 if (not is_raw_keys and key in ("noise", "noise_log")) else 0.2
+                        pad = max((y_max - y_min) * 0.1, base_min_pad)
+                        ax.set_ylim(y_min - pad, y_max + pad)
+                else:
+                    # No positive values -> fall back to linear scaling
+                    y_min, y_max = np.min(chosen_finite), np.max(chosen_finite)
+                    base_min_pad = 0.01 if (not is_raw_keys and key in ("noise", "noise_log")) else 0.2
+                    pad = max((y_max - y_min) * 0.1, base_min_pad)
+                    ax.set_ylim(y_min - pad, y_max + pad)
+            else:
+                y_min, y_max = np.min(chosen_finite), np.max(chosen_finite)
+                # Smaller minimum padding for actual (non-raw) noise, which typically lives in [0, 0.2]
+                base_min_pad = 0.01 if (not is_raw_keys and key in ("noise", "noise_log")) else 0.2
+                pad = max((y_max - y_min) * 0.1, base_min_pad)
+                ax.set_ylim(y_min - pad, y_max + pad)
         else:
             # Fallback: use all runs only if no chosen runs have finite values
             all_vals = np.concatenate([init_v, final_v])
             finite = all_vals[np.isfinite(all_vals)]
             if len(finite) > 0:
+                if use_log:
+                    pos = finite[finite > 0]
+                    if len(pos) > 0:
+                        y_min, y_max = np.min(pos), np.max(pos)
+                        if y_min > 0 and np.isfinite(y_min) and np.isfinite(y_max) and y_min < y_max:
+                            ax.set_yscale("log")
+                            factor = 0.2
+                            ax.set_ylim(y_min * (1 - factor), y_max * (1 + factor))
+                            continue
                 y_min, y_max = np.min(finite), np.max(finite)
-                pad = max((y_max - y_min) * 0.1, 0.2)
+                base_min_pad = 0.01 if (not is_raw_keys and key in ("noise", "noise_log")) else 0.2
+                pad = max((y_max - y_min) * 0.1, base_min_pad)
                 ax.set_ylim(y_min - pad, y_max + pad)
 
     for j in range(len(param_keys), len(axes)):
@@ -731,13 +853,32 @@ def plot_trainer_analysis_from_data(data: dict, out_dir: Path) -> None:
     out_dir = Path(out_dir)
     title = data.get("title", "trainer_analysis")
 
-    param_keys = _infer_hyperparameter_keys(all_runs)
-    if param_keys:
-        arrays = build_arrays_per_hyperparameter(all_runs, param_keys)
+    param_keys_raw = _infer_hyperparameter_keys(all_runs)
+    if param_keys_raw:
+        arrays_raw = build_arrays_per_hyperparameter(all_runs, param_keys_raw)
         out_dir.mkdir(parents=True, exist_ok=True)
-        save_path = out_dir / f"trainer_hyperparams_{title}.png"
-        plot_hyperparameter_epochs(arrays, title=title, save_path=save_path)
-        print(f"Trainer analysis plot saved to: {save_path}")
+        save_path_raw = out_dir / f"trainer_hyperparams_raw_{title}.png"
+        plot_hyperparameter_epochs(arrays_raw, title=title, save_path=save_path_raw, is_raw_keys=True)
+        print(f"Trainer analysis plot (raw) saved to: {save_path_raw}")
+    param_keys_actual = _infer_hyperparameter_keys_actual(all_runs)
+    if param_keys_actual:
+        arrays_actual = build_arrays_per_hyperparameter(all_runs, param_keys_actual)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        save_path_actual = out_dir / f"trainer_hyperparams_{title}.png"
+        if "noise" in arrays_actual:
+            # Insert a log-scale copy of noise as a second subplot, directly after noise.
+            arrays_actual["noise_log"] = arrays_actual["noise"]
+            ordered_keys = ["noise", "noise_log"] + [k for k in param_keys_actual if k != "noise"]
+            plot_hyperparameter_epochs(
+                arrays_actual,
+                title=title,
+                save_path=save_path_actual,
+                is_raw_keys=False,
+                only_keys=ordered_keys,
+            )
+        else:
+            plot_hyperparameter_epochs(arrays_actual, title=title, save_path=save_path_actual, is_raw_keys=False)
+        print(f"Trainer analysis plot (actual) saved to: {save_path_actual}")
 
     encoder_keys = _infer_encoder_embedding_keys(all_runs)
     if encoder_keys:
@@ -753,11 +894,27 @@ def process_file(json_path: Path, out_dir: Path | None = None) -> None:
         return
     title = data.get("title", json_path.stem)
 
-    param_keys = _infer_hyperparameter_keys(all_runs)
-    if param_keys:
-        arrays = build_arrays_per_hyperparameter(all_runs, param_keys)
-        save_path = out_dir / f"trainer_hyperparams_{title}.png" if out_dir is not None else None
-        plot_hyperparameter_epochs(arrays, title=title, save_path=save_path)
+    param_keys_raw = _infer_hyperparameter_keys(all_runs)
+    if param_keys_raw:
+        arrays_raw = build_arrays_per_hyperparameter(all_runs, param_keys_raw)
+        save_path_raw = out_dir / f"trainer_hyperparams_raw_{title}.png" if out_dir is not None else None
+        plot_hyperparameter_epochs(arrays_raw, title=title, save_path=save_path_raw, is_raw_keys=True)
+    param_keys_actual = _infer_hyperparameter_keys_actual(all_runs)
+    if param_keys_actual:
+        arrays_actual = build_arrays_per_hyperparameter(all_runs, param_keys_actual)
+        save_path_actual = out_dir / f"trainer_hyperparams_{title}.png" if out_dir is not None else None
+        if "noise" in arrays_actual:
+            arrays_actual["noise_log"] = arrays_actual["noise"]
+            ordered_keys = ["noise", "noise_log"] + [k for k in param_keys_actual if k != "noise"]
+            plot_hyperparameter_epochs(
+                arrays_actual,
+                title=title,
+                save_path=save_path_actual,
+                is_raw_keys=False,
+                only_keys=ordered_keys,
+            )
+        else:
+            plot_hyperparameter_epochs(arrays_actual, title=title, save_path=save_path_actual, is_raw_keys=False)
 
     encoder_keys = _infer_encoder_embedding_keys(all_runs)
     if encoder_keys and out_dir is not None:
@@ -833,12 +990,16 @@ def main() -> None:
 # ---------------------------------------------------------------------------
 DEFAULT_PATHS: list[str] = [
                             # "C:/Users/kianb/Repos/gp-private/experiments_final/results_final/1_12/rastrigin",
-                            "C:/Users/kianb/Repos/gp-private/experiments_final/results_final/1_12/rosenbrock",
+                            "C:/Users/kianb/Repos/gp-private/experiments_final/results_v6.0/20_folds_logging_full_PE/",
                             # "C:/Users/kianb/Repos/gp-private/experiments_final/results/plotsfortyler",
                             # "C:/Users/kianb/Repos/gp-private/experiments_final/results_final/custom_GPvsPFN/buckling",
                             # "C:/Users/kianb/Repos/gp-private/experiments_final/results_final/custom_GPvsPFN/buckling/buckling",
                             # "C:/Users/kianb/Repos/gp-private/experiments_final/results_final/1_12/griewank",
                             ]
+
+# If True, DEFAULT_PATHS are treated as roots and we recurse through all subfolders
+# to find trainer_analysis/*_GP_Trainer_Analysis.json.
+DEFAULT_ALL_SUBFOLDERS: bool = True
 
 
 if __name__ == "__main__":
@@ -846,5 +1007,9 @@ if __name__ == "__main__":
     root = Path(__file__).resolve().parent
     # If no CLI args but DEFAULT_PATHS set, use those (paths relative to script dir)
     if not sys.argv[1:] and DEFAULT_PATHS:
-        sys.argv[1:] = [str(root / p) for p in DEFAULT_PATHS]
+        default_args: list[str] = []
+        if DEFAULT_ALL_SUBFOLDERS:
+            default_args.append("--all")
+        default_args.extend(str(root / p) for p in DEFAULT_PATHS)
+        sys.argv[1:] = default_args
     main()
