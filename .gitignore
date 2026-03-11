@@ -12432,3 +12432,12 @@ seek_results/wing/12_18/plots/rrmse_wing_SF_40D_16runs_noiseTest0.005_noiseTrain
 seek_results/wing/12_18/plots/rrmse_wing_SF_40D_16runs_noiseTest0.05_noiseTrain0.05.png
 seek_results/wing/12_18/plots/rrmse_wing_SF_80D_16runs_noiseTest0.0_noiseTrain0.0.png
 seek_results/wing/12_18/plots/rrmse_wing_SF_80D_16runs_noiseTest0.005_noiseTrain0.005.png
+/experiments_BO/GITBO_ref
+/experiments_BO/results copy 2
+/experiments_BO/results copy check
+/experiments_BO/results
+/experiments_BO/results_BO
+experiments_final/A9_dixon_price_old_GPvsPFN.py
+experiments_final/A8_griewankCV_GPvsPFN.py
+/experiments_BO/results copy 3
+/experiments_final/z_extra
