@@ -49,7 +49,7 @@ def ackley_GPvsPFN_BO(
     log_lbfgs_inner: bool = defaults.TRAINER_LOG_LBFGS_INNER,
     minimization_problem: bool = True,  # Ackley: minimize objective
     acquisition: str = defaults.BO_ACQUISITION,
-    gp_optimize_af: bool = True,
+    gp_optimize_af: bool = defaults.GP_OPTIMIZE_AF,
     n_AF_opt: int = defaults.BO_N_AF_OPT,
     n_AF_sample: int = defaults.BO_N_AF_SAMPLE,
     max_iter: int = defaults.BO_MAX_ITER,
