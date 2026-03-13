@@ -21,3 +21,4 @@ from .power_exponential_kernel import (
     PowerExponentialKernelFixed,
 )
 from .log_scale_kernel import LogScaleKernel
+from multitask_gaussian_kernel import MultitaskKernel
