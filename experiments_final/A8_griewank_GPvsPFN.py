@@ -31,8 +31,8 @@ def griewank_GPvsPFN(num_runs=defaults.NUM_RUNS,
         amp_device=defaults.TRAINER_AMP_DEVICE,
         save_path='./results/griewank',
         title=None,
-        standardize_X=True,
-        standardize_y=True,
+        standardize_X=defaults.STANDARDIZE_X,
+        standardize_y=defaults.STANDARDIZE_Y,
         x_standardize_method=defaults.X_STANDARDIZE_METHOD,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
         noise_train=0.0,
         noise_test=0.0,
@@ -47,12 +47,12 @@ def griewank_GPvsPFN(num_runs=defaults.NUM_RUNS,
     ):
 
     if run_models == 'pfn':
-        num_runs = 0
+        num_inits = 0
 
     if title is None:
-        title = f"Griewank_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
+        title = f"Griewank_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
     else: 
-        title = f"Griewank_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
+        title = f"Griewank_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
@@ -188,6 +188,11 @@ def griewank_GPvsPFN(num_runs=defaults.NUM_RUNS,
                 y_train_std=y_train_std if standardize_y else None,
                 source_cols=source_cols,
                 trainer_info=trainer_info,
+                callbacks=defaults.get_default_gp_callbacks(
+                    optimizer_class,
+                    callback_save_path=callback_save_path,
+                    log_lbfgs_inner=log_lbfgs_inner,
+                ),
                 callback_save_path=callback_save_path,
                 cholesky_jitter=cholesky_jitter,
                 optimizer_kwargs=optimizer_kwargs,

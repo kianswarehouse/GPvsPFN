@@ -275,6 +275,19 @@ class KernelParameterExtractor:
                 )
                 result["bias_kernel"] = bias_result
         
+        # Handle AdditiveKernel / ProductKernel (gpytorch) - have list of sub-kernels
+        try:
+            from gpytorch.kernels import AdditiveKernel, ProductKernel
+        except Exception:  # pragma: no cover - defensive import
+            AdditiveKernel = ProductKernel = tuple()  # type: ignore
+        if isinstance(kernel, (AdditiveKernel, ProductKernel)):
+            if hasattr(kernel, "kernels") and kernel.kernels is not None:
+                subkernels = []
+                for idx, sub_k in enumerate(kernel.kernels):
+                    sub_result = self._extract_from_kernel(sub_k, path=f"{path}.kernels[{idx}]")
+                    subkernels.append(sub_result)
+                result["kernels"] = subkernels
+        
         # Handle MVMFKernel - has cont_kernel, cat_kernel, source_kernel
         from gpplus.kernels.mvmf_kernel import MVMFKernel
         if isinstance(kernel, MVMFKernel):
@@ -290,13 +303,20 @@ class KernelParameterExtractor:
                 source_result = self._extract_from_kernel(kernel.source_kernel, path=f"{path}.source_kernel")
                 result["source_kernel"] = source_result
         
-        # Handle base kernels (GaussianKernel, PowerExponentialKernel, MaternKernel, etc.)
+        # Handle base kernels (GaussianKernel, PowerExponentialKernel, MaternKernel, PeriodicKernel, etc.)
         # Extract lengthscale parameters
         if hasattr(kernel, "raw_lengthscale"):
             result["raw_lengthscale"] = self._tensor_to_value(kernel.raw_lengthscale)
         
         if hasattr(kernel, "lengthscale"):
             result["lengthscale"] = self._tensor_to_value(kernel.lengthscale)
+        
+        # Extract period parameters for periodic kernels
+        if hasattr(kernel, "raw_period"):
+            result["raw_period"] = self._tensor_to_value(kernel.raw_period)
+        
+        if hasattr(kernel, "period"):
+            result["period"] = self._tensor_to_value(kernel.period)
         
         # Extract power parameter (PowerExponentialKernel)
         if hasattr(kernel, "raw_power"):
