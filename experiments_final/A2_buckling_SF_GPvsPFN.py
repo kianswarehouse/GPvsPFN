@@ -298,6 +298,11 @@ def buckling_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
                 log_scale_C=log_scale_C,
                 source_cols=source_cols,
                 trainer_info=trainer_info,
+                 callbacks=defaults.get_default_gp_callbacks(
+                     optimizer_class,
+                     callback_save_path=callback_save_path,
+                     log_lbfgs_inner=log_lbfgs_inner,
+                 ),
                 callback_save_path=callback_save_path,
                 log_lbfgs_inner=log_lbfgs_inner,
             )

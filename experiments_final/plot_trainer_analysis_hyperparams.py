@@ -47,9 +47,70 @@ def _params_flat_view(params: dict) -> dict:
         flat["raw_outputscale"] = cov.get("raw_outputscale")
         flat["outputscale"] = cov.get("outputscale")
         base = cov.get("base_kernel") or cov
-        raw_ls = base.get("raw_lengthscale")
-        flat["raw_lengthscales"] = raw_ls if isinstance(raw_ls, (list, tuple)) else ([raw_ls] if raw_ls is not None else None)
-        flat["lengthscales"] = base.get("lengthscale")
+        base_type = base.get("type")
+
+        # Collect continuous lengthscales (may be spread across sub-kernels for Additive/Product kernels)
+        raw_ls_all: list[float] = []
+        ls_all: list[float] = []
+        raw_period_all: list[float] = []
+        period_all: list[float] = []
+
+        if base_type in ("AdditiveKernel", "ProductKernel") and isinstance(base.get("kernels"), list):
+            for sub in base["kernels"]:
+                if not isinstance(sub, dict):
+                    continue
+                sub_raw_ls = sub.get("raw_lengthscale")
+                if isinstance(sub_raw_ls, (list, tuple)):
+                    raw_ls_all.extend(float(v) for v in sub_raw_ls if v is not None)
+                elif sub_raw_ls is not None:
+                    raw_ls_all.append(float(sub_raw_ls))
+
+                sub_ls = sub.get("lengthscale")
+                if isinstance(sub_ls, (list, tuple)):
+                    ls_all.extend(float(v) for v in sub_ls if v is not None)
+                elif sub_ls is not None:
+                    ls_all.append(float(sub_ls))
+
+                sub_raw_period = sub.get("raw_period")
+                if isinstance(sub_raw_period, (list, tuple)):
+                    raw_period_all.extend(float(v) for v in sub_raw_period if v is not None)
+                elif sub_raw_period is not None:
+                    raw_period_all.append(float(sub_raw_period))
+
+                sub_period = sub.get("period")
+                if isinstance(sub_period, (list, tuple)):
+                    period_all.extend(float(v) for v in sub_period if v is not None)
+                elif sub_period is not None:
+                    period_all.append(float(sub_period))
+        else:
+            raw_ls = base.get("raw_lengthscale")
+            if isinstance(raw_ls, (list, tuple)):
+                raw_ls_all = [float(v) for v in raw_ls if v is not None]
+            elif raw_ls is not None:
+                raw_ls_all = [float(raw_ls)]
+
+            ls = base.get("lengthscale")
+            if isinstance(ls, (list, tuple)):
+                ls_all = [float(v) for v in ls if v is not None]
+            elif ls is not None:
+                ls_all = [float(ls)]
+
+            raw_period = base.get("raw_period")
+            if isinstance(raw_period, (list, tuple)):
+                raw_period_all = [float(v) for v in raw_period if v is not None]
+            elif raw_period is not None:
+                raw_period_all = [float(raw_period)]
+
+            period = base.get("period")
+            if isinstance(period, (list, tuple)):
+                period_all = [float(v) for v in period if v is not None]
+            elif period is not None:
+                period_all = [float(period)]
+
+        flat["raw_lengthscales"] = raw_ls_all or None
+        flat["lengthscales"] = ls_all or None
+        flat["raw_periods"] = raw_period_all or None
+        flat["periods"] = period_all or None
         # PowerExponentialKernel: expose raw_power/power at top level so they can be plotted
         if "raw_power" in base:
             flat["raw_power"] = base.get("raw_power")
@@ -110,6 +171,16 @@ def _get_hyperparameter_value(params: dict, key: str) -> float | None:
             return None
         val = raw[idx]
         return float(val) if val is not None and (isinstance(val, (int, float)) or hasattr(val, "item")) else None
+    if key.startswith("raw_period_"):
+        try:
+            idx = int(key.split("_")[-1])
+        except ValueError:
+            return None
+        raw_p = params.get("raw_periods")
+        if not raw_p or not isinstance(raw_p, (list, tuple)) or len(raw_p) <= idx:
+            return None
+        val = raw_p[idx]
+        return float(val) if val is not None and (isinstance(val, (int, float)) or hasattr(val, "item")) else None
     if key.startswith("mean_weight_"):
         try:
             idx = int(key.split("_")[-1])
@@ -162,7 +233,7 @@ def _infer_hyperparameter_keys(all_runs: list[dict]) -> list[str]:
     """Infer which raw hyperparameter keys exist; one key per scalar, one per lengthscale dimension.
     Includes raw_power for PowerExponentialKernel; mean_weight_i and mean_bias for LinearMean."""
     has_noise = has_outputscale = has_constant = has_raw_power = False
-    max_cont, max_cat = 0, 0
+    max_cont, max_cat, max_periods = 0, 0, 0
     max_mean_weights = 0
     has_mean_bias = False
     for r in all_runs:
@@ -186,6 +257,9 @@ def _infer_hyperparameter_keys(all_runs: list[dict]) -> list[str]:
         raw_cat = init.get("raw_cat_lengthscales")
         if raw_cat is not None and isinstance(raw_cat, (list, tuple)):
             max_cat = max(max_cat, len(raw_cat))
+        raw_p = init.get("raw_periods")
+        if raw_p is not None and isinstance(raw_p, (list, tuple)):
+            max_periods = max(max_periods, len(raw_p))
     keys = []
     if has_noise:
         keys.append("raw_noise")
@@ -200,6 +274,7 @@ def _infer_hyperparameter_keys(all_runs: list[dict]) -> list[str]:
         keys.append("mean_bias")
     keys.extend(f"raw_lengthscale_{i}" for i in range(max_cont))
     keys.extend(f"raw_cat_lengthscale_{i}" for i in range(max_cat))
+    keys.extend(f"raw_period_{i}" for i in range(max_periods))
     return keys
 
 
@@ -208,7 +283,7 @@ def _infer_hyperparameter_keys_actual(all_runs: list[dict]) -> list[str]:
     Same structure as raw but keys: noise, outputscale, constant, power, lengthscale_0, ...
     """
     has_noise = has_outputscale = has_constant = has_power = False
-    max_cont, max_cat = 0, 0
+    max_cont, max_cat, max_periods = 0, 0, 0
     max_mean_weights = 0
     has_mean_bias = False
     for r in all_runs:
@@ -229,6 +304,9 @@ def _infer_hyperparameter_keys_actual(all_runs: list[dict]) -> list[str]:
         ls = init.get("lengthscales")
         if ls is not None and isinstance(ls, (list, tuple)):
             max_cont = max(max_cont, len(ls))
+        ps = init.get("periods")
+        if ps is not None and isinstance(ps, (list, tuple)):
+            max_periods = max(max_periods, len(ps))
     keys = []
     if has_noise:
         keys.append("noise")
@@ -242,6 +320,7 @@ def _infer_hyperparameter_keys_actual(all_runs: list[dict]) -> list[str]:
     if has_mean_bias:
         keys.append("mean_bias")
     keys.extend(f"lengthscale_{i}" for i in range(max_cont))
+    keys.extend(f"period_{i}" for i in range(max_periods))
     return keys
 
 
@@ -990,7 +1069,7 @@ def main() -> None:
 # ---------------------------------------------------------------------------
 DEFAULT_PATHS: list[str] = [
                             # "C:/Users/kianb/Repos/gp-private/experiments_final/results_final/1_12/rastrigin",
-                            "C:/Users/kianb/Repos/gp-private/experiments_final/results_v6.0/20_folds_logging_full_PE/",
+                            "C:/Users/kianb/Repos/gp-private/experiments_final/results_IDETC/10_runs_logging_full_Gaussian/griewank/",
                             # "C:/Users/kianb/Repos/gp-private/experiments_final/results/plotsfortyler",
                             # "C:/Users/kianb/Repos/gp-private/experiments_final/results_final/custom_GPvsPFN/buckling",
                             # "C:/Users/kianb/Repos/gp-private/experiments_final/results_final/custom_GPvsPFN/buckling/buckling",

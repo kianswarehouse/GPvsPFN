@@ -28,8 +28,8 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
         amp_device=defaults.TRAINER_AMP_DEVICE,
         save_path='./results/wing',
         title=None,
-        standardize_X=True,
-        standardize_y=True,
+        standardize_X=defaults.STANDARDIZE_X,
+        standardize_y=defaults.STANDARDIZE_Y,
         x_standardize_method=defaults.X_STANDARDIZE_METHOD,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
         noise_train=0.0,
         noise_test=0.0,
@@ -191,6 +191,11 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
                 y_train_std=y_train_std if standardize_y else None,
                 source_cols=source_cols,  # Source column is at index 10 (single int = not encoded)
                 trainer_info=trainer_info,  # Set to True if you want trainer info
+                callbacks=defaults.get_default_gp_callbacks(
+                    optimizer_class,
+                    callback_save_path=callback_save_path,
+                    log_lbfgs_inner=log_lbfgs_inner,
+                ),
                 callback_save_path=callback_save_path,
                 log_lbfgs_inner=log_lbfgs_inner,
             )

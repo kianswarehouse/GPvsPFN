@@ -33,8 +33,8 @@ def ackley_GPvsPFN(
         amp_device=defaults.TRAINER_AMP_DEVICE,
         save_path='./results/Ackley',
         title=None,
-        standardize_X=True,
-        standardize_y=True,
+        standardize_X=defaults.STANDARDIZE_X,
+        standardize_y=defaults.STANDARDIZE_Y,
         x_standardize_method=defaults.X_STANDARDIZE_METHOD,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
         noise_train=0.0,
         noise_test=0.0,
@@ -193,6 +193,11 @@ def ackley_GPvsPFN(
                 y_train_std=y_train_std if standardize_y else None,
                 source_cols=source_cols,
                 trainer_info=trainer_info,  # Set to True if you want trainer info
+                callbacks=defaults.get_default_gp_callbacks(
+                    optimizer_class,
+                    callback_save_path=callback_save_path,
+                    log_lbfgs_inner=log_lbfgs_inner,
+                ),
                 callback_save_path=callback_save_path,
                 log_lbfgs_inner=log_lbfgs_inner,
             )
@@ -357,6 +362,28 @@ def ackley_GPvsPFN(
                 trainer_info_file = trainer_analysis_dir / f"gp_{title}_GP_Trainer_Analysis.json"
                 trainer_info_file.write_text(json.dumps(trainer_info_data, indent=2))
                 print(f"\nTrainer info saved to: {trainer_info_file}")
+
+                # Also augment the saved gp_data metrics with chosen final loss per run.
+                try:
+                    from plot_trainer_analysis_hyperparams import extract_runs_and_chosen
+                    all_inits, chosen_list = extract_runs_and_chosen(trainer_info_data)
+                    if chosen_list and "gp_data" in combined_data:
+                        gp_section = combined_data.get("gp_data") or {}
+                        gp_metrics_list = gp_section.get("metrics")
+                        if isinstance(gp_metrics_list, list):
+                            # One chosen record per run, in the same run order used for metrics.
+                            for i_run, (metric_rec, chosen_rec) in enumerate(zip(gp_metrics_list, chosen_list)):
+                                loss_val = chosen_rec.get("loss")
+                                if loss_val is not None:
+                                    metric_rec["loss_final"] = float(loss_val)
+                        combined_path = out_dir / f"{file_prefix}_{title}.json"
+                        try:
+                            combined_path.write_text(json.dumps(combined_data, indent=2))
+                        except Exception:
+                            # If rewriting combined JSON fails, continue without aborting trainer analysis.
+                            pass
+                except Exception as e:
+                    print(f"Augmenting gp_data with chosen final loss failed: {e}")
                 try:
                     from plot_trainer_analysis_hyperparams import plot_trainer_analysis_from_data
                     plot_trainer_analysis_from_data(trainer_info_data, trainer_analysis_dir / "plots")

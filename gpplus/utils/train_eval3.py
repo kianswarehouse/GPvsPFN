@@ -3,17 +3,12 @@ import time
 import numpy as np
 import torch
 from gpplus.training import GPTrainerV3 as GPTrainer
-from gpplus.training.callbacks import (
-    FinalParameterStorageCallback,
-    IterationParameterCallback,
-    EpochParameterCallback,
-    JitterTrackingCallback,
-    LBFGSInnerMetricsCallbackV3,
-    PrintTrainingMetricsCallback,
+from gpplus.training.callbacks import FinalParameterStorageCallback
+from gpplus.training.stop_conditions import (
+    ConvergencePatienceStopCondition,
+    MinLossChangeStopCondition,
 )
-from gpplus.training.stop_conditions import ConvergencePatienceStopCondition, MinLossChangeStopCondition
 from gpplus.training.eval2 import evaluate_gp_model
-from gpplus.training.optimizers import LBFGSScipy
 from gpplus.utils.metrics_functions import compute_metrics, compute_per_source_metrics
 
 
@@ -53,7 +48,6 @@ def train_eval_gp(
     fold_index: int | None = None,  # Fold index for multi-fold experiments (sets fold_index on callbacks)
     callbacks: list | None = None,  # Optional list of callbacks (if None, creates default callbacks)
     callback_save_path: str | None = None,  # Base path for saving callback data (if None, uses default paths)
-    print_epoch_metrics: bool = False,  # If True, print NLL/NIS/LOO_NLL/KF at each epoch
     log_lbfgs_inner: bool = True,  # Enabled by default: log/store per-iteration loss inside LBFGSScipy step(); metrics via callbacks
     lbfgs_inner_extra_metrics: list | None = None,  # Optional [(name, fn(context)->float), ...] for LBFGSInnerMetricsCallbackV3
 ):
@@ -71,56 +65,12 @@ def train_eval_gp(
     ):
         optimizer_kwargs = {"lr": lr if lr is not None else 0.01}
 
-    # Use provided callbacks or create default ones
+    # Use provided callbacks; if none are supplied, disable callbacks by default.
     if callbacks is None:
         callbacks = [FinalParameterStorageCallback(save_file=None, verbose=False)]
 
-        # Add optimizer-specific parameter callbacks
-        if optimizer_class is not None:
-            # save_file: only set when callback_save_path is set → callbacks write JSON; None → no callback file I/O
-            if callback_save_path is not None:
-                epoch_save_file = f"{callback_save_path}/epoch_parameters.json"
-                jitter_save_file = f"{callback_save_path}/jitter_tracking.json"
-            else:
-                epoch_save_file = None
-                jitter_save_file = None
 
-            # LBFGSScipy: log per-iteration parameters and (optionally) inner metrics via callbacks
-            if optimizer_class is LBFGSScipy or (
-                isinstance(optimizer_class, type) and issubclass(optimizer_class, LBFGSScipy)
-            ):
-                callbacks.append(
-                    IterationParameterCallback(
-                        save_file=None,
-                        verbose=False,
-                        save_every_n_iterations=20,
-                    )
-                )
-                if log_lbfgs_inner:
-                    callbacks.append(
-                        LBFGSInnerMetricsCallbackV3(
-                            log_record_every_n_iters=1,
-                            log_metrics_every_n_iters=1,
-                            log_nll=True,
-                            log_nis=True,
-                            log_loo=True,
-                            log_kf=True,
-                            log_residual_mse=True,
-                            extra_metrics=lbfgs_inner_extra_metrics or [],
-                        )
-                    )
-            # Adam: log per-epoch parameters
-            elif optimizer_class is torch.optim.Adam or (
-                isinstance(optimizer_class, type) and issubclass(optimizer_class, torch.optim.Adam)
-            ):
-                callbacks.append(
-                    EpochParameterCallback(
-                        save_file=epoch_save_file,
-                        verbose=False,
-                        save_every_n_epochs=20,
-                    )
-                )
-
+        # callbacks = 
             # # Jitter tracking across runs/epochs
             # callbacks.append(
             #     JitterTrackingCallback(
@@ -129,9 +79,6 @@ def train_eval_gp(
             #     )
             # )
 
-    # Optional epoch-metric printing callback
-    if print_epoch_metrics:
-        callbacks.append(PrintTrainingMetricsCallback())
 
     # Set fold_index on callbacks that support it
     if fold_index is not None:
@@ -164,6 +111,14 @@ def train_eval_gp(
 
     # Measure prediction time
     t_pred_start = time.time()
+    # Always evaluate on the same device as the model's training inputs / parameters
+    if hasattr(model, "train_inputs") and model.train_inputs:
+        eval_device = model.train_inputs[0].device
+    else:
+        eval_device = next(model.parameters()).device
+    if X_test.device != eval_device:
+        X_test = X_test.to(eval_device)
+
     y_pred, _, _, output_std = evaluate_gp_model(model, X_test)
     prediction_time = time.time() - t_pred_start
 

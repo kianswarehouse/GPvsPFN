@@ -5,6 +5,7 @@ import torch
 
 from ..config import logger
 from ..kernels import GaussianKernel, LogScaleKernel, PowerExponentialKernel
+from gpplus.kernels.periodic_kernel import PeriodicKernel
 from ..likelihoods import LogGaussianLikelihood
 from ..constraints import SoftClamp
 
@@ -51,13 +52,15 @@ class GPR(gpytorch.models.ExactGP):
             logger.warning("No likelihood provided. Using LogGaussianLikelihood as default.")
 
         if mean_module is None:
-            mean_module = gpytorch.means.ConstantMean(constant_constraint=SoftClamp(lower_bound=1.5*min(train_y), upper_bound=1.5*max(train_y)))
+            mean_module = gpytorch.means.ConstantMean()
             logger.warning("No mean_module provided. Using ConstantMean as default.")
 
         if kernel_module is None:
             input_dim = train_x.shape[-1]
-            # kernel_module = LogScaleKernel(GaussianKernel(ard_num_dims=input_dim))  # Uses one lengthscale per dimension
-            kernel_module = LogScaleKernel(PowerExponentialKernel(ard_num_dims=input_dim))  # Uses one lengthscale per dimension
+            kernel_module = LogScaleKernel(GaussianKernel(ard_num_dims=input_dim))  # Uses one lengthscale per dimension
+            # kernel_module = LogScaleKernel(GaussianKernel(ard_num_dims=input_dim) * PeriodicKernel(ard_num_dims=input_dim))  # Uses one lengthscale per dimension
+            # kernel_module = LogScaleKernel(GaussianKernel(ard_num_dims=input_dim) + PeriodicKernel(ard_num_dims=input_dim))  # Uses one lengthscale per dimension
+            # kernel_module = LogScaleKernel(PowerExponentialKernel(ard_num_dims=input_dim))  # Uses one lengthscale per dimension
             logger.warning(
                 f"No kernel_module provided. Using Gaussian Kernel with ARD (ard_num_dims={input_dim}) as default."
             )

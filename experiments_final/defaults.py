@@ -1,7 +1,14 @@
 import gpplus
 import torch
+from gpplus.training.callbacks import (
+    FinalParameterStorageCallback,
+    IterationParameterCallback,
+    EpochParameterCallback,
+    LBFGSInnerMetricsCallbackV3,
+)
+from gpplus.training.optimizers import LBFGSScipy
 
-X_STANDARDIZE_METHOD = 2 # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
+X_STANDARDIZE_METHOD = 2  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
 STANDARDIZE_X = True
 STANDARDIZE_Y = True
 
@@ -31,7 +38,7 @@ TRAINER_GP_DEVICE = 'cpu'
 TRAINER_AMP_DEVICE = 'cuda'
 DTYPE_GP = torch.float64
 DTYPE_PFN = torch.float32
-NOISE_TYPE = 'gaussian'
+NOISE_TYPE = "gaussian"
 
 
 # TRAINER_ANALYSIS = True # make settings into problems
@@ -39,6 +46,66 @@ NOISE_TYPE = 'gaussian'
 
 SEED = 42
 SEED_TRAINER = None
+
+
+def get_default_gp_callbacks(
+    optimizer_class,
+    callback_save_path: str | None = None,
+    log_lbfgs_inner: bool = True,
+    lbfgs_inner_extra_metrics: list | None = None,
+):
+    """
+    Default GP callbacks for final experiments (A1–A9).
+
+    This mirrors the original train_eval3 defaults, but is now configured explicitly
+    from experiments_final instead of being hard-wired into train_eval3.
+    """
+    callbacks: list = [FinalParameterStorageCallback(save_file=None, verbose=False)]
+
+    if optimizer_class is not None:
+        # Only set epoch callback save path when logging to disk is desired.
+        if callback_save_path is not None:
+            epoch_save_file = f"{callback_save_path}/epoch_parameters.json"
+        else:
+            epoch_save_file = None
+
+        # LBFGSScipy: per-iteration parameter logging + optional inner metrics
+        if optimizer_class is LBFGSScipy or (
+            isinstance(optimizer_class, type) and issubclass(optimizer_class, LBFGSScipy)
+        ):
+            callbacks.append(
+                IterationParameterCallback(
+                    save_file=None,
+                    verbose=False,
+                    save_every_n_iterations=20,
+                )
+            )
+            if log_lbfgs_inner:
+                callbacks.append(
+                    LBFGSInnerMetricsCallbackV3(
+                        log_record_every_n_iters=1,
+                        log_metrics_every_n_iters=1,
+                        log_nll=True,
+                        log_nis=True,
+                        log_loo=True,
+                        log_kf=True,
+                        log_residual_mse=True,
+                        extra_metrics=lbfgs_inner_extra_metrics or [],
+                    )
+                )
+        # Adam: per-epoch parameter logging
+        elif optimizer_class is torch.optim.Adam or (
+            isinstance(optimizer_class, type) and issubclass(optimizer_class, torch.optim.Adam)
+        ):
+            callbacks.append(
+                EpochParameterCallback(
+                    save_file=epoch_save_file,
+                    verbose=False,
+                    save_every_n_epochs=20,
+                )
+            )
+
+    return callbacks
 
 def MF_kernel(
     cont_cols=None,

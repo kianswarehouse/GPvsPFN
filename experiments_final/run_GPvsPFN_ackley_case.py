@@ -8,8 +8,8 @@ from A7_zakharov_GPvsPFN import zakharov_GPvsPFN
 from A8_griewank_GPvsPFN import griewank_GPvsPFN
 from A9_dixon_price_GPvsPFN import dixon_price_GPvsPFN
 
-folder = "results_final"
-date = "trainer_v2"
+folder = "results_v2"
+date = "trainer_v30"
 # date = "test"
 
 save_path_wing = f"./{folder}/{date}/wing/"
@@ -36,73 +36,73 @@ title = None
 # title = "grouped_NN_U[-4,-3]noise"
 # title = "grouped_NN"
 
-num_folds = 21
+num_runs = 2
 num_runs = 16
 
-wing_SF_GPvsPFN(title="warmup", num_folds=2, train_size=10, save_path=None, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
-# wing_SF_GPvsPFN(title="test", num_folds=2, train_size=10, save_path=save_path_wing, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
-# buckling_SF_GPvsPFN(title="test", num_folds=2, train_size=10, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
-# borehole_SF_GPvsPFN(title="test", num_folds=2, train_size=10, save_path=save_path_borehole, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# wing_SF_GPvsPFN(title="warmup", num_runs=2, train_size=10, save_path=None, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# wing_SF_GPvsPFN(title="test", num_runs=2, train_size=10, save_path=save_path_wing, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# buckling_SF_GPvsPFN(title="test", num_runs=2, train_size=10, save_path=save_path_buckling, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+# borehole_SF_GPvsPFN(title="test", num_runs=2, train_size=10, save_path=save_path_borehole, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-# wing_SF_GPvsPFN(title=title, num_folds=num_folds, train_size=10, save_path=save_path_wing, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
-# wing_SF_GPvsPFN(title=title, num_folds=num_folds, train_size=20, save_path=save_path_wing, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
-# wing_SF_GPvsPFN(title=title, num_folds=num_folds, train_size=40, save_path=save_path_wing, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
-# wing_SF_GPvsPFN(title=title, num_folds=num_folds, train_size=80, save_path=save_path_wing, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# wing_SF_GPvsPFN(title=title, num_runs=num_runs, train_size=10, save_path=save_path_wing, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# wing_SF_GPvsPFN(title=title, num_runs=num_runs, train_size=20, save_path=save_path_wing, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# wing_SF_GPvsPFN(title=title, num_runs=num_runs, train_size=40, save_path=save_path_wing, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+# wing_SF_GPvsPFN(title=title, num_runs=num_runs, train_size=80, save_path=save_path_wing, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
 # %% 5Dx Problems ------------------------------------------------------------------------------------------------
 # # # %% Ackley ------------------------------------------------------------------------------------------------
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=10, dimensions=5, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=20, dimensions=5, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=40, dimensions=5, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=80, dimensions=5, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=10, dimensions=5, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=5, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=40, dimensions=5, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=80, dimensions=5, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=10, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=20, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=40, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=80, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=10, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=40, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=80, dimensions=5, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
 
 # %% 10 Dx Problems ------------------------------------------------------------------------------------------------
 # %% Ackley -------------------------------------------------------------
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=10, dimensions=10, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=20, dimensions=10, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=40, dimensions=10, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=80, dimensions=10, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=10, dimensions=10, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=10, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=40, dimensions=10, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=80, dimensions=10, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=10, dimensions=10, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=20, dimensions=10, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=40, dimensions=10, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=80, dimensions=10, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=10, dimensions=10, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=10, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=40, dimensions=10, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=80, dimensions=10, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
 # %% 20 Dx Problems ------------------------------------------------------------------------------------------------
 # %% Ackley -------------------------------------------------------------
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=10, dimensions=20, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=20, dimensions=20, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=40, dimensions=20, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=80, dimensions=20, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=10, dimensions=20, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=40, dimensions=20, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=80, dimensions=20, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=10, dimensions=20, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=20, dimensions=20, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=40, dimensions=20, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=80, dimensions=20, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=10, dimensions=20, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=40, dimensions=20, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=80, dimensions=20, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
 # %% 40 Dx Problems ------------------------------------------------------------------------------------------------
 # %% Ackley -------------------------------------------------------------
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=10, dimensions=40, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=20, dimensions=40, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=40, dimensions=40, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=10, dimensions=40, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=40, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=40, dimensions=40, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=10, dimensions=40, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=20, dimensions=40, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=40, dimensions=40, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=10, dimensions=40, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=40, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=40, dimensions=40, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
 
 # %% 80 Dx Problems ------------------------------------------------------------------------------------------------
 # %% Ackley -------------------------------------------------------------
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=10, dimensions=80, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=20, dimensions=80, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=10, dimensions=80, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=80, save_path=save_path_ackley, noise_train=0.005, noise_test=0.005, num_test=num_test, run_models=run_models)
 
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=10, dimensions=80, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
-ackley_GPvsPFN(title=title, num_folds=num_folds, train_size=20, dimensions=80, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=10, dimensions=80, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
+ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=80, save_path=save_path_ackley, noise_train=0.05, noise_test=0.05, num_test=num_test, run_models=run_models)
 
 # %% Dixon Price -------------------------------------------------------------  
