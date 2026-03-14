@@ -352,9 +352,13 @@ class GPTrainer:
         # ------------------------------------------------------
         if best_run is not None and best_run.get("state_dict") is not None:
             state = best_run["state_dict"]
-            device = next(self.model.parameters()).device
-            state_cpu = {k: v.to(device) if hasattr(v, "to") else v for k, v in state.items()}
-            self.model.load_state_dict(state_cpu)
+            # Load best weights onto the trainer's device so that model parameters,
+            # training inputs, and likelihood live on a single device (CPU or CUDA).
+            target_device = self.device
+            state_on_device = {k: v.to(target_device) if hasattr(v, "to") else v for k, v in state.items()}
+            self.model.load_state_dict(state_on_device)
+            # Ensure the whole model (including train_inputs / train_targets buffers) is on target_device.
+            self.model = self.model.to(target_device)
 
             # Propagate best-run jitter onto the model for evaluation
             jitter = best_run.get("cholesky_jitter")

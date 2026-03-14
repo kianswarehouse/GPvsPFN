@@ -1,0 +1,13 @@
+model,train_size,runs,train_pool_size,test_size,n_restarts,n_successful_restarts_mean,n_failed_restarts_mean,rmse_mean,rmse_std,rrmse_mean,rrmse_std,crps_mean,crps_std,final_train_nll_mean,final_train_nll_std,final_kf_mean,final_kf_std,train_time_med,infer_time_med,lbfgs_iterations_med
+"GP+ GPR (Matern, nu=0.5, ARD, LBFGS-defaults)",50,10,500.0,9500.0,16.0,0.0,16.0,,,,,,,,,,,,,
+"GP+ GPR (Matern, nu=0.5, ARD, LBFGS-defaults)",100,10,500.0,9500.0,16.0,0.0,16.0,,,,,,,,,,,,,
+"GP+ GPR (Matern, nu=0.5, ARD, LBFGS-defaults)",300,10,500.0,9500.0,16.0,0.0,16.0,,,,,,,,,,,,,
+"GP+ GPR (Matern, nu=0.5, ARD, LBFGS-defaults)",500,10,500.0,9500.0,16.0,0.0,16.0,,,,,,,,,,,,,
+"GP+ GPR (PowerExp, p=learned, LBFGS-defaults)",50,10,500.0,9500.0,16.0,0.0,16.0,,,,,,,,,,,,,
+"GP+ GPR (PowerExp, p=learned, LBFGS-defaults)",100,10,500.0,9500.0,16.0,0.0,16.0,,,,,,,,,,,,,
+"GP+ GPR (PowerExp, p=learned, LBFGS-defaults)",300,10,500.0,9500.0,16.0,0.0,16.0,,,,,,,,,,,,,
+"GP+ GPR (PowerExp, p=learned, LBFGS-defaults)",500,10,500.0,9500.0,16.0,0.0,16.0,,,,,,,,,,,,,
+"GP+ GPR (RBF, ARD, LBFGS-defaults)",50,10,500.0,9500.0,16.0,0.0,16.0,,,,,,,,,,,,,
+"GP+ GPR (RBF, ARD, LBFGS-defaults)",100,10,500.0,9500.0,16.0,0.0,16.0,,,,,,,,,,,,,
+"GP+ GPR (RBF, ARD, LBFGS-defaults)",300,10,500.0,9500.0,16.0,0.0,16.0,,,,,,,,,,,,,
+"GP+ GPR (RBF, ARD, LBFGS-defaults)",500,10,500.0,9500.0,16.0,0.0,16.0,,,,,,,,,,,,,

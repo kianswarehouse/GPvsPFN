@@ -29,8 +29,8 @@ def borehole_SF_GPvsPFN(
         amp_device=defaults.TRAINER_AMP_DEVICE,
         save_path='./results/borehole',
         title=None,
-        standardize_X=True,
-        standardize_y=True,
+        standardize_X=defaults.STANDARDIZE_X,
+        standardize_y=defaults.STANDARDIZE_Y,
         x_standardize_method=defaults.X_STANDARDIZE_METHOD,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
         standardize_y_log_scale=False,
         noise_train=0.0,
@@ -190,6 +190,11 @@ def borehole_SF_GPvsPFN(
                 standardize_y_log_scale=standardize_y_log_scale,
                 source_cols=source_cols,
                 trainer_info=trainer_info,
+                callbacks=defaults.get_default_gp_callbacks(
+                    optimizer_class,
+                    callback_save_path=callback_save_path,
+                    log_lbfgs_inner=log_lbfgs_inner,
+                ),
                 callback_save_path=callback_save_path,
                 log_lbfgs_inner=log_lbfgs_inner,
             )
