@@ -92,15 +92,15 @@ def train_eval_gp(
                 callbacks.append(
                     IterationParameterCallback(
                         save_file=None,
-                        verbose=False,
+                        verbose=True,
                         save_every_n_iterations=20,
                     )
                 )
                 if log_lbfgs_inner:
                     callbacks.append(
                         LBFGSInnerMetricsCallbackV3(
-                            log_record_every_n_iters=1,
-                            log_metrics_every_n_iters=1,
+                            log_record_every_n_iters=20,
+                            log_metrics_every_n_iters=20,
                             log_nll=True,
                             log_nis=True,
                             log_loo=True,
@@ -116,7 +116,7 @@ def train_eval_gp(
                 callbacks.append(
                     EpochParameterCallback(
                         save_file=epoch_save_file,
-                        verbose=False,
+                        verbose=True,
                         save_every_n_epochs=20,
                     )
                 )

@@ -9,7 +9,7 @@ from A8_griewank_GPvsPFN import griewank_GPvsPFN
 from A9_dixon_price_GPvsPFN import dixon_price_GPvsPFN
 
 folder = "results_v6.0"
-date = "20_folds_logging_full_Gaussian"
+date = "20_runs_logging_full_Gaussian"
 # date = "test96"
 
 save_path_wing = f"./{folder}/{date}/wing/"

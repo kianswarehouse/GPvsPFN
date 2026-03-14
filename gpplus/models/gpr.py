@@ -51,7 +51,8 @@ class GPR(gpytorch.models.ExactGP):
             logger.warning("No likelihood provided. Using LogGaussianLikelihood as default.")
 
         if mean_module is None:
-            mean_module = gpytorch.means.ConstantMean(constant_constraint=SoftClamp(lower_bound=1.5*min(train_y), upper_bound=1.5*max(train_y)))
+            # mean_module = gpytorch.means.ConstantMean(constant_constraint=SoftClamp(lower_bound=3.0*min(train_y), upper_bound=3.0*max(train_y)))
+            mean_module = gpytorch.means.ConstantMean()
             logger.warning("No mean_module provided. Using ConstantMean as default.")
 
         if kernel_module is None:
