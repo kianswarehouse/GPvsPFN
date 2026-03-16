@@ -81,6 +81,36 @@ def _make_X_scaler(
     raise ValueError(f"x_standardize_method must be 0, 1, or 2, got {x_standardize_method}")
 
 
+class SubcolumnScaler:
+    """
+    Wrapper that applies a base scaler only to a subset of columns (e.g., continuous dims),
+    leaving others (e.g., one-hot categoricals) unchanged.
+    """
+
+    def __init__(self, base_scaler: Any, cont_cols: List[int]):
+        self.base = base_scaler
+        self.cont_cols = list(cont_cols)
+
+    def fit(self, X: torch.Tensor) -> None:
+        if len(self.cont_cols) == 0:
+            return
+        self.base.fit(X[:, self.cont_cols])
+
+    def transform(self, X: torch.Tensor) -> torch.Tensor:
+        if len(self.cont_cols) == 0:
+            return X
+        X_out = X.clone()
+        X_out[:, self.cont_cols] = self.base.transform(X[:, self.cont_cols])
+        return X_out
+
+    def inverse_transform(self, X: torch.Tensor) -> torch.Tensor:
+        if len(self.cont_cols) == 0:
+            return X
+        X_out = X.clone()
+        X_out[:, self.cont_cols] = self.base.inverse_transform(X[:, self.cont_cols])
+        return X_out
+
+
 # ---------- Bounds helpers (match load_experimental_data) ----------
 
 
@@ -163,6 +193,78 @@ def _sample_sobol_in_bounds(
     return l + (u - l) * base
 
 
+def _sample_mixed_categorical_candidates(
+    n_candidates: int,
+    cont_bounds: torch.Tensor,
+    cat_class_sizes: List[int],
+    sobol: SobolEngine,
+    dtype: torch.dtype,
+    device: torch.device,
+    trailing_cols: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """
+    Sample n_candidates in mixed continuous + one-hot categorical space.
+    Continuous part is drawn in cont_bounds; categorical part cycles through
+    all valid combinations (one 1 per group) with roughly even counts, then
+    we assign random continuous values per combination and shuffle.
+
+    cont_bounds: (2, n_cont) with cont_bounds[0] lower, cont_bounds[1] upper.
+    cat_class_sizes: e.g. [2, 4, 3] for E, K, I one-hot group sizes.
+    Returns: (n_candidates, n_cont + sum(cat_class_sizes)) with valid one-hot.
+    """
+    n_cont = cont_bounds.shape[1]
+    n_combos = 1
+    for s in cat_class_sizes:
+        n_combos *= s
+
+    # How many samples per categorical combination (even split, remainder spread)
+    per_combo = n_candidates // n_combos
+    remainder = n_candidates % n_combos
+
+    # Build list of (indices for each cat var) for each of n_candidates
+    combo_list: List[Tuple[int, ...]] = []
+    combo_idx = 0
+    for _ in range(n_combos):
+        count = per_combo + (1 if combo_idx < remainder else 0)
+        # Decode combo_idx into indices for each categorical
+        indices = []
+        k = combo_idx
+        for size in reversed(cat_class_sizes):
+            indices.append(k % size)
+            k //= size
+        indices = list(reversed(indices))  # now (e_idx, k_idx, i_idx) for [2,4,3]
+        for _ in range(count):
+            combo_list.append(tuple(indices))
+        combo_idx += 1
+
+    # Shuffle so we don't have all combo0 then combo1 (randomness helps)
+    perm = torch.randperm(len(combo_list), device=device)
+    combo_list = [combo_list[i] for i in perm.cpu().tolist()]
+
+    # Continuous part: one Sobol draw per row in [0,1], then scale to cont_bounds
+    sobol_draw = sobol.draw(n_candidates).to(dtype=dtype, device=device)
+    lb = cont_bounds[0].to(device=device, dtype=dtype)
+    ub = cont_bounds[1].to(device=device, dtype=dtype)
+    L = lb + sobol_draw[:, :n_cont] * (ub - lb)
+
+    # Build one-hot blocks per categorical group
+    cat_parts = []
+    offset = 0
+    for group_idx, size in enumerate(cat_class_sizes):
+        block = torch.zeros((n_candidates, size), dtype=dtype, device=device)
+        for row in range(n_candidates):
+            block[row, combo_list[row][group_idx]] = 1.0
+        cat_parts.append(block)
+    cat_block = torch.cat(cat_parts, dim=1)
+
+    out = torch.cat([L, cat_block], dim=1)
+    if trailing_cols is not None:
+        # trailing_cols: (1, n_trailing); broadcast to (n_candidates, n_trailing)
+        trail = trailing_cols.to(device=device, dtype=dtype).expand(n_candidates, -1)
+        out = torch.cat([out, trail], dim=1)
+    return out
+
+
 def _compute_ei(
     mean: torch.Tensor,
     std: torch.Tensor,
@@ -196,8 +298,17 @@ def _select_next_point_sampling(
     dtype: torch.dtype,
     device: torch.device,
     x_scaler: Optional[Any] = None,
+    cat_class_sizes: Optional[List[int]] = None,
+    cont_bounds: Optional[torch.Tensor] = None,
+    af_trailing_cols: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, float]:
-    X_cand = _sample_sobol_in_bounds(n_candidates, bounds, sobol, dtype, device)
+    if cat_class_sizes is not None and cont_bounds is not None:
+        X_cand = _sample_mixed_categorical_candidates(
+            n_candidates, cont_bounds, cat_class_sizes, sobol, dtype, device,
+            trailing_cols=af_trailing_cols,
+        )
+    else:
+        X_cand = _sample_sobol_in_bounds(n_candidates, bounds, sobol, dtype, device)
     X_for_model = x_scaler.transform(X_cand) if x_scaler is not None else X_cand
     mean, _, _, std = evaluate_gp_model(model, X_for_model)
     mean_signed = sign * mean.squeeze(-1)
@@ -284,6 +395,120 @@ def _optimize_ei_with_scipy(
     return torch.as_tensor(best_x, dtype=dtype, device=device).unsqueeze(0), best_ei
 
 
+def _optimize_ei_mixed_categorical(
+    model: Any,
+    cont_bounds: torch.Tensor,
+    cat_class_sizes: List[int],
+    best_f_signed: float,
+    sign: float,
+    sobol: SobolEngine,
+    dtype: torch.dtype,
+    device: torch.device,
+    x_scaler: Optional[Any] = None,
+    n_inits_per_combo: int = 16,
+    af_trailing_cols: Optional[torch.Tensor] = None,
+) -> Tuple[torch.Tensor, float]:
+    """
+    Optimize EI over mixed continuous + one-hot categorical space by enumerating
+    categorical combinations and optimizing only the continuous variables for each.
+    n_inits_per_combo initializations per combination (e.g. 2 → 48 L-BFGS runs for buckling),
+    each optimized in L only; best EI across all runs is returned.
+    """
+    n_cont = cont_bounds.shape[1]
+    n_combos = 1
+    for s in cat_class_sizes:
+        n_combos *= s
+
+    scipy_bounds_cont = [
+        (float(cont_bounds[0, i].cpu().item()), float(cont_bounds[1, i].cpu().item()))
+        for i in range(n_cont)
+    ]
+
+    # Precompute one-hot rows for each combination
+    combo_onehots: List[torch.Tensor] = []
+    for combo_idx in range(n_combos):
+        indices = []
+        k = combo_idx
+        for size in reversed(cat_class_sizes):
+            indices.append(k % size)
+            k //= size
+        indices = list(reversed(indices))
+        parts = []
+        for group_idx, size in enumerate(cat_class_sizes):
+            row = torch.zeros(size, dtype=dtype, device=device)
+            row[indices[group_idx]] = 1.0
+            parts.append(row)
+        combo_onehots.append(torch.cat(parts))
+
+    def neg_ei_cont_np(c_flat: np.ndarray, combo_idx: int) -> float:
+        c = torch.as_tensor(c_flat, dtype=dtype, device=device)
+        if c.dim() == 1:
+            c = c.unsqueeze(0)  # (1, n_cont) for concat with one-hot
+        onehot = combo_onehots[combo_idx]
+        x = torch.cat([c, onehot.unsqueeze(0).expand(c.shape[0], -1)], dim=1)
+        if af_trailing_cols is not None:
+            x = torch.cat([x, af_trailing_cols.to(device=device, dtype=dtype).expand(x.shape[0], -1)], dim=1)
+        x_for_model = x_scaler.transform(x) if x_scaler is not None else x
+        mean, _, _, std = evaluate_gp_model(model, x_for_model)
+        mean_signed = sign * mean.view(-1)
+        std = std.view(-1)
+        ei = _compute_ei(mean_signed, std, best_f_signed)
+        return -float(ei.item())
+
+    best_x_full: Optional[torch.Tensor] = None
+    best_ei = -np.inf
+
+    lb = cont_bounds[0].to(device=device, dtype=dtype)
+    ub = cont_bounds[1].to(device=device, dtype=dtype)
+
+    for combo_idx in range(n_combos):
+        def obj(c: np.ndarray, ci: int = combo_idx) -> float:
+            return neg_ei_cont_np(c, ci)
+
+        for init_idx in range(n_inits_per_combo):
+            # Initial continuous point: Sobol draw scaled to cont_bounds
+            c0 = sobol.draw(1).to(dtype=dtype, device=device).squeeze(0)[:n_cont]
+            c0 = (lb + (ub - lb) * c0).cpu().numpy()
+
+            res = minimize(
+                obj,
+                c0,
+                method="L-BFGS-B",
+                bounds=scipy_bounds_cont,
+                options={"maxiter": 50, "disp": False},
+            )
+            c_opt = res.x
+            ei_val = -res.fun
+            if ei_val > best_ei:
+                best_ei = ei_val
+                c_t = torch.as_tensor(c_opt, dtype=dtype, device=device)
+                best_x_full = torch.cat([c_t, combo_onehots[combo_idx]]).unsqueeze(0)
+                if af_trailing_cols is not None:
+                    best_x_full = torch.cat(
+                        [best_x_full, af_trailing_cols.to(device=device, dtype=dtype)],
+                        dim=1,
+                    )
+
+    if best_x_full is None:
+        # Fallback: first combo, midpoint of cont_bounds
+        c_mid = (cont_bounds[0] + cont_bounds[1]) / 2
+        best_x_full = torch.cat(
+            [c_mid.to(device=device, dtype=dtype), combo_onehots[0]]
+        ).unsqueeze(0)
+        if af_trailing_cols is not None:
+            best_x_full = torch.cat(
+                [best_x_full, af_trailing_cols.to(device=device, dtype=dtype)],
+                dim=1,
+            )
+        x_for_model = x_scaler.transform(best_x_full) if x_scaler is not None else best_x_full
+        mean, _, _, std = evaluate_gp_model(model, x_for_model)
+        best_ei = float(
+            _compute_ei(sign * mean.view(-1), std.view(-1), best_f_signed).item()
+        )
+
+    return best_x_full, best_ei
+
+
 # ---------- Main run API ----------
 
 
@@ -325,6 +550,10 @@ def run_BO_gp(
     likelihood: Any = None,
     log_lbfgs_inner: bool = False,
     bo_test_metrics: bool = True,
+    cat_class_sizes: Optional[List[int]] = None,
+    cont_bounds: Optional[torch.Tensor] = None,
+    af_trailing_cols: Optional[torch.Tensor] = None,
+    cont_cols: Optional[List[int]] = None,
 ) -> "run_BO_Result":
     """
     Run one BO loop with a GP surrogate (equivalent of train_eval_gp for BO).
@@ -332,6 +561,11 @@ def run_BO_gp(
     Caller (BX script) is responsible for loading data and bounds via load_experimental_data.
     When standardize_X/standardize_y are True, X and y are scaled for GP training; bounds and
     objective remain in raw space; chosen points and logs are in raw space.
+
+    For mixed categorical (one-hot) + continuous: pass cat_class_sizes (e.g. [2, 4, 3]) and
+    cont_bounds (2 x n_cont). Then: (1) If EI + gp_optimize_af, we optimize EI by enumerating
+    categorical combinations (one init per combo) and optimizing only the continuous variables.
+    (2) Otherwise we sample AF candidates with valid one-hot and even combo coverage.
     """
     device = torch.device(gp_device)
     dtype = gp_dtype
@@ -354,7 +588,12 @@ def run_BO_gp(
     x_scaler: Optional[Any] = None
     y_scaler: Optional[Any] = None
     if standardize_X:
-        x_scaler = _make_X_scaler(x_standardize_method, device, dtype)
+        base_scaler = _make_X_scaler(x_standardize_method, device, dtype)
+        # If cont_cols are provided, only scale those; otherwise scale all columns.
+        if cont_cols is not None:
+            x_scaler = SubcolumnScaler(base_scaler, cont_cols)
+        else:
+            x_scaler = base_scaler
         x_scaler.fit(X_train_raw)
     if standardize_y:
         y_scaler = StandardScaler()
@@ -456,7 +695,27 @@ def run_BO_gp(
             raise ValueError(f"Unsupported acquisition function: {acquisition}")
 
         t_af = time.perf_counter()
-        if acquisition.upper() == "EI" and gp_optimize_af:
+        if (
+            cat_class_sizes is not None
+            and cont_bounds is not None
+            and acquisition.upper() == "EI"
+            and gp_optimize_af
+        ):
+            # Mixed categorical: optimize EI per combination (one init per combo, optimize L only)
+            x_next_raw, af_val = _optimize_ei_mixed_categorical(
+                model=model,
+                cont_bounds=cont_bounds,
+                cat_class_sizes=cat_class_sizes,
+                best_f_signed=best_f_signed_for_af,
+                sign=sign,
+                sobol=sobol,
+                dtype=dtype,
+                device=device,
+                x_scaler=x_scaler,
+                n_inits_per_combo=n_AF_opt,
+                af_trailing_cols=af_trailing_cols,
+            )
+        elif acquisition.upper() == "EI" and gp_optimize_af:
             x_next_raw, af_val = _optimize_ei_with_scipy(
                 model=model,
                 bounds=bounds,
@@ -481,6 +740,9 @@ def run_BO_gp(
                 dtype=dtype,
                 device=device,
                 x_scaler=x_scaler,
+                cat_class_sizes=cat_class_sizes,
+                cont_bounds=cont_bounds,
+                af_trailing_cols=af_trailing_cols,
             )
         af_time_history.append(time.perf_counter() - t_af)
 
@@ -606,6 +868,10 @@ def run_BO_pfn(
     bo_test_metrics: bool = True,
     gi_pfn: bool = False,
     objective_fn_clean: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
+    standardize_X: bool = True,
+    standardize_y: bool = True,
+    x_standardize_method: int = 2,
+    cont_cols: Optional[List[int]] = None,
 ) -> run_BO_Result:
     """
     Run one BO loop with a PFN surrogate.
@@ -630,6 +896,29 @@ def run_BO_pfn(
     )
     X_test_raw = X_test.to(device=device, dtype=dtype)
     y_test_raw = y_test.to(device=device, dtype=dtype).reshape(-1)
+
+    # Fit scalers on initial data so PFN uses the same preprocessing as GP.
+    x_scaler: Optional[Any] = None
+    y_scaler: Optional[Any] = None
+    if standardize_X:
+        base_scaler = _make_X_scaler(x_standardize_method, device, dtype)
+        if cont_cols is not None:
+            x_scaler = SubcolumnScaler(base_scaler, cont_cols)
+        else:
+            x_scaler = base_scaler
+        x_scaler.fit(X_train_raw)
+    if standardize_y:
+        y_scaler = StandardScaler()
+        y_scaler.fit(y_train_raw.unsqueeze(1))
+        if (y_scaler.std is not None) and (y_scaler.std.squeeze() == 0).all():
+            y_scaler.std = torch.ones_like(y_scaler.std, device=device, dtype=dtype)
+
+    X_train = x_scaler.transform(X_train_raw) if x_scaler is not None else X_train_raw
+    y_train = (
+        y_scaler.transform(y_train_raw.unsqueeze(1)).squeeze(1)
+        if y_scaler is not None
+        else y_train_raw
+    )
 
     sobol = SobolEngine(X_train_raw.shape[1], scramble=True, seed=run_seed)
     sign = -1.0 if minimization_problem else 1.0
@@ -661,6 +950,7 @@ def run_BO_pfn(
         grad_est = None
 
         for _ in range(max_iter):
+            # Best so far in raw space (for logging and early stopping)
             y_signed_raw = sign * y_train_raw
             best_signed_val, best_idx = torch.max(y_signed_raw, dim=0)
             best_raw_val = y_train_raw[best_idx].item()
@@ -676,14 +966,24 @@ def run_BO_pfn(
 
             t_af = time.perf_counter()
 
-            # Scale to [0,1] for GITBO
-            trained_X = _scale_to_unit(X_train_raw, bounds_dev).to(**tkwargs)
-            trained_Y = (sign * y_train_raw).reshape(-1, 1).to(**tkwargs)
+            # Use the same standardized X/Y as GP for PFN training.
+            trained_X = X_train.to(**tkwargs)
+            trained_Y = (sign * y_train).reshape(-1, 1).to(**tkwargs)
 
             if grad_est is None:
                 total_points = N_CANDIDATES * N_PENDING
-                X_pen_draw = sobol.draw(total_points).to(**tkwargs)
-                X_pen = X_pen_draw.view(N_PENDING, N_CANDIDATES, X_train_raw.shape[1])
+                # Sample candidates in raw space inside bounds then standardize for PFN.
+                X_pen_raw_flat = _sample_sobol_in_bounds(
+                    total_points, bounds_dev, sobol, dtype, device
+                )
+                X_pen_flat = (
+                    x_scaler.transform(X_pen_raw_flat)
+                    if x_scaler is not None
+                    else X_pen_raw_flat
+                )
+                X_pen = X_pen_flat.to(**tkwargs).view(
+                    N_PENDING, N_CANDIDATES, X_train_raw.shape[1]
+                )
             else:
                 X_pen = sample_dominant_subspace(
                     trained_X,
@@ -714,8 +1014,14 @@ def run_BO_pfn(
             X_pen_perm = X_pen.permute(1, 0, 2)
             ACQ_perm = ACQ.permute(1, 0)
             best_cand_idx = torch.argmax(ACQ_perm, dim=1)
-            best_candidate_norm = X_pen_perm[0, best_cand_idx[0], :].unsqueeze(0)
-            x_next_raw = _scale_from_unit(best_candidate_norm, bounds_dev)
+            best_candidate_std = X_pen_perm[0, best_cand_idx[0], :].unsqueeze(0)
+            # Map standardized candidate back to raw space for objective evaluation.
+            if x_scaler is not None:
+                x_next_raw = x_scaler.inverse_transform(
+                    best_candidate_std.to(device=device, dtype=dtype)
+                )
+            else:
+                x_next_raw = best_candidate_std.to(device=device, dtype=dtype)
 
             af_time_history.append(time.perf_counter() - t_af)
             train_time_history.append(0.0)
@@ -754,6 +1060,16 @@ def run_BO_pfn(
                 [y_train_clean_raw, y_next_clean.reshape(-1)], dim=0
             )
 
+            # Update standardized tensors with fixed scalers.
+            X_train = (
+                x_scaler.transform(X_train_raw) if x_scaler is not None else X_train_raw
+            )
+            y_train = (
+                y_scaler.transform(y_train_raw.unsqueeze(1)).squeeze(1)
+                if y_scaler is not None
+                else y_train_raw
+            )
+
             if (
                 patience_no_improve is not None
                 and patience_no_improve > 0
@@ -772,6 +1088,7 @@ def run_BO_pfn(
         n_cand = n_AF_sample if n_AF_sample else 5000
 
         for _ in range(max_iter):
+            # Best so far in raw space (for logging and early stopping)
             y_signed_raw = sign * y_train_raw
             best_signed_val, best_idx = torch.max(y_signed_raw, dim=0)
             best_raw_val = y_train_raw[best_idx].item()
@@ -793,11 +1110,17 @@ def run_BO_pfn(
                 dtype=dtype,
                 device=device,
             )
+            # Standardize train and candidate inputs for PFN.
+            X_cand = (
+                x_scaler.transform(X_cand_raw)
+                if x_scaler is not None
+                else X_cand_raw
+            )
 
             # TabPFNRegressor fit/predict: fit on train, predict on candidates
-            X_train_np = X_train_raw.cpu().numpy()
-            y_train_signed_np = (sign * y_train_raw).cpu().numpy()
-            X_cand_np = X_cand_raw.cpu().numpy()
+            X_train_np = X_train.cpu().numpy()
+            y_train_signed_np = (sign * y_train).cpu().numpy()
+            X_cand_np = X_cand.cpu().numpy()
 
             regressor.fit(X_train_np, y_train_signed_np)
             acq_pred = regressor.predict(X_cand_np)
@@ -843,6 +1166,16 @@ def run_BO_pfn(
                 [y_train_clean_raw, y_next_clean.reshape(-1)], dim=0
             )
 
+            # Update standardized tensors with fixed scalers.
+            X_train = (
+                x_scaler.transform(X_train_raw) if x_scaler is not None else X_train_raw
+            )
+            y_train = (
+                y_scaler.transform(y_train_raw.unsqueeze(1)).squeeze(1)
+                if y_scaler is not None
+                else y_train_raw
+            )
+
             if (
                 patience_no_improve is not None
                 and patience_no_improve > 0
@@ -860,12 +1193,19 @@ def run_BO_pfn(
             if gi_pfn:
                 # Use VanillaDirectTabPFNRegressor for test metrics
                 regressor_metrics = VanillaDirectTabPFNRegressor(device=pfn_device)
-                X_train_pfn = X_train_raw.to(device=pfn_device, dtype=pfn_dtype)
-                X_test_pfn = X_test_raw.to(device=pfn_device, dtype=pfn_dtype)
+                X_train_pfn = X_train.to(device=pfn_device, dtype=pfn_dtype)
+                X_test_std = (
+                    x_scaler.transform(X_test_raw)
+                    if x_scaler is not None
+                    else X_test_raw
+                )
+                X_test_pfn = X_test_std.to(device=pfn_device, dtype=pfn_dtype)
                 X_train_seq = X_train_pfn.unsqueeze(1)
                 X_test_seq = X_test_pfn.unsqueeze(1)
                 X_concat = torch.cat([X_train_seq, X_test_seq], dim=0)
-                y_train_signed_pfn = (sign * y_train_raw).to(device=pfn_device, dtype=pfn_dtype)
+                y_train_signed_pfn = (sign * y_train).to(
+                    device=pfn_device, dtype=pfn_dtype
+                )
                 Y_train_time = y_train_signed_pfn.view(-1, 1)
                 Y_pad = torch.zeros(N_test, 1, device=pfn_device, dtype=pfn_dtype)
                 Y_time = torch.cat([Y_train_time, Y_pad], dim=0)
@@ -877,21 +1217,42 @@ def run_BO_pfn(
                     mean_all = regressor_metrics.predict_mean(logits)
                     var_all = regressor_metrics.predict_variance(logits)
                     std_all = torch.clamp(var_all, min=1e-8).sqrt()
-                mean_test_signed = mean_all[single_eval_pos:, 0]
-                std_test = std_all[single_eval_pos:, 0]
+                # PFN predictions are in standardized-y space; map back to raw like GP.
+                mean_test_signed_std = mean_all[single_eval_pos:, 0]
+                std_test_std = std_all[single_eval_pos:, 0]
             else:
                 # Use TabPFNRegressor predict (no uncertainty from sklearn API)
-                X_train_np = X_train_raw.cpu().numpy()
-                X_test_np = X_test_raw.cpu().numpy()
-                y_train_signed_np = (sign * y_train_raw).cpu().numpy()
+                X_train_np = X_train.cpu().numpy()
+                X_test_std = (
+                    x_scaler.transform(X_test_raw)
+                    if x_scaler is not None
+                    else X_test_raw
+                )
+                X_test_np = X_test_std.cpu().numpy()
+                y_train_signed_np = (sign * y_train).cpu().numpy()
                 regressor.fit(X_train_np, y_train_signed_np)
-                mean_test_signed = torch.tensor(
+                mean_test_signed_std = torch.tensor(
                     regressor.predict(X_test_np), dtype=pfn_dtype, device=pfn_device
                 )
-                std_test = torch.ones_like(mean_test_signed, device=pfn_device) * 1e-6
+                std_test_std = torch.ones_like(mean_test_signed_std, device=pfn_device) * 1e-6
 
             pred_time = time.perf_counter() - t_pred
-            y_hat_test = sign * mean_test_signed
+
+            # Inverse-transform PFN outputs back to raw y space, matching GP behavior.
+            # mean/std currently in "signed, standardized" space: sign * y_std.
+            y_hat_signed_std = mean_test_signed_std.to(device=device, dtype=dtype)
+            std_test_std = std_test_std.to(device=device, dtype=dtype)
+            y_hat_std = y_hat_signed_std * sign  # remove sign
+            if y_scaler is not None:
+                y_hat_test = y_scaler.inverse_transform(
+                    y_hat_std.unsqueeze(1)
+                ).squeeze(1)
+                # Scale predictive std back using training std (broadcast if needed).
+                y_train_std_val = y_scaler.std.to(device=device, dtype=dtype).squeeze()
+                std_test = std_test_std * y_train_std_val
+            else:
+                y_hat_test = y_hat_std
+                std_test = std_test_std
 
             metrics_dict = compute_metrics(
                 y_true=y_test_raw,

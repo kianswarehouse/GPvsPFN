@@ -223,6 +223,9 @@ def dixon_price_GPvsPFN_BO(
                 pfn_dtype=pfn_dtype,
                 bo_test_metrics=defaults.BO_TEST_METRICS,
                 gi_pfn=defaults.BO_GI_PFN,
+                standardize_X=standardize_X,
+                standardize_y=standardize_y,
+                x_standardize_method=x_standardize_method,
             )
         else:
             raise ValueError(f"Unsupported run_models='{run_models}'. Expected None, 'gp', or 'pfn'.")

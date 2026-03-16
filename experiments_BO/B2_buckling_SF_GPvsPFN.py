@@ -47,7 +47,7 @@ def buckling_SF_GPvsPFN_BO(
     trainer_info: bool = defaults.TRAINER_INFO,
     run_models: str | None = defaults.RUN_MODELS,
     log_lbfgs_inner: bool = defaults.TRAINER_LOG_LBFGS_INNER,
-    minimization_problem: bool = True,  # Buckling: minimize objective
+    minimization_problem: bool = False,  # Buckling: maximize objective
     acquisition: str = defaults.BO_ACQUISITION,
     gp_optimize_af: bool = defaults.GP_OPTIMIZE_AF,
     n_AF_opt: int = defaults.BO_N_AF_OPT,
@@ -88,6 +88,10 @@ def buckling_SF_GPvsPFN_BO(
         noise_type=noise_type,
         return_categorical=True,
     )
+    # SF buckling: keep only [L, E, K, I], drop source column (last col).
+    X_train_all = X_train_all[:, :4]
+    X_test_all = X_test_all[:, :4]
+
     # Learn encodings jointly on train and test, then one-hot encode categorical inputs.
     X_all = torch.cat([X_test_all, X_train_all], dim=0)
     qual_dict = learn_encodings(X_all)
@@ -115,32 +119,57 @@ def buckling_SF_GPvsPFN_BO(
         bounds[0, c] = torch.tensor(0.5, device=device, dtype=dtype)
         bounds[1, c] = torch.tensor(1.5, device=device, dtype=dtype)
 
+    # Categorical structure for AF candidate sampling: E=2, K=4, I=3 (one-hot groups).
+    # Ensures 5k AF samples are valid one-hot with evenly divided class combinations.
+    buckling_cat_class_sizes = [2, 4, 3]
+    cont_bounds = torch.tensor([[0.5], [1.5]], device=device, dtype=dtype)
+
     # Decode encoded x (one-hot for E, K, I) back to physical 4D inputs for the true buckling objective.
     E_phys = torch.tensor([73.1, 200.0], dtype=dtype, device=device)
     K_phys = torch.tensor([0.5, 0.7, 1.0, 2.0], dtype=dtype, device=device)
     I_phys = torch.tensor([9.49, 12.1, 29.5], dtype=dtype, device=device)
 
-    def objective_fn(x: torch.Tensor) -> torch.Tensor:
-        # Continuous length L
+    # Match regression (generate_mf_buckling_data): scale noise by test std of clean outputs
+    with torch.no_grad():
+        L_test = X_test_all[:, cont_cols[0]]
+        E_idx = torch.argmax(X_test_all[:, cat_cols[0]], dim=-1)
+        K_idx = torch.argmax(X_test_all[:, cat_cols[1]], dim=-1)
+        I_idx = torch.argmax(X_test_all[:, cat_cols[2]], dim=-1)
+        X_phys_test = torch.stack(
+            [L_test, E_phys[E_idx], K_phys[K_idx], I_phys[I_idx]], dim=-1
+        )
+        y_test_clean_for_noise = buckling_mixed_variables(X_phys_test, source="s0")
+        test_std_value = (
+            float(y_test_clean_for_noise.std().item())
+            if y_test_clean_for_noise.numel() > 1
+            else 0.0
+        )
+
+    def _decode_and_eval(x: torch.Tensor) -> torch.Tensor:
         L_vals = x[..., cont_cols[0]]
-        # First three categorical groups in cat_cols correspond to E, K, I.
         E_onehot = x[..., cat_cols[0]]
         K_onehot = x[..., cat_cols[1]]
         I_onehot = x[..., cat_cols[2]]
         E_idx = torch.argmax(E_onehot, dim=-1)
         K_idx = torch.argmax(K_onehot, dim=-1)
         I_idx = torch.argmax(I_onehot, dim=-1)
-        E_vals = E_phys[E_idx]
-        K_vals = K_phys[K_idx]
-        I_vals = I_phys[I_idx]
-        X_phys = torch.stack([L_vals, E_vals, K_vals, I_vals], dim=-1)
-        y_clean = buckling_mixed_variables(X_phys, source="s0")
-        if noise_train <= 0.0:
+        X_phys = torch.stack(
+            [L_vals, E_phys[E_idx], K_phys[K_idx], I_phys[I_idx]], dim=-1
+        )
+        return buckling_mixed_variables(X_phys, source="s0")
+
+    def objective_fn_clean(x: torch.Tensor) -> torch.Tensor:
+        return _decode_and_eval(x)
+
+    def objective_fn(x: torch.Tensor) -> torch.Tensor:
+        y_clean = _decode_and_eval(x)
+        if noise_train <= 0.0 or test_std_value <= 0.0:
             return y_clean
+        scale = noise_train * test_std_value
         if noise_type == "gaussian":
-            noise = torch.randn_like(y_clean) * noise_train
+            noise = torch.randn_like(y_clean) * scale
         elif noise_type == "uniform":
-            noise = (torch.rand_like(y_clean) - 0.5) * 2.0 * noise_train * torch.sqrt(
+            noise = (torch.rand_like(y_clean) - 0.5) * 2.0 * scale * torch.sqrt(
                 torch.tensor(3.0, dtype=y_clean.dtype, device=y_clean.device)
             )
         else:
@@ -227,6 +256,7 @@ def buckling_SF_GPvsPFN_BO(
                 y_test=y_test_all,
                 bounds=bounds,
                 objective_fn=objective_fn,
+                objective_fn_clean=objective_fn_clean,
                 minimization_problem=minimization_problem,
                 acquisition=acquisition,
                 gp_optimize_af=gp_optimize_af,
@@ -256,6 +286,10 @@ def buckling_SF_GPvsPFN_BO(
                 likelihood=defaults.SF_likelihood,
                 log_lbfgs_inner=log_lbfgs_inner,
                 bo_test_metrics=defaults.BO_TEST_METRICS,
+                cat_class_sizes=buckling_cat_class_sizes,
+                cont_bounds=cont_bounds,
+                af_trailing_cols=None,
+                cont_cols=cont_cols,
             )
         elif run_models == "pfn":
             r = run_BO_pfn(
@@ -264,6 +298,7 @@ def buckling_SF_GPvsPFN_BO(
                 y_test=y_test_all,
                 bounds=bounds,
                 objective_fn=objective_fn,
+                objective_fn_clean=objective_fn_clean,
                 minimization_problem=minimization_problem,
                 acquisition=acquisition,
                 n_AF_sample=n_AF_sample,
@@ -279,6 +314,10 @@ def buckling_SF_GPvsPFN_BO(
                 pfn_dtype=pfn_dtype,
                 bo_test_metrics=defaults.BO_TEST_METRICS,
                 gi_pfn=defaults.BO_GI_PFN,
+                standardize_X=standardize_X,
+                standardize_y=standardize_y,
+                x_standardize_method=x_standardize_method,
+                cont_cols=cont_cols,
             )
         else:
             raise ValueError(f"Unsupported run_models='{run_models}'. Expected None, 'gp', or 'pfn'.")
