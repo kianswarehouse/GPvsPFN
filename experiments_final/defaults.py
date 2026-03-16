@@ -83,8 +83,8 @@ def get_default_gp_callbacks(
             if log_lbfgs_inner:
                 callbacks.append(
                     LBFGSInnerMetricsCallbackV3(
-                        log_record_every_n_iters=1,
-                        log_metrics_every_n_iters=1,
+                        log_record_every_n_iters=10,
+                        log_metrics_every_n_iters=10,
                         log_nll=True,
                         log_nis=True,
                         log_loo=True,
