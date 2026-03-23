@@ -59,6 +59,7 @@ class run_BO_Result:
     # Per-iteration: chosen point (raw), AF value, train time (s), AF time (s)
     x_chosen_history: List[torch.Tensor] = field(default_factory=list)
     af_value_history: List[float] = field(default_factory=list)
+    y_pred_mean_history: List[float] = field(default_factory=list)
     train_time_history: List[float] = field(default_factory=list)
     af_time_history: List[float] = field(default_factory=list)
 
@@ -287,6 +288,76 @@ def _compute_ts_samples(mean: torch.Tensor, std: torch.Tensor) -> torch.Tensor:
     return torch.normal(mean, std)
 
 
+def _predict_gp_mean_std_with_grad(
+    model: Any,
+    X_raw: torch.Tensor,
+    x_scaler: Optional[Any],
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Predict GP posterior mean/std with autograd enabled.
+    """
+    X_for_model = x_scaler.transform(X_raw) if x_scaler is not None else X_raw
+    model.eval()
+    if hasattr(model.likelihood, "set_fidelity_indices"):
+        model.likelihood.set_fidelity_indices(X_for_model, is_test=True)
+    observed_pred = model.likelihood(model(X_for_model))
+    mean = observed_pred.mean.reshape(-1)
+    std = observed_pred.stddev.reshape(-1)
+    return mean, std
+
+
+def _predict_tabpfn_signed_mean_std(
+    regressor: Any,
+    X_np: np.ndarray,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Predict signed standardized mean/std from sklearn TabPFNRegressor.
+
+    Uses output_type="full" to recover uncertainty required by EI/TS.
+    Falls back to quantile-derived std if criterion variance is unavailable.
+    """
+    full_predictions = regressor.predict(
+        X_np,
+        output_type="full",
+        quantiles=[0.025, 0.975],
+    )
+
+    mean_np = full_predictions.get("mean", None)
+    if mean_np is None:
+        raise RuntimeError(
+            "TabPFN full predictions did not include 'mean'; cannot compute BO acquisition."
+        )
+    mean_signed = torch.as_tensor(mean_np, dtype=dtype, device=device).reshape(-1)
+
+    std_signed: Optional[torch.Tensor] = None
+    logits = full_predictions.get("logits", None)
+    criterion = full_predictions.get("criterion", None)
+    if logits is not None and criterion is not None and hasattr(criterion, "variance"):
+        logits_t = torch.as_tensor(logits)
+        var = criterion.variance(logits_t)
+        std_signed = torch.clamp(
+            torch.as_tensor(var, dtype=dtype, device=device).reshape(-1),
+            min=1e-12,
+        ).sqrt()
+
+    if std_signed is None:
+        quantiles = full_predictions.get("quantiles", None)
+        if isinstance(quantiles, (list, tuple)) and len(quantiles) >= 2:
+            q_lo = torch.as_tensor(quantiles[0], dtype=dtype, device=device).reshape(-1)
+            q_hi = torch.as_tensor(quantiles[1], dtype=dtype, device=device).reshape(-1)
+            # 95% central interval for a normal variable: q0.975 - q0.025 ~= 2*1.96*sigma
+            std_signed = torch.clamp((q_hi - q_lo) / (2.0 * 1.959963984540054), min=1e-12)
+
+    if std_signed is None:
+        raise RuntimeError(
+            "TabPFN full predictions did not provide variance/quantiles; cannot compute EI/TS."
+        )
+
+    return mean_signed, std_signed
+
+
 def _select_next_point_sampling(
     model,
     bounds: torch.Tensor,
@@ -353,14 +424,26 @@ def _optimize_ei_with_scipy(
     X_starts = _sample_sobol_in_bounds(n_starts, bounds, sobol, dtype, device).cpu().numpy()
     scipy_bounds = [(float(bounds[0, i].cpu().item()), float(bounds[1, i].cpu().item())) for i in range(d)]
 
-    def neg_ei_np(x_np: np.ndarray) -> float:
-        x = torch.as_tensor(x_np, dtype=dtype, device=device).unsqueeze(0)
-        x_for_model = x_scaler.transform(x) if x_scaler is not None else x
-        mean, _, _, std = evaluate_gp_model(model, x_for_model)
-        mean_signed = sign * mean.view(-1)
-        std = std.view(-1)
-        ei = _compute_ei(mean_signed, std, best_f_signed)
-        return -float(ei.item())
+    def neg_ei_with_grad_np(x_np: np.ndarray) -> Tuple[float, np.ndarray]:
+        x_base = torch.tensor(x_np, dtype=dtype, device=device, requires_grad=True)
+        x = x_base.unsqueeze(0)
+        try:
+            mean, std = _predict_gp_mean_std_with_grad(
+                model=model,
+                X_raw=x,
+                x_scaler=x_scaler,
+            )
+            mean_signed = sign * mean
+            ei = _compute_ei(mean_signed, std, best_f_signed)
+            obj = -ei.squeeze()
+            obj.backward()
+            grad = x_base.grad.detach().cpu().numpy().astype(np.float64)
+            obj_val = float(obj.detach().cpu().item())
+            if not np.isfinite(obj_val) or not np.all(np.isfinite(grad)):
+                return 1e9, np.zeros_like(x_np, dtype=np.float64)
+            return obj_val, grad
+        except Exception:
+            return 1e9, np.zeros_like(x_np, dtype=np.float64)
 
     best_x = None
     best_ei = -np.inf
@@ -371,14 +454,15 @@ def _optimize_ei_with_scipy(
         mean_s_signed = sign * mean_s.view(-1)
         std_s = std_s.view(-1)
         ei_starts = _compute_ei(mean_s_signed, std_s, best_f_signed)
-    k = min(5, n_starts)
+    k = max(1, n_starts)
     topk_idx = torch.topk(ei_starts, k).indices.cpu().tolist()
     for idx in topk_idx:
         x0 = X_starts[idx]
         res = minimize(
-            neg_ei_np,
+            neg_ei_with_grad_np,
             x0,
-            method="Powell",
+            method="L-BFGS-B",
+            jac=True,
             bounds=scipy_bounds,
             options={"maxiter": 50, "disp": False},
         )
@@ -440,20 +524,30 @@ def _optimize_ei_mixed_categorical(
             parts.append(row)
         combo_onehots.append(torch.cat(parts))
 
-    def neg_ei_cont_np(c_flat: np.ndarray, combo_idx: int) -> float:
-        c = torch.as_tensor(c_flat, dtype=dtype, device=device)
-        if c.dim() == 1:
-            c = c.unsqueeze(0)  # (1, n_cont) for concat with one-hot
-        onehot = combo_onehots[combo_idx]
-        x = torch.cat([c, onehot.unsqueeze(0).expand(c.shape[0], -1)], dim=1)
-        if af_trailing_cols is not None:
-            x = torch.cat([x, af_trailing_cols.to(device=device, dtype=dtype).expand(x.shape[0], -1)], dim=1)
-        x_for_model = x_scaler.transform(x) if x_scaler is not None else x
-        mean, _, _, std = evaluate_gp_model(model, x_for_model)
-        mean_signed = sign * mean.view(-1)
-        std = std.view(-1)
-        ei = _compute_ei(mean_signed, std, best_f_signed)
-        return -float(ei.item())
+    def neg_ei_cont_with_grad_np(c_flat: np.ndarray, combo_idx: int) -> Tuple[float, np.ndarray]:
+        c_base = torch.tensor(c_flat, dtype=dtype, device=device, requires_grad=True)
+        c = c_base.unsqueeze(0) if c_base.dim() == 1 else c_base
+        try:
+            onehot = combo_onehots[combo_idx]
+            x = torch.cat([c, onehot.unsqueeze(0).expand(c.shape[0], -1)], dim=1)
+            if af_trailing_cols is not None:
+                x = torch.cat([x, af_trailing_cols.to(device=device, dtype=dtype).expand(x.shape[0], -1)], dim=1)
+            mean, std = _predict_gp_mean_std_with_grad(
+                model=model,
+                X_raw=x,
+                x_scaler=x_scaler,
+            )
+            mean_signed = sign * mean
+            ei = _compute_ei(mean_signed, std, best_f_signed)
+            obj = -ei.squeeze()
+            obj.backward()
+            grad = c_base.grad.detach().cpu().numpy().astype(np.float64)
+            obj_val = float(obj.detach().cpu().item())
+            if not np.isfinite(obj_val) or not np.all(np.isfinite(grad)):
+                return 1e9, np.zeros_like(c_flat, dtype=np.float64)
+            return obj_val, grad
+        except Exception:
+            return 1e9, np.zeros_like(c_flat, dtype=np.float64)
 
     best_x_full: Optional[torch.Tensor] = None
     best_ei = -np.inf
@@ -462,8 +556,8 @@ def _optimize_ei_mixed_categorical(
     ub = cont_bounds[1].to(device=device, dtype=dtype)
 
     for combo_idx in range(n_combos):
-        def obj(c: np.ndarray, ci: int = combo_idx) -> float:
-            return neg_ei_cont_np(c, ci)
+        def obj(c: np.ndarray, ci: int = combo_idx) -> Tuple[float, np.ndarray]:
+            return neg_ei_cont_with_grad_np(c, ci)
 
         for init_idx in range(n_inits_per_combo):
             # Initial continuous point: Sobol draw scaled to cont_bounds
@@ -474,6 +568,7 @@ def _optimize_ei_mixed_categorical(
                 obj,
                 c0,
                 method="L-BFGS-B",
+                jac=True,
                 bounds=scipy_bounds_cont,
                 options={"maxiter": 50, "disp": False},
             )
@@ -620,6 +715,7 @@ def run_BO_gp(
     nis_history: List[Dict[str, float]] = []
     x_chosen_history: List[torch.Tensor] = []
     af_value_history: List[float] = []
+    y_pred_mean_history: List[float] = []
     train_time_history: List[float] = []
     af_time_history: List[float] = []
     no_improve = 0
@@ -748,6 +844,14 @@ def run_BO_gp(
 
         x_chosen_history.append(x_next_raw.detach().cpu().clone())
         af_value_history.append(af_val)
+        x_next_for_model = x_scaler.transform(x_next_raw) if x_scaler is not None else x_next_raw
+        pred_mean_std, _, _, _ = evaluate_gp_model(model, x_next_for_model)
+        pred_mean_std = pred_mean_std.reshape(-1).to(device=device, dtype=dtype)
+        if y_scaler is not None:
+            pred_mean_raw = y_scaler.inverse_transform(pred_mean_std.unsqueeze(1)).squeeze(1)
+        else:
+            pred_mean_raw = pred_mean_std
+        y_pred_mean_history.append(float(pred_mean_raw[0].item()))
 
         if verbose:
             iter_idx = len(best_y_history)
@@ -799,6 +903,7 @@ def run_BO_gp(
         n_iterations=len(best_y_history),
         x_chosen_history=x_chosen_history,
         af_value_history=af_value_history,
+        y_pred_mean_history=y_pred_mean_history,
         train_time_history=train_time_history,
         af_time_history=af_time_history,
     )
@@ -810,6 +915,7 @@ def run_BO_gp(
             "n_iterations": result.n_iterations,
             "x_chosen": [t.tolist() for t in result.x_chosen_history],
             "af_values": result.af_value_history,
+            "y_pred_mean_history": result.y_pred_mean_history,
             "train_time_s": result.train_time_history,
             "af_time_s": result.af_time_history,
             "best_y_history": result.best_y_history,
@@ -929,6 +1035,7 @@ def run_BO_pfn(
     nis_history: List[Dict[str, float]] = []
     x_chosen_history: List[torch.Tensor] = []
     af_value_history: List[float] = []
+    y_pred_mean_history: List[float] = []
     train_time_history: List[float] = []
     af_time_history: List[float] = []
     no_improve = 0
@@ -1027,6 +1134,32 @@ def run_BO_pfn(
             train_time_history.append(0.0)
             x_chosen_history.append(x_next_raw.detach().cpu().clone())
             af_value_history.append(float(ACQ_perm[0, best_cand_idx[0]].item()))
+            # PFN predicts signed standardized y during acquisition; map back to raw y.
+            regressor_pred = VanillaDirectTabPFNRegressor(device=pfn_device)
+            x_next_std = (
+                x_scaler.transform(x_next_raw) if x_scaler is not None else x_next_raw
+            )
+            X_train_pfn = X_train.to(device=pfn_device, dtype=pfn_dtype)
+            x_next_pfn = x_next_std.to(device=pfn_device, dtype=pfn_dtype)
+            y_train_signed_pfn = (sign * y_train).to(device=pfn_device, dtype=pfn_dtype)
+            X_concat = torch.cat([X_train_pfn.unsqueeze(1), x_next_pfn.unsqueeze(1)], dim=0)
+            Y_train_time = y_train_signed_pfn.view(-1, 1)
+            Y_pad = torch.zeros(1, 1, device=pfn_device, dtype=pfn_dtype)
+            Y_full = torch.cat([Y_train_time, Y_pad], dim=0).unsqueeze(1)
+            with torch.no_grad():
+                out = regressor_pred.forward(
+                    X_concat,
+                    Y_full,
+                    single_eval_pos=X_train.shape[0],
+                )
+                logits = out["standard"]
+                pred_mean_signed_std = regressor_pred.predict_mean(logits)[X_train.shape[0] :, 0]
+            pred_mean_std = (pred_mean_signed_std * sign).to(device=device, dtype=dtype)
+            if y_scaler is not None:
+                pred_mean_raw = y_scaler.inverse_transform(pred_mean_std.unsqueeze(1)).squeeze(1)
+            else:
+                pred_mean_raw = pred_mean_std
+            y_pred_mean_history.append(float(pred_mean_raw[0].item()))
 
             if verbose:
                 iter_idx = len(best_y_history)
@@ -1098,6 +1231,7 @@ def run_BO_pfn(
             _, best_clean_idx = torch.max(y_signed_clean, dim=0)
             best_clean_raw_val = y_train_clean_raw[best_clean_idx].item()
             best_y_clean_history.append(best_clean_raw_val)
+            best_f_signed_for_af = float((sign * y_train).max().item())
 
             if acquisition.upper() not in {"EI", "TS"}:
                 raise ValueError(f"Unsupported acquisition function for PFN: {acquisition}")
@@ -1123,16 +1257,39 @@ def run_BO_pfn(
             X_cand_np = X_cand.cpu().numpy()
 
             regressor.fit(X_train_np, y_train_signed_np)
-            acq_pred = regressor.predict(X_cand_np)
+            mean_signed_std, std_signed_std = _predict_tabpfn_signed_mean_std(
+                regressor=regressor,
+                X_np=X_cand_np,
+                device=device,
+                dtype=dtype,
+            )
+            if acquisition.upper() == "EI":
+                acq_vals = _compute_ei(
+                    mean_signed_std,
+                    std_signed_std,
+                    best_f_signed=best_f_signed_for_af,
+                )
+            elif acquisition.upper() == "TS":
+                acq_vals = _compute_ts_samples(mean_signed_std, std_signed_std)
+            else:
+                raise ValueError(f"Unsupported acquisition function for PFN: {acquisition}")
 
-            idx = int(np.argmax(acq_pred))
-            af_val = float(acq_pred[idx])
+            idx = int(torch.argmax(acq_vals).item())
+            af_val = float(acq_vals[idx].item())
             x_next_raw = X_cand_raw[idx : idx + 1]
             af_time_history.append(time.perf_counter() - t_af)
             train_time_history.append(0.0)
 
             x_chosen_history.append(x_next_raw.detach().cpu().clone())
             af_value_history.append(af_val)
+            # Store PFN posterior-mean prediction at chosen point (signed, standardized).
+            pred_mean_signed_std = mean_signed_std[idx : idx + 1]
+            pred_mean_std = pred_mean_signed_std * sign
+            if y_scaler is not None:
+                pred_mean_raw = y_scaler.inverse_transform(pred_mean_std.unsqueeze(1)).squeeze(1)
+            else:
+                pred_mean_raw = pred_mean_std
+            y_pred_mean_history.append(float(pred_mean_raw[0].item()))
 
             if verbose:
                 iter_idx = len(best_y_history)
@@ -1285,6 +1442,7 @@ def run_BO_pfn(
         n_iterations=len(best_y_history),
         x_chosen_history=x_chosen_history,
         af_value_history=af_value_history,
+        y_pred_mean_history=y_pred_mean_history,
         train_time_history=train_time_history,
         af_time_history=af_time_history,
     )
@@ -1296,6 +1454,7 @@ def run_BO_pfn(
             "n_iterations": result.n_iterations,
             "x_chosen": [t.tolist() for t in result.x_chosen_history],
             "af_values": result.af_value_history,
+            "y_pred_mean_history": result.y_pred_mean_history,
             "train_time_s": result.train_time_history,
             "af_time_s": result.af_time_history,
             "best_y_history": result.best_y_history,

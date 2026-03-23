@@ -304,7 +304,11 @@ def rosenbrock_GPvsPFN_BO(
     if save_path:
         os.makedirs(save_path, exist_ok=True)
         summary_input = [
-            {k: v for k, v in m.items() if k not in ("run", "run_seed")}
+            {
+                k: v
+                for k, v in m.items()
+                if k not in ("run", "run_seed") and isinstance(v, (int, float))
+            }
             for m in bo_metrics
         ]
         bo_summary = analyze_metrics(summary_input, print_summary=False, label="BO", title=title_str)
@@ -320,6 +324,7 @@ def rosenbrock_GPvsPFN_BO(
                         "n_iterations": r.n_iterations,
                         "x_chosen": [t.tolist() for t in r.x_chosen_history],
                         "af_values": r.af_value_history,
+                        "y_pred_mean_history": r.y_pred_mean_history,
                         "train_time_s": r.train_time_history,
                         "af_time_s": r.af_time_history,
                         "best_y_history": r.best_y_history,
