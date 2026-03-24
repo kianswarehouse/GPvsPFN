@@ -55,9 +55,11 @@ SUBPLOT_TOP = 0.95
 # Each tuple: (relative_results_folder, legend_label)
 # Paths are resolved relative to SCRIPT_DIR.
 OVERLEAF_MODELS: list[tuple[str, str]] = [
-    ("results_BO/GP+_", "GP+"),
-    ("results_BO/PFN_V2.0", "PFN 2.0"),
-    ("results_BO/PFN_V2.5_", "PFN 2.5"),
+    ("results_BO/GP+_", "GP+_Powell"),
+    ("results_BO/GP+", "GP+_LBFGS"),
+    ("results_BO/GP+_no_AF_optimize", "GP+_no_AF_optimize"),
+    # ("results_BO/PFN_V2.5", "PFN 2.5"),
+    # ("results_BO/PFN_V2.0", "PFN 2.0"),
     # Example of adding another variant:
     # ("results_BO/PFN_V2.5_homePC", "PFN 2.5 (home)"),
 ]

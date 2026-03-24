@@ -11,9 +11,9 @@ from B9_dixon_price_GPvsPFN import dixon_price_GPvsPFN_BO
 folder = "results_BO"
 # date = "check"
 # date = "GP+_check"
-# date = "GP+"
-# date = "GP+_no_AF_optimize2"
-date = "PFN_V2.0"
+date = "GP+"
+# date = "GP+_no_AF_optimize"
+# date = "PFN_V2.0"
 # date = "PFN_V2.5"
 # date = "PFN_V2.5_GI"
 # date = "PFN_V2.5_check"
@@ -41,8 +41,8 @@ patience_no_improve = 10 # 10 is default
 
 # title = '2.0'
 title = None
-run_models = 'pfn'
-# run_models = 'gp'
+# run_models = 'pfn'
+run_models = 'gp'
 
 low_noise = 0.002
 high_noise = 0.08

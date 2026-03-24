@@ -405,6 +405,8 @@ def _optimize_ei_with_scipy(
     dtype: torch.dtype,
     device: torch.device,
     x_scaler: Optional[Any] = None,
+    af_optimizer_method: str = "L-BFGS-B",
+    af_optimizer_options: Optional[Dict[str, Any]] = None,
 ) -> Tuple[torch.Tensor, float]:
     if minimize is None:
         x_next, af_val = _select_next_point_sampling(
@@ -461,10 +463,10 @@ def _optimize_ei_with_scipy(
         res = minimize(
             neg_ei_with_grad_np,
             x0,
-            method="L-BFGS-B",
+            method=af_optimizer_method,
             jac=True,
             bounds=scipy_bounds,
-            options={"maxiter": 50, "disp": False},
+            options=af_optimizer_options,
         )
         if not res.success:
             continue
@@ -491,6 +493,8 @@ def _optimize_ei_mixed_categorical(
     x_scaler: Optional[Any] = None,
     n_inits_per_combo: int = 16,
     af_trailing_cols: Optional[torch.Tensor] = None,
+    af_optimizer_method: str = "L-BFGS-B",
+    af_optimizer_options: Optional[Dict[str, Any]] = None,
 ) -> Tuple[torch.Tensor, float]:
     """
     Optimize EI over mixed continuous + one-hot categorical space by enumerating
@@ -567,10 +571,10 @@ def _optimize_ei_mixed_categorical(
             res = minimize(
                 obj,
                 c0,
-                method="L-BFGS-B",
+                method=af_optimizer_method,
                 jac=True,
                 bounds=scipy_bounds_cont,
-                options={"maxiter": 50, "disp": False},
+                options=af_optimizer_options,
             )
             c_opt = res.x
             ei_val = -res.fun
@@ -607,6 +611,53 @@ def _optimize_ei_mixed_categorical(
 # ---------- Main run API ----------
 
 
+def _resolve_af_optimizer_options(
+    *,
+    optimizer_kwargs: Optional[Dict[str, Any]],
+    af_optimizer_kwargs: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Build SciPy minimize() options for AF optimization.
+
+    Priority:
+      1) af_optimizer_kwargs (explicit AF overrides)
+      2) optimizer_kwargs (trainer LBFGS kwargs)
+      3) safe defaults
+
+    Supports both SciPy key names and trainer-style names:
+      - max_iter -> maxiter
+      - max_eval -> maxfun
+      - tolerance_grad -> gtol
+      - tolerance_change -> ftol
+      - history_size -> maxcor
+    """
+    options: Dict[str, Any] = {"maxiter": 50, "disp": False}
+    src = af_optimizer_kwargs if af_optimizer_kwargs is not None else optimizer_kwargs
+    if not src:
+        return options
+
+    # First pass: accept SciPy-native keys directly.
+    scipy_keys = {"maxiter", "maxfun", "gtol", "ftol", "maxcor", "eps", "disp"}
+    for k, v in src.items():
+        if k in scipy_keys:
+            options[k] = v
+
+    # Second pass: map trainer-style keys.
+    key_map = {
+        "max_iter": "maxiter",
+        "max_eval": "maxfun",
+        "tolerance_grad": "gtol",
+        "tolerance_change": "ftol",
+        "history_size": "maxcor",
+    }
+    for old_key, new_key in key_map.items():
+        # SciPy-native key in src takes precedence over mapped trainer key.
+        if old_key in src and new_key not in src:
+            options[new_key] = src[old_key]
+
+    return options
+
+
 def run_BO_gp(
     *,
     X_init: torch.Tensor,
@@ -631,6 +682,8 @@ def run_BO_gp(
     min_loss_change: float = 1e-7,
     optimizer_class: Any = None,
     optimizer_kwargs: Optional[Dict] = None,
+    af_optimizer_method: str = "L-BFGS-B",
+    af_optimizer_kwargs: Optional[Dict[str, Any]] = None,
     initializer_class: Any = None,
     gp_device: str = "cpu",
     gp_dtype: torch.dtype = torch.float64,
@@ -708,6 +761,10 @@ def run_BO_gp(
     sobol = SobolEngine(X_train_raw.shape[1], scramble=True, seed=run_seed)
     # Minimize objective → maximize (-y) → sign = -1. Maximize objective → sign = 1.
     sign = -1.0 if minimization_problem else 1.0
+    af_optimizer_options = _resolve_af_optimizer_options(
+        optimizer_kwargs=optimizer_kwargs,
+        af_optimizer_kwargs=af_optimizer_kwargs,
+    )
 
     best_y_history: List[float] = []
     best_y_clean_history: List[float] = []
@@ -810,6 +867,8 @@ def run_BO_gp(
                 x_scaler=x_scaler,
                 n_inits_per_combo=n_AF_opt,
                 af_trailing_cols=af_trailing_cols,
+                af_optimizer_method=af_optimizer_method,
+                af_optimizer_options=af_optimizer_options,
             )
         elif acquisition.upper() == "EI" and gp_optimize_af:
             x_next_raw, af_val = _optimize_ei_with_scipy(
@@ -822,6 +881,8 @@ def run_BO_gp(
                 dtype=dtype,
                 device=device,
                 x_scaler=x_scaler,
+                af_optimizer_method=af_optimizer_method,
+                af_optimizer_options=af_optimizer_options,
             )
         else:
             n_cand = n_AF_sample if n_AF_sample is not None else 5000
@@ -915,6 +976,8 @@ def run_BO_gp(
             "n_iterations": result.n_iterations,
             "x_chosen": [t.tolist() for t in result.x_chosen_history],
             "af_values": result.af_value_history,
+            "af_optimizer_method": af_optimizer_method,
+            "af_optimizer_options": af_optimizer_options,
             "y_pred_mean_history": result.y_pred_mean_history,
             "train_time_s": result.train_time_history,
             "af_time_s": result.af_time_history,
