@@ -37,57 +37,17 @@ NOISE_TYPE = 'gaussian'
 BO_NUM_RUNS = 1 # Number of training datasets to run BO on for each problem
 BO_ACQUISITION = 'EI'  # "EI" or "TS"
 GP_OPTIMIZE_AF = True  # If True, optimize GP acquisition function; else use simple sampling
-BO_N_AF_OPT = 16 # number of initialization points to optimize from in the GP model's AF (gp only method)
+BO_N_AF_OPT = 64 # number of initialization points to optimize from in the GP model's AF (gp only method)
 BO_N_AF_SAMPLE = 5000 # number of sample points to evaluate in the AF (simple method)
 BO_MAX_ITER = 30
 BO_PATIENCE_NO_IMPROVE = 10
 BO_GI_PFN = False  # If True, use gradient-informed (GITBO) PFN; else vanilla PFN + Sobol 5k
-# BO_GI_PFN = True  # If True, use gradient-informed (GITBO) PFN; else vanilla PFN + Sobol 5k
 
 TRAINER_INFO = False
 BO_FULL_INFO = True
 BO_TEST_METRICS = True
 RUN_MODELS = None  # "gp" for BO; None reserved for future PFN
 
-# TRAINER_ANALYSIS = True # make settings into problems
-# PLOT_METRICS = False
 
 SEED = 42
 SEED_TRAINER = None
-
-# def MF_kernel(
-#     cont_cols=None,
-#     cat_cols=None,
-#     source_cols=None,
-#     cont_kernel=None,
-#     cat_kernel=None,
-#     source_kernel=None,
-#     cat_encoder=None,
-#     source_encoder=None,
-#     z_dim=2,
-#     fix_lengthscale_cat=False,
-#     fix_lengthscale_source=False,
-#     **kwargs
-# ):
-#     """Factory function that creates and wraps the MF kernel."""
-#     return gpplus.kernels.LogScaleKernel(
-#         gpplus.kernels.MVMFKernel(
-#             cont_cols=cont_cols,
-#             cat_cols=cat_cols,
-#             source_cols=source_cols,
-#             cont_kernel=cont_kernel,
-#             cat_kernel=cat_kernel,
-#             source_kernel=source_kernel,
-#             cat_encoder=cat_encoder,
-#             source_encoder=source_encoder,
-#             z_dim=z_dim,
-#             fix_lengthscale_cat=fix_lengthscale_cat,
-#             fix_lengthscale_source=fix_lengthscale_source,
-#             **kwargs
-#         )
-#     )
-
-# For current experiments, we are not using the following MF methods
-# MF_mean = gpplus.means.MultiMean
-# MF_likelihood = gpplus.likelihoods.MultiLikelihood
-# MF_STANDARDIZATION_METHOD = 2 # 0: standardize all data according to all data, 1: standardize all data according to HF data only, 2: standardize each data source independently
