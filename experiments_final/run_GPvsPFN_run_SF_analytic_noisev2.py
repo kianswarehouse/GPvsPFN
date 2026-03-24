@@ -8,8 +8,8 @@ from A7_zakharov_GPvsPFN import zakharov_GPvsPFN
 from A8_griewank_GPvsPFN import griewank_GPvsPFN
 from A9_dixon_price_GPvsPFN import dixon_price_GPvsPFN
 
-folder = "results_March13"
-date = "10_runs_logging_full_PE"
+folder = "results_March16"
+date = "10_runs_logging_full_Gaussian_LOO"
 # date = "test96"
 
 save_path_wing = f"./{folder}/{date}/wing/"
@@ -41,7 +41,7 @@ wing_SF_GPvsPFN(title="warmup", num_runs=2, train_size=10, save_path=None, noise
 
 # # # %% Wing ------------------------------------------------------------------------------------------------
 wing_SF_GPvsPFN(title=title, num_runs=num_runs, train_size=5, save_path=save_path_wing, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)
-wing_SF_GPvsPFN(title=title, num_runs=num_runs, train_size=20, save_path=save_path_wing, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)
+wing_SF_GPvsPFN(title=title, num_runs=num_runs, train_size=20, save_path=save_path_wing, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models,)
 wing_SF_GPvsPFN(title=title, num_runs=num_runs, train_size=5, save_path=save_path_wing, noise_train=0.08, noise_test=0.08, num_test=num_test, run_models=run_models)
 wing_SF_GPvsPFN(title=title, num_runs=num_runs, train_size=20, save_path=save_path_wing, noise_train=0.08, noise_test=0.08, num_test=num_test, run_models=run_models)
 
@@ -76,32 +76,32 @@ ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=20, sav
 # rosenbrock_GPvsPFN(title=title, num_runs=num_runs, train_size=5, dimensions=20, save_path=save_path_rosenbrock, noise_train=0.08, noise_test=0.08, num_test=num_test, run_models=run_models)
 # rosenbrock_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_rosenbrock, noise_train=0.08, noise_test=0.08, num_test=num_test, run_models=run_models)
 
-# %% Zakharov -------------------------------------------------------------
+# # %% Zakharov -------------------------------------------------------------
 zakharov_GPvsPFN(title=title, num_runs=num_runs, train_size=5, dimensions=20, save_path=save_path_zakharov, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)
 zakharov_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_zakharov, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)
 zakharov_GPvsPFN(title=title, num_runs=num_runs, train_size=5, dimensions=20, save_path=save_path_zakharov, noise_train=0.08, noise_test=0.08, num_test=num_test, run_models=run_models)
 zakharov_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_zakharov, noise_train=0.08, noise_test=0.08, num_test=num_test, run_models=run_models)
 
-# %% Griewank -------------------------------------------------------------
+# # %% Griewank -------------------------------------------------------------
 griewank_GPvsPFN(title=title, num_runs=num_runs, train_size=5, dimensions=20, save_path=save_path_griewank, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)
 griewank_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_griewank, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)
 griewank_GPvsPFN(title=title, num_runs=num_runs, train_size=5, dimensions=20, save_path=save_path_griewank, noise_train=0.08, noise_test=0.08, num_test=num_test, run_models=run_models)
 griewank_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_griewank, noise_train=0.08, noise_test=0.08, num_test=num_test, run_models=run_models)
 
-# # %% Dixon Price -------------------------------------------------------------  
+# # # %% Dixon Price -------------------------------------------------------------  
 # dixon_price_GPvsPFN(title=title, num_runs=num_runs, train_size=5, dimensions=20, save_path=save_path_dixon_price, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)
 # dixon_price_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_dixon_price, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)
 # dixon_price_GPvsPFN(title=title, num_runs=num_runs, train_size=5, dimensions=20, save_path=save_path_dixon_price, noise_train=0.08, noise_test=0.08, num_test=num_test, run_models=run_models)
 # dixon_price_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=20, save_path=save_path_dixon_price, noise_train=0.08, noise_test=0.08, num_test=num_test, run_models=run_models)
 
-# %% 40 Dx Problems ------------------------------------------------------------------------------------------------
-# %% Ackley -------------------------------------------------------------
+# # %% 40 Dx Problems ------------------------------------------------------------------------------------------------
+# # %% Ackley -------------------------------------------------------------
 ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=5, dimensions=40, save_path=save_path_ackley, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)
 ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=40, save_path=save_path_ackley, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)
 ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=5, dimensions=40, save_path=save_path_ackley, noise_train=0.08, noise_test=0.08, num_test=num_test, run_models=run_models)
 ackley_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=40, save_path=save_path_ackley, noise_train=0.08, noise_test=0.08, num_test=num_test, run_models=run_models)
 
-# %% Rastrigin --------------------------------------------------------------
+# # %% Rastrigin --------------------------------------------------------------
 # rastrigin_GPvsPFN(title=title, num_runs=num_runs, train_size=5, dimensions=40, save_path=save_path_rastrigin, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)
 # rastrigin_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=40, save_path=save_path_rastrigin, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)
 # rastrigin_GPvsPFN(title=title, num_runs=num_runs, train_size=5, dimensions=40, save_path=save_path_rastrigin, noise_train=0.08, noise_test=0.08, num_test=num_test, run_models=run_models)
@@ -147,8 +147,8 @@ dixon_price_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=40
 # # # %% Rosenbrock -------------------------------------------------------------
 rosenbrock_GPvsPFN(title=title, num_runs=num_runs, train_size=5, dimensions=80, save_path=save_path_rosenbrock, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)
 rosenbrock_GPvsPFN(title=title, num_runs=num_runs, train_size=5, dimensions=80, save_path=save_path_rosenbrock, noise_train=0.08, noise_test=0.08, num_test=num_test, run_models=run_models)
-# rosenbrock_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=80, save_path=save_path_rosenbrock, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)
-# rosenbrock_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=80, save_path=save_path_rosenbrock, noise_train=0.08, noise_test=0.08, num_test=num_test, run_models=run_models)
+rosenbrock_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=80, save_path=save_path_rosenbrock, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)
+rosenbrock_GPvsPFN(title=title, num_runs=num_runs, train_size=20, dimensions=80, save_path=save_path_rosenbrock, noise_train=0.08, noise_test=0.08, num_test=num_test, run_models=run_models)
 
 # # # %% Zakharov -------------------------------------------------------------
 # zakharov_GPvsPFN(title=title, num_runs=num_runs, train_size=5, dimensions=80, save_path=save_path_zakharov, noise_train=0.002, noise_test=0.002, num_test=num_test, run_models=run_models)

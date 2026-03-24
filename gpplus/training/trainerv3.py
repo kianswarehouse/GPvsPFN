@@ -73,6 +73,10 @@ class GPTrainer:
         self.scheduler_class = scheduler_class
         self.scheduler_kwargs = scheduler_kwargs
         self.min_epochs = min_epochs
+        self.loss_type = "loo"
+        self.kf_Nf: Optional[int] = None
+        self.kf_max_n: int = 2000
+        self.kf_seed: Optional[int] = None
 
         # Set default stop conditions if none provided
         if stop_conditions is None:
@@ -188,6 +192,10 @@ class GPTrainer:
             min_epochs=min_epochs_for_run,
             run_index=run_index + 1,
             log_lbfgs_inner=self.log_lbfgs_inner,
+            loss_type=self.loss_type,
+            kf_Nf=self.kf_Nf,
+            kf_max_n=self.kf_max_n,
+            kf_seed=self.kf_seed,
         )
         train_result = run.train()
 

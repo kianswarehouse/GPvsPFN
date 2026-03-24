@@ -26,6 +26,7 @@ from .stop_conditions import (
     StopCondition,
     StopConditionContext,
 )
+from .training_metrics import compute_kf_metric_tensor
 
 
 class GPTrainerSingleProcess:
@@ -59,6 +60,11 @@ class GPTrainerSingleProcess:
         # Per–L-BFGS-iteration logging (inner-iteration callback).
         # None = auto: enabled when any callback implements `on_lbfgs_iteration`.
         log_lbfgs_inner: bool | None = None,
+        # Loss configuration: either "nll" (default) or "kf"
+        loss_type: str = "nll",
+        kf_Nf: Optional[int] = None,
+        kf_max_n: int = 2000,
+        kf_seed: Optional[int] = None,
     ):
         self.model = model
         self.run_index = run_index  # 1-based init index for display / logging
@@ -70,6 +76,10 @@ class GPTrainerSingleProcess:
         self.min_epochs = min_epochs
         self.callbacks = callbacks or []
         self.device = device
+        self.loss_type = loss_type
+        self.kf_Nf = kf_Nf
+        self.kf_max_n = kf_max_n
+        self.kf_seed = kf_seed
         if log_lbfgs_inner is None:
             # Auto-enable when any callback wants LBFGS inner-iteration contexts.
             self.log_lbfgs_inner = any(
@@ -394,8 +404,7 @@ class GPTrainerSingleProcess:
         optimizer.zero_grad()
         train_x = self.train_x.to(dtype=self.dtype)
         train_y = self.train_y.to(dtype=self.dtype)
-        output = self.model(train_x)
-        loss = -mll(output, train_y)
+        loss = self._compute_loss(mll, train_x, train_y)
         loss.backward()
         optimizer.step()
         if self.scheduler is not None:
@@ -512,13 +521,75 @@ class GPTrainerSingleProcess:
             train_x = self.train_x.to(dtype=self.dtype, device=model_device)
             train_y = self.train_y.to(dtype=self.dtype, device=model_device)
 
-            output = self.model(train_x)
-            loss = -mll(output, train_y)
+            loss = self._compute_loss(mll, train_x, train_y)
             loss.backward()
 
             return loss
 
         return closure
+
+
+    def _compute_loss(self, mll, train_x: torch.Tensor, train_y: torch.Tensor) -> torch.Tensor:
+        """
+        Compute the training loss based on the configured loss_type.
+
+        - "nll": standard negative marginal log likelihood.
+        - "loo": negative leave-one-out pseudo log likelihood (minimize = maximize LOO predictive accuracy).
+        - "kf": kernel flows rho metric used directly as a loss (minimize rho).
+        - "nll_kf": composite loss = NLL + lambda_kf * rho.
+        """
+        output = self.model(train_x)
+        nll = -mll(output, train_y)  # for fallbacks and nll_kf
+
+        if self.loss_type == "nll":
+            return nll
+
+        if self.loss_type == "loo":
+            # LOO loss: minimize negative LOO pseudo log likelihood (differentiable).
+            loo_mll = gpytorch.mlls.LeaveOneOutPseudoLikelihood(self.model.likelihood, self.model)
+            pll = loo_mll(output, train_y)
+            loss = -pll.sum() if pll.dim() > 0 else -pll
+            return loss
+
+        if self.loss_type == "kf":
+            # Pure KF loss path: compute differentiable rho tensor.
+            N = train_x.size(0)
+            if self.kf_max_n is not None and N > self.kf_max_n:
+                nll = -mll(output, train_y)
+                return nll
+
+            Nf = self.kf_Nf if self.kf_Nf is not None else min(64, N)
+            rho = compute_kf_metric_tensor(
+                self.model,
+                train_x,
+                train_y,
+                Nf=Nf,
+                cholesky_jitter=self.cholesky_jitter,
+                seed=self.kf_seed,
+                likelihood=self.model.likelihood,
+            )
+            return rho if torch.isfinite(rho) else nll
+
+        if self.loss_type == "nll_kf":
+            # Composite: NLL + lambda_kf * rho regularizer.
+            N = train_x.size(0)
+            lambda_kf = 5  # start small; tune per problem
+            rho = torch.tensor(0.0, device=train_x.device, dtype=train_x.dtype)
+            if self.kf_max_n is None or N <= self.kf_max_n:
+                Nf = self.kf_Nf if self.kf_Nf is not None else min(64, N)
+                rho_val = compute_kf_metric_tensor(
+                    self.model,
+                    train_x,
+                    train_y,
+                    Nf=Nf,
+                    cholesky_jitter=self.cholesky_jitter,
+                    seed=self.kf_seed,
+                    likelihood=self.model.likelihood,
+                )
+                if torch.isfinite(rho_val):
+                    rho = rho_val
+            return -mll(output, train_y) + lambda_kf * rho
+        
 
 
 __all__ = ["GPTrainerSingleProcess"]

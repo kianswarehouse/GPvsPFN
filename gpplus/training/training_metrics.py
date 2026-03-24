@@ -105,7 +105,7 @@ def compute_kf_metric(
     seed: Optional[int] = None,
     likelihood=None,  # kept for API compatibility; intentionally unused in prior-kernel KF
     n_subsamples: int = 10,
-    subset_rates: Tuple[float, ...] = (0.25, 0.50, 0.75),
+    subset_rates: Tuple[float, ...] = (0.50,),
     max_n: int = 2000,
     return_details: bool = False,
 ) -> float | Dict[str, float]:
@@ -424,6 +424,65 @@ def compute_kf_metric(
 #         return torch.tensor(0.0, device=train_x.device, dtype=train_x.dtype)
 
 
+def compute_kf_metric_tensor(
+    model,
+    train_x: torch.Tensor,
+    train_y: torch.Tensor,
+    *,
+    Nf: int,
+    cholesky_jitter: Optional[float] = None,
+    seed: Optional[int] = None,
+    likelihood=None,
+) -> torch.Tensor:
+    """
+    Differentiable Kernel Flows metric ρ_t = 1 - (||v||_K^2 / ||u||_K^2) as a 0-dim tensor.
+
+    This variant mirrors the original KF definition but keeps the computation in the
+    autograd graph so it can be used directly as a loss. In our convention we will
+    typically minimize ρ itself (loss = ρ), so lower values are better.
+
+    Returns
+    -------
+    torch.Tensor
+        0-dim tensor ρ_t on the same device as train_x. Returns a 0.0 tensor
+        (no gradient) if N > 2000 or Nf is invalid.
+    """
+    jitter = cholesky_jitter if cholesky_jitter is not None else getattr(model, "cholesky_jitter", 1e-6)
+    N = train_x.size(0)
+    if N < 2 or N > 2000:
+        return torch.tensor(0.0, device=train_x.device, dtype=train_x.dtype)
+    try:
+        with gpytorch.settings.cholesky_jitter(jitter):
+            prior = model(train_x)
+            r = (train_y - prior.mean).view(-1)
+            K_prior = getattr(prior, "lazy_covariance_matrix", None) or getattr(prior, "lazy_covar", None)
+            if K_prior is None:
+                return torch.tensor(0.0, device=train_x.device, dtype=train_x.dtype)
+            # Use PRIOR kernel only here (no observation noise term), with jitter
+            # applied purely for numerical stability.
+            K_prior_dense = K_prior.to_dense()
+            eye = torch.eye(N, device=train_x.device, dtype=train_x.dtype)
+            K_dense = K_prior_dense + jitter * eye
+            K_inv_r = torch.linalg.solve(K_dense, r.unsqueeze(-1)).squeeze(-1)
+            u_sq = (r * K_inv_r).sum()
+            u_sq_safe = u_sq.clamp(min=1e-12)
+            gen = torch.Generator(device=train_x.device)
+            if seed is not None:
+                gen.manual_seed(seed)
+            # Full vs half scheme: use all N points for the full norm (u_sq)
+            # and a subset of size Ns = N // 2 for the subset norm (v_sq).
+            Ns = max(1, N // 2)
+            inds = torch.randperm(N, device=train_x.device, generator=gen)[:Ns]
+            r_sub = r[inds]
+            K_sub = K_dense[inds][:, inds]
+            K_sub_inv_r = torch.linalg.solve(K_sub, r_sub.unsqueeze(-1)).squeeze(-1)
+            v_sq = (r_sub * K_sub_inv_r).sum()
+            rho = 1.0 - (v_sq / u_sq_safe)
+            return rho
+    except Exception:
+        return torch.tensor(0.0, device=train_x.device, dtype=train_x.dtype)
+
+
 def compute_rrmse(
     model,
     train_x: torch.Tensor,
@@ -629,8 +688,8 @@ def compute_loo_pll(
             out = model(train_x)
             pll = loo_mll(out, train_y)
             if pll.dim() == 0:
-                return pll.item()
-            return pll.sum().item()
+                return -pll.item()
+            return -pll.sum().item()
     except Exception:
         return float("nan")
 
@@ -710,8 +769,14 @@ def compute_training_metrics_batch(
 
             if log_loo:
                 try:
+                    # Use train-mode forward so LOO_NLL matches the LOO loss when loss_type=="loo"
+                    # (loss is computed in train mode; prior above was from model.eval()).
+                    model.train()
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", message=".*input matches the stored training data.*")
+                        prior_loo = model(train_x)
                     loo_mll = gpytorch.mlls.LeaveOneOutPseudoLikelihood(model.likelihood, model)
-                    pll = loo_mll(prior, train_y)
+                    pll = loo_mll(prior_loo, train_y)
                     val = pll.sum().item() if pll.dim() > 0 else pll.item()
                     out["LOO_NLL"] = float(-val) if torch.isfinite(torch.tensor(val)) else float("nan")
                 except Exception:
@@ -720,7 +785,7 @@ def compute_training_metrics_batch(
             if log_kf:
                 out["KF"] = float("nan")
                 try:
-                    Nf_val = kf_Nf if kf_Nf is not None else min(64, max(2, N // 2))
+                    Nf_val = kf_Nf if kf_Nf is not None else min(64, N)
                     kf_result = compute_kf_metric(
                         model,
                         train_x,
