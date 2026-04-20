@@ -44,7 +44,7 @@ def griewank_GPvsPFN(num_runs=defaults.NUM_RUNS,
         trainer_info=True,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
         log_lbfgs_inner=defaults.TRAINER_LOG_LBFGS_INNER,
-        single_dataset=True,
+        single_dataset=False,
         # If True: one Sobol train set (and test set) for every run; run_seed still varies.
         # If False: larger train pool, shuffle, disjoint train slice per run (legacy).
     ):

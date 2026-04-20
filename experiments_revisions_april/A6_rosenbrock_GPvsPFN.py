@@ -45,7 +45,7 @@ def rosenbrock_GPvsPFN(num_runs=defaults.NUM_RUNS,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
         log_lbfgs_inner=defaults.TRAINER_LOG_LBFGS_INNER,
         kernel_type=None,  # None=default, 'Gaussian', 'PowerExponential', 'Matern'
-        single_dataset=True,
+        single_dataset=False,
         # If True: one Sobol train set (and test set) for every run.
         # If False: draw a larger train pool, shuffle, and use disjoint slices per run (legacy).
     ):

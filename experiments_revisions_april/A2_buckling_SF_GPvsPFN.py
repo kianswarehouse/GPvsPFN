@@ -46,7 +46,7 @@ def buckling_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
         MF_kernel=True,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
         log_lbfgs_inner=defaults.TRAINER_LOG_LBFGS_INNER,
-        single_dataset=True,
+        single_dataset=False,
         # If True: one stratified train fold (same X_train, y_train) for every run; run_seed still varies.
         # If False: legacy — one fold per run from a larger total train pool (max(num_runs, 20) folds).
     ):
