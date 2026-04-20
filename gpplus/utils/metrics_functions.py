@@ -70,6 +70,37 @@ def compute_crps_gaussian(y_true, y_hat, output_std):
     return crps.mean()
 
 
+def compute_nlpd_gaussian(y_true, y_hat, output_std, eps: float = 1e-12):
+    """
+    Compute Gaussian negative log predictive density (NLPD) as mean over samples.
+    """
+    if isinstance(y_true, torch.Tensor):
+        y_true = y_true.detach().cpu().numpy()
+    if isinstance(y_hat, torch.Tensor):
+        y_hat = y_hat.detach().cpu().numpy()
+    if isinstance(output_std, torch.Tensor):
+        output_std = output_std.detach().cpu().numpy()
+
+    y_true = np.asarray(y_true).reshape(-1)
+    y_hat = np.asarray(y_hat).reshape(-1)
+    output_std = np.asarray(output_std).reshape(-1)
+
+    valid_mask = (
+        np.isfinite(y_true)
+        & np.isfinite(y_hat)
+        & np.isfinite(output_std)
+        & (output_std > 0.0)
+    )
+    if not np.any(valid_mask):
+        return None
+
+    y_true_valid = y_true[valid_mask]
+    y_hat_valid = y_hat[valid_mask]
+    sigma = np.maximum(output_std[valid_mask], eps)
+    sigma2 = sigma * sigma
+
+    nlpd = 0.5 * np.log(2.0 * np.pi * sigma2) + 0.5 * ((y_true_valid - y_hat_valid) ** 2 / sigma2)
+    return float(np.mean(nlpd))
 
 
 def logits_to_ensemble(logits, bar_dist, n_samples=1000):
@@ -333,11 +364,17 @@ def compute_metrics(
                 "Install CRPS or set tabpfn_logits=None."
             )
         
-        # Always compute Gaussian CRPS for comparison
-        crps = compute_crps_gaussian(y_true, y_hat, output_std)
-        metrics["CRPS"] = crps
-        # Normalized CRPS (similar to RRMSE normalization)
-        metrics["NCRPS"] = crps / y_true.std()
+        if output_std is not None:
+            # Always compute Gaussian CRPS for comparison
+            crps = compute_crps_gaussian(y_true, y_hat, output_std)
+            metrics["CRPS"] = crps
+            # Normalized CRPS (similar to RRMSE normalization)
+            metrics["NCRPS"] = crps / y_true.std()
+
+            # Gaussian negative log predictive density (NLPD)
+            nlpd = compute_nlpd_gaussian(y_true, y_hat, output_std)
+            if nlpd is not None:
+                metrics["NLPD"] = nlpd
         
         return metrics
 
@@ -467,8 +504,8 @@ def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None
 
     # Extract per-source metrics for RRMSE, NIS, CRPS, etc.
     per_source_stats = {}
-    source_columns = [col for col in df.columns if col.startswith("source_") and 
-                     ("_RRMSE" in col or "_NIS" in col or "_CRPS" in col or "_NCRPS" in col)]
+    source_columns = [col for col in df.columns if col.startswith("source_") and
+                     ("_RRMSE" in col or "_NIS" in col or "_CRPS" in col or "_NCRPS" in col or "_NLPD" in col)]
 
     if source_columns:
         # Group by source
@@ -859,6 +896,9 @@ def compute_per_source_metrics(
                 source_crps = compute_crps_gaussian(source_y_true, source_y_hat, source_output_std)
                 source_metrics["CRPS"] = source_crps
                 source_metrics["NCRPS"] = source_crps / source_y_true.std()
+                source_nlpd = compute_nlpd_gaussian(source_y_true, source_y_hat, source_output_std)
+                if source_nlpd is not None:
+                    source_metrics["NLPD"] = source_nlpd
 
             per_source_metrics[source_name] = source_metrics
 

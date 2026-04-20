@@ -44,6 +44,9 @@ def rastrigin_GPvsPFN(num_runs=defaults.NUM_RUNS,
         trainer_info=True,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
         log_lbfgs_inner=defaults.TRAINER_LOG_LBFGS_INNER,
+        single_dataset=True,
+        # If True: one Sobol train set (and test set) for every run.
+        # If False: draw a larger train pool, shuffle, and use disjoint slices per run (legacy).
     ):
 
     if run_models == 'pfn':
@@ -69,12 +72,24 @@ def rastrigin_GPvsPFN(num_runs=defaults.NUM_RUNS,
     set_seed(seed)
     
     # Calculate total samples needed
-    num_runs_gen = max(num_runs, 20)
     train_per_run = train_size * dimensions  # train_size * dimensions for Rastrigin
-    total_train = num_runs_gen * train_per_run
-    total_samples = num_test + total_train
-    
-    print(f"Generating {total_samples} unique Sobol samples for {dimensions}D Rastrigin function\n\tTest samples: {num_test} / Train samples: {total_train}")
+    if single_dataset:
+        total_train = train_per_run
+        total_samples = num_test + total_train
+        print(
+            f"Generating {total_samples} unique Sobol samples for {dimensions}D Rastrigin function\n\t"
+            f"Test samples: {num_test} / Train samples: {train_per_run} "
+            f"(single_dataset=True: same train data for all {num_runs} runs)"
+        )
+    else:
+        num_runs_gen = max(num_runs, 20)
+        total_train = num_runs_gen * train_per_run
+        total_samples = num_test + total_train
+        print(
+            f"Generating {total_samples} unique Sobol samples for {dimensions}D Rastrigin function\n\t"
+            f"Test samples: {num_test} / Train pool: {total_train} "
+            f"(single_dataset=False: disjoint train slices, {train_per_run} points per run)"
+        )
     if shift is not None:
         print(f"  Using shifted Rastrigin with shift: {shift}")
     
@@ -106,19 +121,24 @@ def rastrigin_GPvsPFN(num_runs=defaults.NUM_RUNS,
     GPPlus_metrics = []
     GPTrainer_info = []  # Accumulate trainer logs across runs
 
-    # Randomize across the single source, then split across runs
-    all_indices = torch.randperm(total_train)
-    train_indices_2d = all_indices.reshape(num_runs_gen, train_per_run)
+    if not single_dataset:
+        # Randomize across the single source, then split across runs
+        all_indices = torch.randperm(total_train)
+        train_indices_2d = all_indices.reshape(num_runs_gen, train_per_run)
         
     total_start_time = time.time()
     for i in range(num_runs):
         run_seed = seed_trainer if seed_trainer is not None else (seed + i)
         print(f"\n{'='*20} {title} RUN {i+1}/{num_runs}: {run_seed} {'='*20}")
 
-        # Get training indices for this run
-        run_train_indices = train_indices_2d[i]
-        X_train = X_train_all[run_train_indices]
-        y_train = y_train_all[run_train_indices]
+        if single_dataset:
+            X_train = X_train_all
+            y_train = y_train_all
+        else:
+            # Get training indices for this run
+            run_train_indices = train_indices_2d[i]
+            X_train = X_train_all[run_train_indices]
+            y_train = y_train_all[run_train_indices]
 
         # Prepare data (standardization) - ALWAYS DO THIS for both GP and PFN
         # Reuse PFN split, convert to torch (unified)

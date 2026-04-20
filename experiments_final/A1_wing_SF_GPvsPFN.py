@@ -41,6 +41,9 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
         trainer_info=True,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
         log_lbfgs_inner=defaults.TRAINER_LOG_LBFGS_INNER,
+        single_dataset=True,
+        # If True: one train set (and one test set) is reused for every run.
+        # If False: generate a larger train pool and use disjoint slices per run (legacy behavior).
     ):
     
     if run_models == 'pfn':
@@ -66,13 +69,26 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
         callback_save_path = None
 
     # Calculate total samples needed
-    num_runs_gen = max(num_runs, 20)
     train_per_run = train_size * 10
-    total_train = num_runs_gen * train_per_run
-    total_samples = num_test + total_train
-    
+    if single_dataset:
+        total_train = train_per_run
+        total_samples = num_test + total_train
+        print(
+            f"Generating {total_samples} unique Sobol samples\n\t"
+            f"Test samples: {num_test} / Train samples: {train_per_run} "
+            f"(single_dataset=True: same train data for all {num_runs} runs)"
+        )
+    else:
+        num_runs_gen = max(num_runs, 20)
+        total_train = num_runs_gen * train_per_run
+        total_samples = num_test + total_train
+        print(
+            f"Generating {total_samples} unique Sobol samples\n\t"
+            f"Test samples: {num_test} / Train pool: {total_train} "
+            f"(single_dataset=False: disjoint train slices, {train_per_run} points per run)"
+        )
+
     # Generate all unique Sobol samples at once
-    print(f"Generating {total_samples} unique Sobol samples\n\tTest samples: {num_test} / Train samples: {total_train}")
     X_train_all, y_train_all, X_test_all, y_test_all = generate_mf_wing_data(
         train_samples_per_source=[total_train, 0, 0, 0], 
         test_samples_per_source=[num_test, 0, 0, 0], 
@@ -104,21 +120,24 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
     GPPlus_metrics = []
     GPTrainer_info = []  # Accumulate trainer logs across runs
 
-    # Randomize across the single source (s0), then split across runs
-    all_indices = torch.randperm(total_train)
-    train_indices_2d = all_indices.reshape(num_runs_gen, train_per_run)
+    if not single_dataset:
+        # Randomize across the single source (s0), then split across runs
+        all_indices = torch.randperm(total_train)
+        train_indices_2d = all_indices.reshape(num_runs_gen, train_per_run)
         
     total_start_time = time.time()
     for i in range(num_runs):
         run_seed = seed_trainer if seed_trainer is not None else (seed + i)
         print(f"\n{'='*20} {title} RUN {i+1}/{num_runs}: {run_seed} {'='*20}")
 
-        # Get training indices for this run
-        run_train_indices = train_indices_2d[i]
-
-        X_train = X_train_all[run_train_indices]
-        # X_enc_train = X_enc_train_all[run_train_indices]
-        y_train = y_train_all[run_train_indices]
+        if single_dataset:
+            X_train = X_train_all
+            y_train = y_train_all
+        else:
+            # Get training indices for this run
+            run_train_indices = train_indices_2d[i]
+            X_train = X_train_all[run_train_indices]
+            y_train = y_train_all[run_train_indices]
 
         # Prepare data (standardization) - ALWAYS DO THIS for both GP and PFN
         # Reuse PFN split, convert to torch

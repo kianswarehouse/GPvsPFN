@@ -1,20 +1,24 @@
-import torch
-import os
 import json
-from pathlib import Path
-from gpplus.utils.onehot_encode_data import encode_qual_data, learn_encodings
-import gpplus
+import os
 import time
-from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
-from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
-from tabpfn import TabPFNRegressor
-from load_experimental_data import generate_ackley_data
+from pathlib import Path
+
 import defaults
 import gpytorch
+import torch
+from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
+from gpplus.utils.onehot_encode_data import encode_qual_data, learn_encodings
+from load_experimental_data import generate_ackley_data
+from pregen_sobol_init import SobolRowsSliceInitializer, build_master_hyper_sobol
+from tabpfn import TabPFNRegressor
+
+import gpplus
+from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
+
 
 # import warnings
 # warnings.filterwarnings("ignore")
-def ackley_GPvsPFN(
+def ackley_GPvsPFN_pregenParams(
         num_runs=defaults.NUM_RUNS,
         num_test=5000,
         train_size=10,  # total training size is train_size * number of X input dimensions
@@ -50,6 +54,7 @@ def ackley_GPvsPFN(
         single_dataset=True,
         # If True: one Sobol train set (and test set) for every run.
         # If False: draw a larger train pool, shuffle, and use disjoint slices per run (legacy).
+        sobol_init_seed=42,
     ):
 
     if run_models == 'pfn':
@@ -57,9 +62,9 @@ def ackley_GPvsPFN(
 
     v2 = "V2" if V2 else ""
     if title is None:
-        title = f"Ackley{v2}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
+        title = f"Ackley{v2}_pregenParams_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
     else:
-        title = f"Ackley{v2}_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
+        title = f"Ackley{v2}_pregenParams_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
@@ -126,11 +131,50 @@ def ackley_GPvsPFN(
         # Randomize across the single source, then split across runs
         all_indices = torch.randperm(total_train)
         train_indices_2d = all_indices.reshape(num_runs_gen, train_per_run)
-        
+
+    master_hyper_init = None
+    hyper_sobol_total_rows = 0
+    effective_sobol_seed = sobol_init_seed if sobol_init_seed is not None else seed
+
+    if run_models in (None, "gp") and num_inits > 0:
+        hyper_sobol_total_rows = num_runs * num_inits
+        if single_dataset:
+            X_tm = X_train_all.detach().clone().to(dtype=gp_dtype)
+            y_tm = y_train_all.detach().clone().to(dtype=gp_dtype)
+        else:
+            run_train_indices = train_indices_2d[0]
+            X_tm = X_train_all[run_train_indices].detach().clone().to(dtype=gp_dtype)
+            y_tm = y_train_all[run_train_indices].detach().clone().to(dtype=gp_dtype)
+        if standardize_X:
+            if x_standardize_method == 0:
+                Xscaler_tm = gpplus.utils.StandardScaler()
+            elif x_standardize_method == 1:
+                Xscaler_tm = gpplus.utils.UniformScaler(scale_to_neg_one=False)
+            elif x_standardize_method == 2:
+                Xscaler_tm = gpplus.utils.UniformScaler(scale_to_neg_one=True)
+            else:
+                raise ValueError(f"x_standardize_method must be 0, 1, or 2, got {x_standardize_method}")
+            Xscaler_tm.fit(X_tm[:, cont_cols])
+            X_tm = X_tm.clone()
+            X_tm[:, cont_cols] = Xscaler_tm.transform(X_tm[:, cont_cols])
+        Yscaler_tm = gpplus.utils.StandardScaler()
+        Yscaler_tm.fit(y_tm)
+        y_tm_normal = Yscaler_tm.transform(y_tm)
+        tmpl = gpplus.models.GPR(
+            X_tm,
+            y_tm_normal if standardize_y else y_tm,
+            kernel_module=defaults.SF_kernel,
+            mean_module=defaults.SF_mean,
+            likelihood=defaults.SF_likelihood,
+        )
+        master_hyper_init = build_master_hyper_sobol(
+            initializer_class, tmpl, hyper_sobol_total_rows, effective_sobol_seed
+        )
+
     total_start_time = time.time()
     for i in range(num_runs):
-        run_seed = seed_trainer if seed_trainer is not None else (seed + i)
-        print(f"\n{'='*20} {title} RUN {i+1}/{num_runs}: {run_seed} {'='*20}")
+        run_seed = seed_trainer if seed_trainer is not None else seed
+        print(f"\n{'='*20} {title} RUN {i+1}/{num_runs}: trainer_seed={run_seed} (fixed) {'='*20}")
 
         if single_dataset:
             X_train = X_train_all
@@ -193,6 +237,16 @@ def ackley_GPvsPFN(
                 print(f"y_test mean: {y_test.mean().item()} / y_test std: {y_test.std().item()}")
                 print(model)
 
+            gp_init_class = initializer_class
+            gp_init_kwargs = None
+            if master_hyper_init is not None:
+                gp_init_class = SobolRowsSliceInitializer
+                gp_init_kwargs = {
+                    "sobol_rows": master_hyper_init.sobol_samples[
+                        i * num_inits : (i + 1) * num_inits
+                    ].clone(),
+                }
+
             # Create trainer
             gp_metric, y_pred_gp, output_std_gp, gp_trainer_info = train_eval_gp(
                 model,
@@ -207,7 +261,8 @@ def ackley_GPvsPFN(
                 min_loss_change=min_loss_change,
                 optimizer_class=optimizer_class,
                 optimizer_kwargs=optimizer_kwargs,
-                initializer_class=initializer_class,
+                initializer_class=gp_init_class,
+                initializer_kwargs=gp_init_kwargs,
                 device=gp_device,
                 y_train_mean=y_train_mean if standardize_y else None,
                 y_train_std=y_train_std if standardize_y else None,
@@ -295,6 +350,10 @@ def ackley_GPvsPFN(
                     "num_runs": num_runs,
                     "seed": seed,
                     "seed_trainer": seed_trainer,
+                    "pregen_hyperparams": True,
+                    "sobol_init_seed": effective_sobol_seed,
+                    "trainer_seed_fixed_across_runs": True,
+                    "hyper_sobol_total_rows": hyper_sobol_total_rows,
                 }
             
             if run_models in [None, 'pfn']:
@@ -375,6 +434,10 @@ def ackley_GPvsPFN(
                     "title": title,
                     "num_runs": num_runs,
                     "num_inits_per_run": num_inits,
+                    "pregen_hyperparams": True,
+                    "sobol_init_seed": effective_sobol_seed,
+                    "trainer_seed_fixed_across_runs": True,
+                    "hyper_sobol_total_rows": hyper_sobol_total_rows,
                     "trainer_info": trainer_info_by_run,
                 }
                 
@@ -430,9 +493,9 @@ def ackley_GPvsPFN(
 
 
 if __name__ == "__main__":
-    # ackley_GPvsPFN(title="x_std2", x_standardize_method=2, num_runs=1, num_inits=4, train_size=10, dimensions=40, run_models='pfn', save_path="./results/Ackley/temp", noise_test=0.05, noise_train=0.05)
-    ackley_GPvsPFN(num_runs=5, train_size=20, dimensions=80, num_inits=4, num_epochs=10000, save_path='./results/Ackley/test', run_models='pfn')
-    # ackley_GPvsPFN(num_runs=1, train_size=10, dimensions=20, num_inits=4, num_epochs=10000, save_path='./results/Ackley/temp', standardize_X=False, standardize_y=False)
-    # ackley_GPvsPFN(num_runs=1, train_size=10, num_inits=4, num_epochs=10000, save_path='./results/Ackley/tempv2', V2=True)
+    # ackley_GPvsPFN_pregenParams(title="x_std2", x_standardize_method=2, num_runs=1, num_inits=4, train_size=10, dimensions=40, run_models='pfn', save_path="./results/Ackley/temp", noise_test=0.05, noise_train=0.05)
+    ackley_GPvsPFN_pregenParams(num_runs=5, train_size=20, dimensions=80, num_inits=4, num_epochs=10000, save_path='./results/Ackley/test', run_models='pfn')
+    # ackley_GPvsPFN_pregenParams(num_runs=1, train_size=10, dimensions=20, num_inits=4, num_epochs=10000, save_path='./results/Ackley/temp', standardize_X=False, standardize_y=False)
+    # ackley_GPvsPFN_pregenParams(num_runs=1, train_size=10, num_inits=4, num_epochs=10000, save_path='./results/Ackley/tempv2', V2=True)
 
 

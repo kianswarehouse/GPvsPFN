@@ -7,59 +7,55 @@ import time
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from tabpfn import TabPFNRegressor
-from load_experimental_data import generate_griewank_data
+from load_experimental_data import generate_rastrigin_data
 import defaults
 
 # import warnings
 # warnings.filterwarnings("ignore")
-def griewank_GPvsPFN(num_runs=defaults.NUM_RUNS,
+def rastrigin_GPvsPFN(num_runs=defaults.NUM_FOLDS,
         num_test=5000,
-        train_size=10,  # total training size is train_size * number of X input dimensions
-        dimensions=2,
-        x_bounds=[-600, 600],
-        num_inits=defaults.TRAINER_NUM_INITS,
+        train_size=10, # total training size is train_size * number of X input dimensions
+        dimensions=5,
+        x_bounds=[-10,10],
+        num_runs=defaults.TRAINER_NUM_RUNS, 
         num_epochs=defaults.TRAINER_NUM_EPOCHS, 
         lr=defaults.TRAINER_LR, 
         convergence_patience=defaults.TRAINER_CONVERGENCE_PATIENCE,
-        min_epochs=defaults.TRAINER_MIN_EPOCHS,
         min_loss_change=defaults.TRAINER_MIN_LOSS_CHANGE,
         optimizer_class=defaults.TRAINER_OPTIMIZER_CLASS,
         optimizer_kwargs=defaults.TRAINER_OPTIMIZER_KWARGS,
-        cholesky_jitter=defaults.TRAINER_CHOLESKY_JITTER,
         initializer_class=defaults.TRAINER_INITIALIZER_CLASS,
         gp_device=defaults.TRAINER_GP_DEVICE,
         amp_device=defaults.TRAINER_AMP_DEVICE,
-        save_path='./results/griewank',
+        save_path='./results/rastrigin',
         title=None,
-        standardize_X=defaults.STANDARDIZE_X,
-        standardize_y=defaults.STANDARDIZE_Y,
+        standardize_X=True,
+        standardize_y=True,
         x_standardize_method=defaults.X_STANDARDIZE_METHOD,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
         noise_train=0.0,
         noise_test=0.0,
-        noise_type=defaults.NOISE_TYPE,
+        noise_type='gaussian',
         seed=defaults.SEED,
         seed_trainer=defaults.SEED_TRAINER,
+        shift=None,
         gp_dtype = defaults.DTYPE_GP,
         pfn_dtype = defaults.DTYPE_PFN,
         trainer_info=True,
-        run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
-        log_lbfgs_inner=defaults.TRAINER_LOG_LBFGS_INNER,
-        single_dataset=True,
-        # If True: one Sobol train set (and test set) for every run; run_seed still varies.
-        # If False: larger train pool, shuffle, disjoint train slice per run (legacy).
+        run_tabpfn=True,
     ):
 
-    if run_models == 'pfn':
-        num_inits = 0
-
+    shift_str = f"_shifted{shift}" if shift is not None else ""
     if title is None:
-        title = f"Griewank_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
+        title = f"Rastrigin{shift_str}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
     else: 
-        title = f"Griewank_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
+        title = f"Rastrigin{shift_str}_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_runs}runs_noiseTest{noise_test}_noiseTrain{noise_train}"
     
     print(f" GP Device: {gp_device}")
-    print(f" TabPFN Device: {amp_device}")
-    regressor = TabPFNRegressor(device=amp_device)
+    if run_tabpfn:
+        print(f" TabPFN Device: {amp_device}")
+        regressor = TabPFNRegressor(device=amp_device)
+    else:
+        regressor = None
     if save_path is not None:
         plot_save_path = f"{save_path}/plots"
         callback_save_path = f"{save_path}/trainer_analysis/plots"
@@ -70,35 +66,26 @@ def griewank_GPvsPFN(num_runs=defaults.NUM_RUNS,
     # Generate data
     set_seed(seed)
     
-    train_per_run = train_size * dimensions  # train_size * dimensions for Griewank
-    if single_dataset:
-        n_train_generate = train_per_run
-        total_samples = num_test + n_train_generate
-        print(
-            f"Generating {total_samples} unique Sobol samples for {dimensions}D Griewank function\n\t"
-            f"Test samples: {num_test} / Train samples: {train_per_run} "
-            f"(single_dataset=True: same train data for all {num_runs} runs)"
-        )
-    else:
-        num_runs_gen = max(num_runs, 20)
-        n_train_generate = num_runs_gen * train_per_run
-        total_samples = num_test + n_train_generate
-        print(
-            f"Generating {total_samples} unique Sobol samples for {dimensions}D Griewank function\n\t"
-            f"Test samples: {num_test} / Train pool: {n_train_generate} "
-            f"(single_dataset=False: disjoint train slices, {train_per_run} points per run)"
-        )
-
+    # Calculate total samples needed
+    train_per_fold = train_size * dimensions  # train_size * dimensions for Rastrigin
+    total_train = num_runs * train_per_fold
+    total_samples = num_test + total_train
+    
+    print(f"Generating {total_samples} unique Sobol samples for {dimensions}D Rastrigin function\n\tTest samples: {num_test} / Train samples: {total_train}")
+    if shift is not None:
+        print(f"  Using shifted Rastrigin with shift: {shift}")
+    
     # Generate train and test data in one call
-    X_train_all, y_train_all, X_test_all, y_test_all = generate_griewank_data(
-        n_train=n_train_generate,
+    X_train_all, y_train_all, X_test_all, y_test_all = generate_rastrigin_data(
+        n_train=total_train,
         n_test=num_test,
         dimensions=dimensions,
         x_bounds=x_bounds,
         train_noise=noise_train,
         test_noise=noise_test,
         noise_type=noise_type,
-        seed=seed
+        seed=seed,
+        shift=shift
     )
     X = torch.cat([X_test_all, X_train_all], dim=0)
 
@@ -114,27 +101,27 @@ def griewank_GPvsPFN(num_runs=defaults.NUM_RUNS,
     # print(cat_cols)
     TabPFN_metrics = []
     GPPlus_metrics = []
-    GPTrainer_info = []  # Accumulate trainer logs across runs
+    GPTrainer_info = []  # Accumulate trainer logs across folds
 
-    if not single_dataset:
-        torch.manual_seed(seed)
-        all_indices = torch.randperm(n_train_generate)
-        train_indices_2d = all_indices.reshape(num_runs_gen, train_per_run)
-
+    # Randomize across the single source, then split across folds
+    all_indices = torch.randperm(total_train)
+    train_indices_2d = all_indices.reshape(num_runs, train_per_fold)
+        
     total_start_time = time.time()
     for i in range(num_runs):
-        run_seed = seed_trainer if seed_trainer is not None else (seed + i)
-        print(f"\n{'='*20} {title} RUN {i+1}/{num_runs}: {run_seed} {'='*20}")
+        fold_seed = seed_trainer if seed_trainer is not None else (seed + i)
+        print(f"\n{'='*20} {title} FOLD {i+1}/{num_runs}: {fold_seed} {'='*20}")
 
-        if single_dataset:
-            X_train = X_train_all
-            y_train = y_train_all
-        else:
-            run_train_indices = train_indices_2d[i]
-            X_train = X_train_all[run_train_indices]
-            y_train = y_train_all[run_train_indices]
+        # Get training indices for this fold
+        fold_train_indices = train_indices_2d[i]
+        X_train = X_train_all[fold_train_indices]
+        y_train = y_train_all[fold_train_indices]
 
-        # Prepare data (standardization) - ALWAYS DO THIS for both GP and PFN
+        # =============================================================================
+        # GP Section 
+        # =============================================================================
+        print(f"\n--- {title} GP Training ---")
+        
         # Reuse PFN split, convert to torch (unified)
         X_train = X_train.detach().clone().to(dtype=gp_dtype)
         X_test = X_test_all.detach().clone().to(dtype=gp_dtype)
@@ -159,79 +146,80 @@ def griewank_GPvsPFN(num_runs=defaults.NUM_RUNS,
         else:
             X_scaling_type = "None"
 
-        # Normalize the data
+        # Normalize the GP data
         Yscaler = gpplus.utils.StandardScaler()
         Yscaler.fit(y_train)
         y_train_mean = Yscaler.mean 
         y_train_std = Yscaler.std
         y_train_normal = Yscaler.transform(y_train)
+        # Use ARD: one (log10-scaled) lengthscale per input dimension
+        # base_kernel_m = gpplus.kernels.MaternKernel(nu=2.5, ard_num_dims=dimensions)
+        base_kernel_p = gpplus.kernels.PeriodicKernel(ard_num_dims=dimensions)
+        kernel = gpplus.kernels.LogScaleKernel(base_kernel_p)
+        # Create GP model (default kernel like SF wing)
+        model = gpplus.models.GPR(
+            X_train,
+            y_train_normal if standardize_y else y_train,
+            kernel_module=kernel,
+            mean_module=defaults.SF_mean,
+            likelihood=defaults.SF_likelihood,
+        )
+        if (i == 0) or (i == num_runs - 1):
+            print(f"X_train: {X_train.shape}")
+            print(f"X_test: {X_test.shape}")
+            print(f"y_test mean: {y_test.mean().item()} / y_test std: {y_test.std().item()}")
+            print(model)
 
-        # =============================================================================
-        # GP Section 
-        # =============================================================================
-        if run_models in [None, 'gp']:
-            print(f"\n--- {title} GP Training ---")
-            
-            # Create GP model (default kernel like SF wing)
-            model = gpplus.models.GPR(
-                X_train,
-                y_train_normal if standardize_y else y_train,
-                kernel_module=defaults.SF_kernel,
-                mean_module=defaults.SF_mean,
-                likelihood=defaults.SF_likelihood,
-            )
-            if (i == 0) or (i == num_runs - 1):
-                print(f"X_train: {X_train.shape}")
-                print(f"X_test: {X_test.shape}")
-                print(f"y_test mean: {y_test.mean().item()} / y_test std: {y_test.std().item()}")
-                print(model)
+        # Create trainer
+        # Save the trained GP model for this fold (best run parameters) if save_path is provided
+        if save_path is not None:
+            fold_model_path = Path(save_path) / "models" / f"{title}_fold{i+1}_gp.pt"
+        else:
+            fold_model_path = None
 
-            # Create trainer
-            gp_metric, y_pred_gp, output_std_gp, gp_trainer_info = train_eval_gp(
-                model,
-                X_test,
-                y_test,
-                num_epochs=num_epochs,
-                seed=run_seed,
-                num_inits=num_inits,
-                lr=lr,
-                convergence_patience=convergence_patience,
-                min_epochs=min_epochs,
-                min_loss_change=min_loss_change,
-                optimizer_class=optimizer_class,
-                initializer_class=initializer_class,
-                device=gp_device,
-                y_train_mean=y_train_mean if standardize_y else None,
-                y_train_std=y_train_std if standardize_y else None,
-                source_cols=source_cols,
-                trainer_info=trainer_info,
-                callbacks=defaults.get_default_gp_callbacks(
-                    optimizer_class,
-                    callback_save_path=callback_save_path,
-                    log_lbfgs_inner=log_lbfgs_inner,
-                ),
+        gp_metric, y_pred_gp, output_std_gp, gp_trainer_info = train_eval_gp(
+            model,
+            X_test,
+            y_test,
+            num_epochs=num_epochs,
+            seed=fold_seed,
+            num_inits=num_runs,
+            lr=lr,
+            convergence_patience=convergence_patience,
+            min_loss_change=min_loss_change,
+            optimizer_class=optimizer_class,
+            optimizer_kwargs=optimizer_kwargs,
+            initializer_class=initializer_class,
+            device=gp_device,
+            y_train_mean=y_train_mean if standardize_y else None,
+            y_train_std=y_train_std if standardize_y else None,
+            source_cols=source_cols,
+            model_save_path=str(fold_model_path) if fold_model_path is not None else None,
+            trainer_info=trainer_info,
+            callbacks=defaults.get_default_gp_callbacks(
+                optimizer_class,
                 callback_save_path=callback_save_path,
-                cholesky_jitter=cholesky_jitter,
-                optimizer_kwargs=optimizer_kwargs,
                 log_lbfgs_inner=log_lbfgs_inner,
-            )
-            GPPlus_metrics.append(gp_metric)
-            
-            # Accumulate trainer info if available
-            if gp_trainer_info:
-                # Add run information to trainer log
-                gp_trainer_info["run"] = i + 1
-                gp_trainer_info["metrics"] = gp_metric  # Include metrics for this run
-                GPTrainer_info.append(gp_trainer_info)
+            ),
+            callback_save_path=callback_save_path,
+        )
+        GPPlus_metrics.append(gp_metric)
+        
+        # Accumulate trainer info if available
+        if gp_trainer_info:
+            # Add fold information to trainer log
+            gp_trainer_info["fold"] = i + 1
+            gp_trainer_info["metrics"] = gp_metric  # Include metrics for this fold
+            GPTrainer_info.append(gp_trainer_info)
 
-            print(f"\nGP Results (Run {i+1}/{num_runs})")
-            for k, v in gp_metric.items():
-                print(f"  {k}: {v:.4f}" if v is not None and isinstance(v, (int, float)) else f"  {k}: {v}")
+        print(f"\nGP Results (Fold {i+1}/{num_runs})")
+        for k, v in gp_metric.items():
+            print(f"  {k}: {v:.4f}" if v is not None and isinstance(v, (int, float)) else f"  {k}: {v}")
 
         # =============================================================================
         # TabPFN Section
         # =============================================================================
-        if run_models in [None, 'pfn']:
+        if run_tabpfn:
             print(f"\n--- {title} TabPFN Training ---")
             
             tabpfn_metric, y_pred_tabpfn, output_std_tabpfn = train_eval_PFN(
@@ -248,20 +236,19 @@ def griewank_GPvsPFN(num_runs=defaults.NUM_RUNS,
             )
             TabPFN_metrics.append(tabpfn_metric)
 
-            # Print results for this run
-            print(f"\nTabPFN Results (Run {i+1}/{num_runs})")
+            # Print results for this fold
+            print(f"\nTabPFN Results (Fold {i+1}/{num_runs})")
             for k, v in tabpfn_metric.items():
                 print(f"  {k}: {v:.4f}" if v is not None and isinstance(v, (int, float)) else f"  {k}: {v}")
         
-        # Collect model info from first run
+        # Collect model info from first fold
         if i == 0:
             y_test_stats = {
                 "y_test_mean": float(y_test_all.mean().item()),
                 "y_test_std": float(y_test_all.std().item())
             }
 
-            if run_models in [None, 'gp']:
-                gp_model_info = {
+            gp_model_info = {
                 "model_str": str(model),
                 "cat_cols": cat_cols,
                 "cont_cols": cont_cols,
@@ -279,28 +266,30 @@ def griewank_GPvsPFN(num_runs=defaults.NUM_RUNS,
                 "dtype": str(gp_dtype),
                 "device": str(gp_device),
                 "num_epochs": num_epochs,
-                "num_inits": num_inits,
+                "num_runs": num_runs,
                 "lr": lr,
                 "optimizer": optimizer_class.__name__,
                 "convergence_patience": convergence_patience,
                 "initializer": initializer_class.__name__ if initializer_class else None,
+                "shift": str(shift) if shift is not None else None,
                 "x_bounds": x_bounds,
                 **y_test_stats,
                 "num_runs": num_runs,
-                    "seed": seed,
-                    "seed_trainer": seed_trainer,
-                }
-            
-            if run_models in [None, 'pfn']:
+                "seed": seed,
+                "seed_trainer": seed_trainer,
+            }
+            if run_tabpfn and regressor is not None:
                 tabpfn_model_info = {
-                "model_path": regressor.model_path,
-                "fit_mode": regressor.fit_mode,
-                "device": str(regressor.device),
-                "inference_precision": regressor.inference_precision,
-                "random_state": regressor.random_state,
+                    "model_path": regressor.model_path,
+                    "fit_mode": regressor.fit_mode,
+                    "device": str(regressor.device),
+                    "inference_precision": regressor.inference_precision,
+                    "random_state": regressor.random_state,
                     "use_autocast": regressor.use_autocast_,
                     "forced_inference_dtype": str(regressor.forced_inference_dtype_) if regressor.forced_inference_dtype_ else None,
                 }
+            else:
+                tabpfn_model_info = None
         
     # =============================================================================
     # Final Results Summary
@@ -310,14 +299,19 @@ def griewank_GPvsPFN(num_runs=defaults.NUM_RUNS,
     print("="*60)
 
     # Summaries via analyze_metrics
-    TabPFN_summary = analyze_metrics(TabPFN_metrics, print_summary=True, label="TabPFN", title=title) if run_models in [None, 'pfn'] else None
-    GPPlus_summary = analyze_metrics(GPPlus_metrics, print_summary=True, label="GP", title=title) if run_models in [None, 'gp'] else None
+    if run_tabpfn and TabPFN_metrics:
+        TabPFN_summary = analyze_metrics(TabPFN_metrics, print_summary=True, label="TabPFN", title=title)
+    else:
+        TabPFN_summary = None
+    GPPlus_summary = analyze_metrics(GPPlus_metrics, print_summary=True, label="GP", title=title)
     
     # Add model info to GP summary if available
     
     if save_path is not None:
-        if run_models is None:
+        if run_tabpfn and TabPFN_metrics:
             plot_metrics(TabPFN_metrics, GPPlus_metrics, labels=["TabPFN", "GP"], title=title, save_path=plot_save_path)
+        else:
+            plot_metrics([], GPPlus_metrics, labels=["GP"], title=title, save_path=plot_save_path)
         # Save raw metrics and summaries
         out_dir = Path(save_path)
         try:
@@ -325,55 +319,45 @@ def griewank_GPvsPFN(num_runs=defaults.NUM_RUNS,
         except Exception:
             pass
         try:
-            # Determine file prefix based on run_models
-            if run_models is not None:
-                file_prefix = run_models
-            else:
-                file_prefix = "gpVpfn"
-            
             # Combined single file: TabPFN data + GP data + GP model_info at the end
-            combined_data = {}
-            if run_models in [None, 'gp']:
-                combined_data["gp_data"] = {
+            combined_data = {
+                "gp_data": {
                     "summary": GPPlus_summary,
                     "metrics": GPPlus_metrics,
                     "gp_model_info": gp_model_info
-                }
-            if run_models in [None, 'pfn']:
+                },
+            }
+            if run_tabpfn and TabPFN_metrics:
                 combined_data["tabpfn_data"] = {
                     "summary": TabPFN_summary,
                     "metrics": TabPFN_metrics,
                     "pfn_model_info": tabpfn_model_info
                 }
-            # Append defaults.py source at end of JSON for reproducibility
-            _defaults_path = Path(__file__).resolve().parent / "defaults.py"
-            if _defaults_path.is_file():
-                combined_data["defaults_py"] = _defaults_path.read_text(encoding="utf-8")
-            (out_dir / f"{file_prefix}_{title}.json").write_text(json.dumps(combined_data, indent=2))
+            (out_dir / f"gpVpfn_{title}.json").write_text(json.dumps(combined_data, indent=2))
         except Exception:
             pass
         
         # Save trainer info if trainer_info is enabled
-        if trainer_info and GPTrainer_info and run_models in [None, 'gp']:
+        if trainer_info and GPTrainer_info:
             try:
                 # Create trainer_analysis directory (same level as plots)
                 trainer_analysis_dir = Path(save_path) / "trainer_analysis"
                 trainer_analysis_dir.mkdir(parents=True, exist_ok=True)
                 
                 # Save raw trainer info (just the parameter info)
-                trainer_info_by_run = {
-                    f"run_{entry.get('run', i + 1)}": entry
+                trainer_info_by_fold = {
+                    f"fold_{entry.get('fold', i + 1)}": entry
                     for i, entry in enumerate(GPTrainer_info)
                 }
                 trainer_info_data = {
                     "title": title,
                     "num_runs": num_runs,
-                    "num_inits_per_run": num_inits,
-                    "trainer_info": trainer_info_by_run,
+                    "num_runs_per_fold": num_runs,
+                    "trainer_info": trainer_info_by_fold,
                 }
                 
-                # Save trainer info JSON (always use "gp" prefix for GP trainer info)
-                trainer_info_file = trainer_analysis_dir / f"gp_{title}_GP_Trainer_Analysis.json"
+                # Save trainer info JSON
+                trainer_info_file = trainer_analysis_dir / f"gpVpfn_{title}_GP_Trainer_Analysis.json"
                 trainer_info_file.write_text(json.dumps(trainer_info_data, indent=2))
                 print(f"\nTrainer info saved to: {trainer_info_file}")
                 try:
@@ -388,31 +372,31 @@ def griewank_GPvsPFN(num_runs=defaults.NUM_RUNS,
                     pass  # no epoch_metrics in data
                 except Exception as e:
                     print(f"Epoch metrics plotting skipped: {e}")
-                
             except Exception as e:
                 print(f"Error saving trainer info: {e}")
                 import traceback
                 traceback.print_exc()
-    print(f"\nTotal experiment time for {num_runs} runs: {time.time() - total_start_time:.2f}s")
+    print(f"\nTotal experiment time for {num_runs} folds: {time.time() - total_start_time:.2f}s")
     print("="*60)
-    print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of inits: {num_inits}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\tX_standardize: {standardize_X}\n\tX_scaling_type: {X_scaling_type}\n\ty_standardize: {standardize_y}")
-    print(f"Experiment details: \n\t{len(X_test_all)} test samples, {len(X_train)} train samples\n\truns: {num_runs}")
+    print(f"Trainer details: \n\tnumber of epochs: {num_epochs}\n\tnumber of runs: {num_runs}\n\tlearning rate: {lr}\n\toptimizer: {optimizer_class}\n\tconvergence patience: {convergence_patience}\n\tdevice: {gp_device}\n\tinitializer: {initializer_class}\n\tcont_cols: {cont_cols}\n\tcat_cols: {cat_cols}\n\tsource_cols: {source_cols}\n\tqual_dict: {qual_dict}\n\tX_standardize: {standardize_X}\n\tX_scaling_type: {X_scaling_type}\n\ty_standardize: {standardize_y}\n\tshift: {shift}")
+    print(f"Experiment details: \n\t{len(X_test_all)} test samples, {len(X_train)} train samples\n\tfolds: {num_runs}")
 
     return GPPlus_metrics, TabPFN_metrics
 
 
 if __name__ == "__main__":
-    griewank_GPvsPFN(num_runs=20, train_size=10, dimensions=10, num_inits=16, save_path='./results/griewank/temp', run_models='gp')
-    # griewank_GPvsPFN(num_runs=1, train_size=20, dimensions=20, num_inits=4, save_path='./results/griewank/temp')
-    # griewank_GPvsPFN(num_runs=1, train_size=10, dimensions=40, num_inits=4, save_path='./results/griewank/temp')
-    # griewank_GPvsPFN(num_runs=1, train_size=20, dimensions=40, num_inits=4, save_path='./results/griewank/temp')
-
-
-
-
-
-
-
-
-
+    RUN_TABPFN = False
+    # Standard Rastrigin
+    # rastrigin_GPvsPFN(num_runs=1, train_size=10, dimensions=20, num_runs=4, save_path='./results/rastrigin/temp')
+    # rastrigin_GPvsPFN(num_runs=1, train_size=10, dimensions=40, num_runs=4, save_path='./results/rastrigin/temp')
+    # rastrigin_GPvsPFN(num_runs=1, train_size=20, dimensions=20, num_runs=4, save_path='./results/rastrigin/temp')
+    # rastrigin_GPvsPFN(num_runs=1, train_size=20, dimensions=40, num_runs=4, save_path='./results/rastrigin/temp')
+    
+    # Shifted Rastrigin examples (commented out)
+    # rastrigin_GPvsPFN(num_runs=20, train_size=10, dimensions=20, num_runs=16, save_path='./results/rastrigin/matern/1_28', noise_train=0.05, noise_test=0.05, run_tabpfn=RUN_TABPFN)
+    # rastrigin_GPvsPFN(num_runs=20, train_size=20, dimensions=20, num_runs=16, save_path='./results/rastrigin/matern/1_28', noise_train=0.05, noise_test=0.05, run_tabpfn=RUN_TABPFN)
+    # rastrigin_GPvsPFN(num_runs=20, train_size=40, dimensions=20, num_runs=16, save_path='./results/rastrigin/matern/1_28', noise_train=0.05, noise_test=0.05, run_tabpfn=RUN_TABPFN)
+    rastrigin_GPvsPFN(num_runs=1, train_size=80, dimensions=20, num_runs=1, save_path='./results/rastrigin/periodic/1_30', noise_train=0.05, noise_test=0.05, run_tabpfn=RUN_TABPFN)
+    # shift_vector = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0])  # for 5D
+    # rastrigin_GPvsPFN(num_runs=1, train_size=10, dimensions=5, num_runs=4, save_path='./results/rastrigin/temp', shift=shift_vector)
 

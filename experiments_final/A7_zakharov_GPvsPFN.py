@@ -4,6 +4,7 @@ from pathlib import Path
 from gpplus.utils.onehot_encode_data import encode_qual_data, learn_encodings
 import gpplus
 import time
+import matplotlib.pyplot as plt
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from tabpfn import TabPFNRegressor
@@ -33,6 +34,10 @@ def zakharov_GPvsPFN(num_runs=defaults.NUM_RUNS,
         standardize_X=defaults.STANDARDIZE_X,
         standardize_y=defaults.STANDARDIZE_Y,
         x_standardize_method=defaults.X_STANDARDIZE_METHOD,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
+        standardize_y_log_scale=False,
+        standardize_y_yeojohnson=True,
+        log_y_epsilon=1e-8,
+        log_y_C=None,
         noise_train=0.0,
         noise_test=0.0,
         noise_type=defaults.NOISE_TYPE,
@@ -43,6 +48,11 @@ def zakharov_GPvsPFN(num_runs=defaults.NUM_RUNS,
         trainer_info=True,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
         log_lbfgs_inner=defaults.TRAINER_LOG_LBFGS_INNER,
+        single_dataset=True,
+        plot_train_y_hist=True,
+        hist_bins=30,
+        # If True: one Sobol train set (and test set) for every run; run_seed still varies.
+        # If False: draw a larger train pool, shuffle, and give each run a disjoint train slice (legacy).
     ):
 
     if run_models == 'pfn':
@@ -66,17 +76,28 @@ def zakharov_GPvsPFN(num_runs=defaults.NUM_RUNS,
     # Generate data
     set_seed(seed)
     
-    # Calculate total samples needed
     train_per_run = train_size * dimensions  # train_size * dimensions for Zakharov
-    num_runs_gen = max(num_runs, 20)
-    total_train = num_runs_gen * train_per_run
-    total_samples = num_test + total_train
-    
-    print(f"Generating {total_samples} unique Sobol samples for {dimensions}D Zakharov function\n\tTest samples: {num_test} / Train samples: {total_train}")
-    
+    if single_dataset:
+        n_train_generate = train_per_run
+        total_samples = num_test + n_train_generate
+        print(
+            f"Generating {total_samples} unique Sobol samples for {dimensions}D Zakharov function\n\t"
+            f"Test samples: {num_test} / Train samples: {train_per_run} "
+            f"(single_dataset=True: same train data for all {num_runs} runs)"
+        )
+    else:
+        num_runs_gen = max(num_runs, 20)
+        n_train_generate = num_runs_gen * train_per_run
+        total_samples = num_test + n_train_generate
+        print(
+            f"Generating {total_samples} unique Sobol samples for {dimensions}D Zakharov function\n\t"
+            f"Test samples: {num_test} / Train pool: {n_train_generate} "
+            f"(single_dataset=False: disjoint train slices, {train_per_run} points per run)"
+        )
+
     # Generate train and test data in one call
     X_train_all, y_train_all, X_test_all, y_test_all = generate_zakharov_data(
-        n_train=total_train,
+        n_train=n_train_generate,
         n_test=num_test,
         dimensions=dimensions,
         x_bounds=x_bounds,
@@ -85,6 +106,24 @@ def zakharov_GPvsPFN(num_runs=defaults.NUM_RUNS,
         noise_type=noise_type,
         seed=seed
     )
+    if plot_train_y_hist and save_path is not None:
+        try:
+            plot_dir = Path(plot_save_path)
+            plot_dir.mkdir(parents=True, exist_ok=True)
+            hist_path = plot_dir / f"y_train_hist_{title}.png"
+            y_vals = y_train_all.detach().cpu().reshape(-1).numpy()
+            fig, ax = plt.subplots(figsize=(7, 5))
+            ax.hist(y_vals, bins=hist_bins, alpha=0.85, color="steelblue", edgecolor="black")
+            ax.set_title(f"{title}\nZakharov training y histogram")
+            ax.set_xlabel("y_train")
+            ax.set_ylabel("Count")
+            ax.grid(True, alpha=0.25)
+            fig.tight_layout()
+            fig.savefig(hist_path, dpi=150, bbox_inches="tight")
+            plt.close(fig)
+            print(f"Saved training y histogram: {hist_path}")
+        except Exception as e:
+            print(f"Saving training y histogram failed: {e}")
     X = torch.cat([X_test_all, X_train_all], dim=0)
 
     print("="*10)
@@ -101,20 +140,23 @@ def zakharov_GPvsPFN(num_runs=defaults.NUM_RUNS,
     GPPlus_metrics = []
     GPTrainer_info = []  # Accumulate trainer logs across runs
 
-    # Randomize across the single source, then split across runs
-    torch.manual_seed(seed)
-    all_indices = torch.randperm(total_train)
-    train_indices_2d = all_indices.reshape(num_runs_gen, train_per_run)
-        
+    if not single_dataset:
+        torch.manual_seed(seed)
+        all_indices = torch.randperm(n_train_generate)
+        train_indices_2d = all_indices.reshape(num_runs_gen, train_per_run)
+
     total_start_time = time.time()
     for i in range(num_runs):
         run_seed = seed_trainer if seed_trainer is not None else (seed + i)
         print(f"\n{'='*20} {title} RUN {i+1}/{num_runs}: {run_seed} {'='*20}")
 
-        # Get training indices for this run
-        run_train_indices = train_indices_2d[i]
-        X_train = X_train_all[run_train_indices]
-        y_train = y_train_all[run_train_indices]
+        if single_dataset:
+            X_train = X_train_all
+            y_train = y_train_all
+        else:
+            run_train_indices = train_indices_2d[i]
+            X_train = X_train_all[run_train_indices]
+            y_train = y_train_all[run_train_indices]
 
         # Prepare data (standardization) - ALWAYS DO THIS for both GP and PFN
         # Reuse PFN split, convert to torch (unified)
@@ -142,11 +184,41 @@ def zakharov_GPvsPFN(num_runs=defaults.NUM_RUNS,
             X_scaling_type = "None"
 
         # Normalize the data
-        Yscaler = gpplus.utils.StandardScaler()
+        if standardize_y_log_scale and standardize_y_yeojohnson:
+            raise ValueError("Choose only one target transform: log scale or Yeo-Johnson.")
+        if standardize_y_yeojohnson:
+            Yscaler = gpplus.utils.YeoJohnsonScaler()
+        elif standardize_y_log_scale:
+            # Enforce C = -min(y_train) + eps for every run.
+            computed_log_y_C = float((-y_train.min()).item() + log_y_epsilon)
+            Yscaler = gpplus.utils.LogScaler(epsilon=log_y_epsilon, C=computed_log_y_C)
+        else:
+            Yscaler = gpplus.utils.StandardScaler()
         Yscaler.fit(y_train)
         y_train_mean = Yscaler.mean 
         y_train_std = Yscaler.std
         y_train_normal = Yscaler.transform(y_train)
+        log_scale_C = Yscaler.C if standardize_y_log_scale else None
+        yeojohnson_lambda = float(Yscaler.lmbda.squeeze().item()) if standardize_y_yeojohnson else None
+        y_scaled = standardize_y or standardize_y_log_scale or standardize_y_yeojohnson
+
+        if standardize_y_log_scale:
+            y_train_log_space = torch.log(y_train + log_scale_C)
+            print(f"\n--- Run {i+1}/{num_runs} y_train statistics (log-scaled) ---")
+            print(f"  LogScaler C: {log_scale_C}")
+            print(f"  Log-scaled Mean: {y_train_normal.mean().item():.6f}")
+            print(f"  Log-scaled Std: {y_train_normal.std().item():.6f}")
+            print(f"  Log-scaled Min: {y_train_normal.min().item():.6f}")
+            print(f"  Log-scaled Max: {y_train_normal.max().item():.6f}")
+            print(f"  Log-space min (before standardization): {y_train_log_space.min().item():.6f}")
+            print(f"  Log-space max (before standardization): {y_train_log_space.max().item():.6f}")
+        elif standardize_y_yeojohnson:
+            print(f"\n--- Run {i+1}/{num_runs} y_train statistics (yeo-johnson scaled) ---")
+            print(f"  Yeo-Johnson lambda: {yeojohnson_lambda}")
+            print(f"  YJ-scaled Mean: {y_train_normal.mean().item():.6f}")
+            print(f"  YJ-scaled Std: {y_train_normal.std().item():.6f}")
+            print(f"  YJ-scaled Min: {y_train_normal.min().item():.6f}")
+            print(f"  YJ-scaled Max: {y_train_normal.max().item():.6f}")
 
         # =============================================================================
         # GP Section 
@@ -157,7 +229,7 @@ def zakharov_GPvsPFN(num_runs=defaults.NUM_RUNS,
             # Create GP model (default kernel like SF wing)
             model = gpplus.models.GPR(
                 X_train,
-                y_train_normal if standardize_y else y_train,
+                y_train_normal if y_scaled else y_train,
                 kernel_module=defaults.SF_kernel,
                 mean_module=defaults.SF_mean,
                 likelihood=defaults.SF_likelihood,
@@ -166,6 +238,8 @@ def zakharov_GPvsPFN(num_runs=defaults.NUM_RUNS,
                 print(f"X_train: {X_train.shape}")
                 print(f"X_test: {X_test.shape}")
                 print(f"y_test mean: {y_test.mean().item()} / y_test std: {y_test.std().item()}")
+                if standardize_y_log_scale:
+                    print(f"LogScaler C: {log_scale_C}")
                 print(model)
 
             # Create trainer
@@ -184,8 +258,12 @@ def zakharov_GPvsPFN(num_runs=defaults.NUM_RUNS,
                 optimizer_kwargs=optimizer_kwargs,
                 initializer_class=initializer_class,
                 device=gp_device,
-                y_train_mean=y_train_mean if standardize_y else None,
-                y_train_std=y_train_std if standardize_y else None,
+                y_train_mean=y_train_mean if y_scaled else None,
+                y_train_std=y_train_std if y_scaled else None,
+                standardize_y_log_scale=standardize_y_log_scale,
+                standardize_y_yeojohnson=standardize_y_yeojohnson,
+                yeojohnson_lambda=yeojohnson_lambda,
+                log_scale_C=log_scale_C,
                 source_cols=source_cols,
                 trainer_info=trainer_info,
                 callbacks=defaults.get_default_gp_callbacks(
@@ -218,14 +296,18 @@ def zakharov_GPvsPFN(num_runs=defaults.NUM_RUNS,
             tabpfn_metric, y_pred_tabpfn, output_std_tabpfn = train_eval_PFN(
                 X_train,
                 X_test,
-                y_train_normal if standardize_y else y_train,
+                y_train_normal if y_scaled else y_train,
                 y_test,
                 amp_device=amp_device,
                 amp_dtype=pfn_dtype,
                 regressor=regressor,
                 source_cols=source_cols,
-                y_train_mean=y_train_mean if standardize_y else None,
-                y_train_std=y_train_std if standardize_y else None,
+                y_train_mean=y_train_mean if y_scaled else None,
+                y_train_std=y_train_std if y_scaled else None,
+                standardize_y_log_scale=standardize_y_log_scale,
+                standardize_y_yeojohnson=standardize_y_yeojohnson,
+                yeojohnson_lambda=yeojohnson_lambda,
+                log_scale_C=log_scale_C,
             )
             TabPFN_metrics.append(tabpfn_metric)
 
@@ -255,6 +337,14 @@ def zakharov_GPvsPFN(num_runs=defaults.NUM_RUNS,
                 "y_train_std": float(y_train_std.item()),
                 "standardize_X": standardize_X,
                 "standardize_y": standardize_y,
+                "standardize_y_log_scale": standardize_y_log_scale,
+                "standardize_y_yeojohnson": standardize_y_yeojohnson,
+                "yeojohnson_lambda": yeojohnson_lambda,
+                "log_y_epsilon": log_y_epsilon,
+                "log_y_C": log_y_C,
+                "log_y_C_rule": "C = -min(y_train) + eps",
+                "log_scale_C": float(log_scale_C) if log_scale_C is not None else None,
+                "y_point_prediction_interpretation": "For Yeo-Johnson runs, predictions are inverse-transformed from YJ space back to original scale. For log-shift runs, predictions follow the selected log-space inverse mapping.",
                 "X_scaling_type": X_scaling_type,
                 "x_standardize_method": x_standardize_method,
                 "dtype": str(gp_dtype),

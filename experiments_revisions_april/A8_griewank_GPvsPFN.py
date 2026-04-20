@@ -1,5 +1,4 @@
 import torch
-import os
 import json
 from pathlib import Path
 from gpplus.utils.onehot_encode_data import encode_qual_data, learn_encodings
@@ -8,30 +7,29 @@ import time
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from tabpfn import TabPFNRegressor
-from load_experimental_data import generate_ackley_data
+from load_experimental_data import generate_griewank_data
 import defaults
-import gpytorch
 
 # import warnings
 # warnings.filterwarnings("ignore")
-def ackley_GPvsPFN(
-        num_runs=defaults.NUM_RUNS,
+def griewank_GPvsPFN(num_runs=defaults.NUM_RUNS,
         num_test=5000,
         train_size=10,  # total training size is train_size * number of X input dimensions
-        dimensions=5,
-        x_bounds=[-5, 10],
+        dimensions=2,
+        x_bounds=[-600, 600],
         num_inits=defaults.TRAINER_NUM_INITS,
-        num_epochs=defaults.TRAINER_NUM_EPOCHS,
-        lr=defaults.TRAINER_LR,
+        num_epochs=defaults.TRAINER_NUM_EPOCHS, 
+        lr=defaults.TRAINER_LR, 
         convergence_patience=defaults.TRAINER_CONVERGENCE_PATIENCE,
         min_epochs=defaults.TRAINER_MIN_EPOCHS,
         min_loss_change=defaults.TRAINER_MIN_LOSS_CHANGE,
         optimizer_class=defaults.TRAINER_OPTIMIZER_CLASS,
         optimizer_kwargs=defaults.TRAINER_OPTIMIZER_KWARGS,
+        cholesky_jitter=defaults.TRAINER_CHOLESKY_JITTER,
         initializer_class=defaults.TRAINER_INITIALIZER_CLASS,
         gp_device=defaults.TRAINER_GP_DEVICE,
         amp_device=defaults.TRAINER_AMP_DEVICE,
-        save_path='./results/Ackley',
+        save_path='./results/griewank',
         title=None,
         standardize_X=defaults.STANDARDIZE_X,
         standardize_y=defaults.STANDARDIZE_Y,
@@ -41,29 +39,27 @@ def ackley_GPvsPFN(
         noise_type=defaults.NOISE_TYPE,
         seed=defaults.SEED,
         seed_trainer=defaults.SEED_TRAINER,
-        V2=False,
-        gp_dtype=defaults.DTYPE_GP,
-        pfn_dtype=defaults.DTYPE_PFN,
+        gp_dtype = defaults.DTYPE_GP,
+        pfn_dtype = defaults.DTYPE_PFN,
         trainer_info=True,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
         log_lbfgs_inner=defaults.TRAINER_LOG_LBFGS_INNER,
         single_dataset=True,
-        # If True: one Sobol train set (and test set) for every run.
-        # If False: draw a larger train pool, shuffle, and use disjoint slices per run (legacy).
+        # If True: one Sobol train set (and test set) for every run; run_seed still varies.
+        # If False: larger train pool, shuffle, disjoint train slice per run (legacy).
     ):
 
     if run_models == 'pfn':
         num_inits = 0
 
-    v2 = "V2" if V2 else ""
     if title is None:
-        title = f"Ackley{v2}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
-    else:
-        title = f"Ackley{v2}_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
+        title = f"Griewank_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
+    else: 
+        title = f"Griewank_{title}_{dimensions}Dx_{train_size}Dn_[{x_bounds[0]},{x_bounds[1]}]_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
-    regressor = TabPFNRegressor(device=amp_device)
+    regressor = TabPFNRegressor(device=amp_device, random_state=seed)
     if save_path is not None:
         plot_save_path = f"{save_path}/plots"
         callback_save_path = f"{save_path}/trainer_analysis/plots"
@@ -74,37 +70,35 @@ def ackley_GPvsPFN(
     # Generate data
     set_seed(seed)
     
-    # Calculate total samples needed
-    train_per_run = train_size * dimensions  # train_size * dimensions for Ackley
+    train_per_run = train_size * dimensions  # train_size * dimensions for Griewank
     if single_dataset:
-        total_train = train_per_run
-        total_samples = num_test + total_train
+        n_train_generate = train_per_run
+        total_samples = num_test + n_train_generate
         print(
-            f"Generating {total_samples} unique Sobol samples for {dimensions}D Ackley function\n\t"
+            f"Generating {total_samples} unique Sobol samples for {dimensions}D Griewank function\n\t"
             f"Test samples: {num_test} / Train samples: {train_per_run} "
             f"(single_dataset=True: same train data for all {num_runs} runs)"
         )
     else:
         num_runs_gen = max(num_runs, 20)
-        total_train = num_runs_gen * train_per_run
-        total_samples = num_test + total_train
+        n_train_generate = num_runs_gen * train_per_run
+        total_samples = num_test + n_train_generate
         print(
-            f"Generating {total_samples} unique Sobol samples for {dimensions}D Ackley function\n\t"
-            f"Test samples: {num_test} / Train pool: {total_train} "
+            f"Generating {total_samples} unique Sobol samples for {dimensions}D Griewank function\n\t"
+            f"Test samples: {num_test} / Train pool: {n_train_generate} "
             f"(single_dataset=False: disjoint train slices, {train_per_run} points per run)"
         )
-    
+
     # Generate train and test data in one call
-    X_train_all, y_train_all, X_test_all, y_test_all = generate_ackley_data(
-        n_train=total_train,
+    X_train_all, y_train_all, X_test_all, y_test_all = generate_griewank_data(
+        n_train=n_train_generate,
         n_test=num_test,
         dimensions=dimensions,
         x_bounds=x_bounds,
         train_noise=noise_train,
         test_noise=noise_test,
         noise_type=noise_type,
-        seed=seed,
-        V2=V2
+        seed=seed
     )
     X = torch.cat([X_test_all, X_train_all], dim=0)
 
@@ -123,10 +117,10 @@ def ackley_GPvsPFN(
     GPTrainer_info = []  # Accumulate trainer logs across runs
 
     if not single_dataset:
-        # Randomize across the single source, then split across runs
-        all_indices = torch.randperm(total_train)
+        torch.manual_seed(seed)
+        all_indices = torch.randperm(n_train_generate)
         train_indices_2d = all_indices.reshape(num_runs_gen, train_per_run)
-        
+
     total_start_time = time.time()
     for i in range(num_runs):
         run_seed = seed_trainer if seed_trainer is not None else (seed + i)
@@ -136,7 +130,6 @@ def ackley_GPvsPFN(
             X_train = X_train_all
             y_train = y_train_all
         else:
-            # Get training indices for this run
             run_train_indices = train_indices_2d[i]
             X_train = X_train_all[run_train_indices]
             y_train = y_train_all[run_train_indices]
@@ -206,22 +199,22 @@ def ackley_GPvsPFN(
                 min_epochs=min_epochs,
                 min_loss_change=min_loss_change,
                 optimizer_class=optimizer_class,
-                optimizer_kwargs=optimizer_kwargs,
                 initializer_class=initializer_class,
                 device=gp_device,
                 y_train_mean=y_train_mean if standardize_y else None,
                 y_train_std=y_train_std if standardize_y else None,
                 source_cols=source_cols,
-                trainer_info=trainer_info,  # Set to True if you want trainer info
+                trainer_info=trainer_info,
                 callbacks=defaults.get_default_gp_callbacks(
                     optimizer_class,
                     callback_save_path=callback_save_path,
                     log_lbfgs_inner=log_lbfgs_inner,
                 ),
                 callback_save_path=callback_save_path,
+                cholesky_jitter=cholesky_jitter,
+                optimizer_kwargs=optimizer_kwargs,
                 log_lbfgs_inner=log_lbfgs_inner,
             )
-            
             GPPlus_metrics.append(gp_metric)
             
             # Accumulate trainer info if available
@@ -244,14 +237,12 @@ def ackley_GPvsPFN(
             tabpfn_metric, y_pred_tabpfn, output_std_tabpfn = train_eval_PFN(
                 X_train,
                 X_test,
-                y_train_normal if standardize_y else y_train,
+                y_train,
                 y_test,
                 amp_device=amp_device,
                 amp_dtype=pfn_dtype,
                 regressor=regressor,
                 source_cols=source_cols,
-                y_train_mean=y_train_mean if standardize_y else None,
-                y_train_std=y_train_std if standardize_y else None,
             )
             TabPFN_metrics.append(tabpfn_metric)
 
@@ -269,41 +260,42 @@ def ackley_GPvsPFN(
 
             if run_models in [None, 'gp']:
                 gp_model_info = {
-                    "model_str": str(model),
-                    "cat_cols": cat_cols,
-                    "cont_cols": cont_cols,
-                    "source_cols": source_cols,
-                    "qual_dict": qual_dict,
-                    "input_dim": X_train.shape[1],
-                    "train_samples": X_train.shape[0],
-                    "test_samples": num_test,
-                    "y_train_mean": float(y_train_mean.item()),
-                    "y_train_std": float(y_train_std.item()),
-                    "standardize_X": standardize_X,
-                    "standardize_y": standardize_y,
-                    "X_scaling_type": X_scaling_type,
-                    "x_standardize_method": x_standardize_method,
-                    "dtype": str(gp_dtype),
-                    "device": str(gp_device),
-                    "num_epochs": num_epochs,
-                    "num_inits": num_inits,
-                    "lr": lr,
-                    "optimizer": optimizer_class.__name__,
-                    "convergence_patience": convergence_patience,
-                    "initializer": initializer_class.__name__ if initializer_class else None,
-                    **y_test_stats,
-                    "num_runs": num_runs,
+                "model_str": str(model),
+                "cat_cols": cat_cols,
+                "cont_cols": cont_cols,
+                "source_cols": source_cols,
+                "qual_dict": qual_dict,
+                "input_dim": X_train.shape[1],
+                "train_samples": X_train.shape[0],
+                "test_samples": num_test,
+                "y_train_mean": float(y_train_mean.item()),
+                "y_train_std": float(y_train_std.item()),
+                "standardize_X": standardize_X,
+                "standardize_y": standardize_y,
+                "X_scaling_type": X_scaling_type,
+                "x_standardize_method": x_standardize_method,
+                "dtype": str(gp_dtype),
+                "device": str(gp_device),
+                "num_epochs": num_epochs,
+                "num_inits": num_inits,
+                "lr": lr,
+                "optimizer": optimizer_class.__name__,
+                "convergence_patience": convergence_patience,
+                "initializer": initializer_class.__name__ if initializer_class else None,
+                "x_bounds": x_bounds,
+                **y_test_stats,
+                "num_runs": num_runs,
                     "seed": seed,
                     "seed_trainer": seed_trainer,
                 }
             
             if run_models in [None, 'pfn']:
                 tabpfn_model_info = {
-                    "model_path": regressor.model_path,
-                    "fit_mode": regressor.fit_mode,
-                    "device": str(regressor.device),
-                    "inference_precision": regressor.inference_precision,
-                    "random_state": regressor.random_state,
+                "model_path": regressor.model_path,
+                "fit_mode": regressor.fit_mode,
+                "device": str(regressor.device),
+                "inference_precision": regressor.inference_precision,
+                "random_state": regressor.random_state,
                     "use_autocast": regressor.use_autocast_,
                     "forced_inference_dtype": str(regressor.forced_inference_dtype_) if regressor.forced_inference_dtype_ else None,
                 }
@@ -343,7 +335,7 @@ def ackley_GPvsPFN(
                 combined_data["gp_data"] = {
                     "summary": GPPlus_summary,
                     "metrics": GPPlus_metrics,
-                    "gp_model_info": gp_model_info,
+                    "gp_model_info": gp_model_info
                 }
             if run_models in [None, 'pfn']:
                 combined_data["tabpfn_data"] = {
@@ -366,7 +358,7 @@ def ackley_GPvsPFN(
                 trainer_analysis_dir = Path(save_path) / "trainer_analysis"
                 trainer_analysis_dir.mkdir(parents=True, exist_ok=True)
                 
-                # Save raw trainer info keyed by run (run_1, run_2, ...)
+                # Save raw trainer info (just the parameter info)
                 trainer_info_by_run = {
                     f"run_{entry.get('run', i + 1)}": entry
                     for i, entry in enumerate(GPTrainer_info)
@@ -382,28 +374,6 @@ def ackley_GPvsPFN(
                 trainer_info_file = trainer_analysis_dir / f"gp_{title}_GP_Trainer_Analysis.json"
                 trainer_info_file.write_text(json.dumps(trainer_info_data, indent=2))
                 print(f"\nTrainer info saved to: {trainer_info_file}")
-
-                # Also augment the saved gp_data metrics with chosen final loss per run.
-                try:
-                    from plot_trainer_analysis_hyperparams import extract_runs_and_chosen
-                    all_inits, chosen_list = extract_runs_and_chosen(trainer_info_data)
-                    if chosen_list and "gp_data" in combined_data:
-                        gp_section = combined_data.get("gp_data") or {}
-                        gp_metrics_list = gp_section.get("metrics")
-                        if isinstance(gp_metrics_list, list):
-                            # One chosen record per run, in the same run order used for metrics.
-                            for i_run, (metric_rec, chosen_rec) in enumerate(zip(gp_metrics_list, chosen_list)):
-                                loss_val = chosen_rec.get("loss")
-                                if loss_val is not None:
-                                    metric_rec["loss_final"] = float(loss_val)
-                        combined_path = out_dir / f"{file_prefix}_{title}.json"
-                        try:
-                            combined_path.write_text(json.dumps(combined_data, indent=2))
-                        except Exception:
-                            # If rewriting combined JSON fails, continue without aborting trainer analysis.
-                            pass
-                except Exception as e:
-                    print(f"Augmenting gp_data with chosen final loss failed: {e}")
                 try:
                     from plot_trainer_analysis_hyperparams import plot_trainer_analysis_from_data
                     plot_trainer_analysis_from_data(trainer_info_data, trainer_analysis_dir / "plots")
@@ -430,9 +400,17 @@ def ackley_GPvsPFN(
 
 
 if __name__ == "__main__":
-    # ackley_GPvsPFN(title="x_std2", x_standardize_method=2, num_runs=1, num_inits=4, train_size=10, dimensions=40, run_models='pfn', save_path="./results/Ackley/temp", noise_test=0.05, noise_train=0.05)
-    ackley_GPvsPFN(num_runs=5, train_size=20, dimensions=80, num_inits=4, num_epochs=10000, save_path='./results/Ackley/test', run_models='pfn')
-    # ackley_GPvsPFN(num_runs=1, train_size=10, dimensions=20, num_inits=4, num_epochs=10000, save_path='./results/Ackley/temp', standardize_X=False, standardize_y=False)
-    # ackley_GPvsPFN(num_runs=1, train_size=10, num_inits=4, num_epochs=10000, save_path='./results/Ackley/tempv2', V2=True)
+    griewank_GPvsPFN(num_runs=20, train_size=10, dimensions=10, num_inits=16, save_path='./results/griewank/temp', run_models='gp')
+    # griewank_GPvsPFN(num_runs=1, train_size=20, dimensions=20, num_inits=4, save_path='./results/griewank/temp')
+    # griewank_GPvsPFN(num_runs=1, train_size=10, dimensions=40, num_inits=4, save_path='./results/griewank/temp')
+    # griewank_GPvsPFN(num_runs=1, train_size=20, dimensions=40, num_inits=4, save_path='./results/griewank/temp')
+
+
+
+
+
+
+
+
 
 

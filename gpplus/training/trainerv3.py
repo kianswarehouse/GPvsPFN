@@ -73,7 +73,7 @@ class GPTrainer:
         self.scheduler_class = scheduler_class
         self.scheduler_kwargs = scheduler_kwargs
         self.min_epochs = min_epochs
-        self.loss_type = "loo"
+        self.loss_type = "nll"
         self.kf_Nf: Optional[int] = None
         self.kf_max_n: int = 2000
         self.kf_seed: Optional[int] = None

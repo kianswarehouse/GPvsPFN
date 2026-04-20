@@ -63,7 +63,7 @@ def ackley_GPvsPFN(
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
-    regressor = TabPFNRegressor(device=amp_device)
+    regressor = TabPFNRegressor(device=amp_device, random_state=seed)
     if save_path is not None:
         plot_save_path = f"{save_path}/plots"
         callback_save_path = f"{save_path}/trainer_analysis/plots"
@@ -244,14 +244,12 @@ def ackley_GPvsPFN(
             tabpfn_metric, y_pred_tabpfn, output_std_tabpfn = train_eval_PFN(
                 X_train,
                 X_test,
-                y_train_normal if standardize_y else y_train,
+                y_train,
                 y_test,
                 amp_device=amp_device,
                 amp_dtype=pfn_dtype,
                 regressor=regressor,
                 source_cols=source_cols,
-                y_train_mean=y_train_mean if standardize_y else None,
-                y_train_std=y_train_std if standardize_y else None,
             )
             TabPFN_metrics.append(tabpfn_metric)
 

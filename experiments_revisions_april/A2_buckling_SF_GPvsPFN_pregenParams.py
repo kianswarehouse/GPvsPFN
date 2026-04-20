@@ -1,21 +1,26 @@
-import torch
 import json
-from pathlib import Path
-from gpplus.utils.onehot_encode_data import encode_qual_data, learn_encodings
-import gpplus
 import time
+from pathlib import Path
+
+import defaults
+import torch
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
-from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
-from gpplus.likelihoods import LogGaussianLikelihood
+from gpplus.utils.onehot_encode_data import encode_qual_data, learn_encodings
 from gpytorch.priors import NormalPrior
+from load_experimental_data import generate_mf_buckling_data_with_folds
+from pregen_sobol_init import SobolRowsSliceInitializer, build_master_hyper_sobol
+
 # from gpytorch.means import ZeroMean
 from tabpfn import TabPFNRegressor
-from load_experimental_data import generate_mf_buckling_data_with_folds
-import defaults
+
+import gpplus
+from gpplus.likelihoods import LogGaussianLikelihood
+from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
+
 
 # import warnings
 # warnings.filterwarnings("ignore")
-def buckling_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
+def buckling_SF_GPvsPFN_pregenParams(num_runs=defaults.NUM_RUNS,
         num_test=5000,
         train_size=10, # total training size is train_size * number of X input dimensions (4)
         num_inits=defaults.TRAINER_NUM_INITS, 
@@ -49,14 +54,15 @@ def buckling_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
         single_dataset=True,
         # If True: one stratified train fold (same X_train, y_train) for every run; run_seed still varies.
         # If False: legacy — one fold per run from a larger total train pool (max(num_runs, 20) folds).
+        sobol_init_seed=42,
     ):
     if run_models == 'pfn':
         num_inits = 0
     
     if title is None:
-        title = f"buckling_SF_{train_size}Dn_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
-    else: 
-        title = f"buckling_SF_{title}_{train_size}Dn_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
+        title = f"buckling_SF_pregenParams_{train_size}Dn_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
+    else:
+        title = f"buckling_SF_pregenParams_{title}_{train_size}Dn_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
     
     # Generate data
     set_seed(seed)
@@ -166,11 +172,59 @@ def buckling_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
         print(f"  Samples (E, K, I): {samples_eki}")
     
     print(f"{'='*60}")
-        
+
+    master_hyper_init = None
+    hyper_sobol_total_rows = 0
+    effective_sobol_seed = sobol_init_seed if sobol_init_seed is not None else seed
+
+    if run_models in (None, "gp") and num_inits > 0:
+        hyper_sobol_total_rows = num_runs * num_inits
+        run_idx_tm = 0
+        X_tm = X_train_runs_enc[run_idx_tm].detach().clone().to(dtype=gp_dtype)
+        y_tm = y_train_runs[run_idx_tm].detach().clone().to(dtype=gp_dtype)
+        if standardize_X:
+            if x_standardize_method == 0:
+                Xscaler_tm = gpplus.utils.StandardScaler()
+            elif x_standardize_method == 1:
+                Xscaler_tm = gpplus.utils.UniformScaler(scale_to_neg_one=False)
+            elif x_standardize_method == 2:
+                Xscaler_tm = gpplus.utils.UniformScaler(scale_to_neg_one=True)
+            else:
+                raise ValueError(f"x_standardize_method must be 0, 1, or 2, got {x_standardize_method}")
+            Xscaler_tm.fit(X_tm[:, cont_cols])
+            X_tm = X_tm.clone()
+            X_tm[:, cont_cols] = Xscaler_tm.transform(X_tm[:, cont_cols])
+        if standardize_y_log_scale:
+            Yscaler_tm = gpplus.utils.LogScaler()
+        else:
+            Yscaler_tm = gpplus.utils.StandardScaler()
+        Yscaler_tm.fit(y_tm)
+        y_tm_normal = Yscaler_tm.transform(y_tm)
+        if MF_kernel:
+            grouped_cat_tm = [x for sub in cat_cols for x in sub]
+            kernel_tm = gpplus.kernels.LogScaleKernel(
+                gpplus.kernels.MVMFKernel(
+                    cont_cols=cont_cols,
+                    cat_cols=grouped_cat_tm,
+                )
+            )
+        else:
+            kernel_tm = defaults.SF_kernel
+        tmpl = gpplus.models.GPR(
+            X_tm,
+            y_tm_normal if standardize_y else y_tm,
+            kernel_module=kernel_tm,
+            mean_module=defaults.SF_mean,
+            likelihood=defaults.SF_likelihood,
+        )
+        master_hyper_init = build_master_hyper_sobol(
+            initializer_class, tmpl, hyper_sobol_total_rows, effective_sobol_seed
+        )
+
     total_start_time = time.time()
     for i in range(num_runs):
-        run_seed = seed_trainer if seed_trainer is not None else (seed + i)
-        print(f"\n{'='*20} {title} RUN {i+1}/{num_runs}: {run_seed} {'='*20}")
+        run_seed = seed_trainer if seed_trainer is not None else seed
+        print(f"\n{'='*20} {title} RUN {i+1}/{num_runs}: trainer_seed={run_seed} (fixed) {'='*20}")
 
         # Use pre-generated fold (same fold every run if single_dataset)
         run_idx = 0 if single_dataset else i
@@ -293,6 +347,16 @@ def buckling_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
                     print(f"LogScaler C: {log_scale_C}")
                 print(model)
 
+            gp_init_class = initializer_class
+            gp_init_kwargs = None
+            if master_hyper_init is not None:
+                gp_init_class = SobolRowsSliceInitializer
+                gp_init_kwargs = {
+                    "sobol_rows": master_hyper_init.sobol_samples[
+                        i * num_inits : (i + 1) * num_inits
+                    ].clone(),
+                }
+
             # Create trainer
             gp_metric, y_pred_gp, output_std_gp, gp_trainer_info = train_eval_gp(
                 model,
@@ -307,7 +371,8 @@ def buckling_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
                 min_loss_change=min_loss_change,
                 optimizer_class=optimizer_class,
                 optimizer_kwargs=optimizer_kwargs,
-                initializer_class=initializer_class,
+                initializer_class=gp_init_class,
+                initializer_kwargs=gp_init_kwargs,
                 device=gp_device,
                 y_train_mean=y_train_mean if standardize_y else None,
                 y_train_std=y_train_std if standardize_y else None,
@@ -398,6 +463,10 @@ def buckling_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
                     "num_runs": num_runs,
                     "seed": seed,
                     "seed_trainer": seed_trainer,
+                    "pregen_hyperparams": True,
+                    "sobol_init_seed": effective_sobol_seed,
+                    "trainer_seed_fixed_across_runs": True,
+                    "hyper_sobol_total_rows": hyper_sobol_total_rows,
                 }
             tabpfn_model_info = None
             if run_models in [None, 'pfn']:
@@ -477,6 +546,10 @@ def buckling_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
                     "title": title,
                     "num_runs": num_runs,
                     "num_inits_per_run": num_inits,
+                    "pregen_hyperparams": True,
+                    "sobol_init_seed": effective_sobol_seed,
+                    "trainer_seed_fixed_across_runs": True,
+                    "hyper_sobol_total_rows": hyper_sobol_total_rows,
                     "trainer_info": trainer_info_by_run,
                 }
                 
@@ -512,9 +585,9 @@ def buckling_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
 
 
 if __name__ == "__main__":
-    # buckling_SF_GPvsPFN(num_runs=5, train_size=20, num_inits=2, num_epochs=10000, save_path='./results/buckling/temp')
-    buckling_SF_GPvsPFN(num_runs=1, train_size=20, num_inits=2, num_epochs=10000, save_path='./results/buckling/temp')
-    # buckling_SF_GPvsPFN(num_runs=1, train_size=20, num_inits=2, num_epochs=10000, save_path='./results/buckling/temp', title = "SF_kernel", MF_kernel=False)
+    # buckling_SF_GPvsPFN_pregenParams(num_runs=5, train_size=20, num_inits=2, num_epochs=10000, save_path='./results/buckling/temp')
+    buckling_SF_GPvsPFN_pregenParams(num_runs=1, train_size=20, num_inits=2, num_epochs=10000, save_path='./results/buckling/temp')
+    # buckling_SF_GPvsPFN_pregenParams(num_runs=1, train_size=20, num_inits=2, num_epochs=10000, save_path='./results/buckling/temp', title = "SF_kernel", MF_kernel=False)
     # buckling_GPvsPFN(num_runs=1, num_inits=2, num_epochs=10000, save_path='./results/buckling/temp', standardize_X_gp=False, standardize_y_gp=True)
     # buckling_GPvsPFN(num_runs=1, num_inits=2, num_epochs=10000, save_path=None, standardize_X_gp=False, standardize_y_gp=True)
     # buckling_GPvsPFN(num_runs=1, num_inits=2, num_epochs=10000, save_path=None, standardize_X_gp=True, standardize_y_gp=True)

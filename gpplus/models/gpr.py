@@ -48,6 +48,7 @@ class GPR(gpytorch.models.ExactGP):
         self.dtype = train_x.dtype
 
         if likelihood is None:
+            # likelihood = gpytorch.likelihoods.GaussianLikelihood()
             likelihood = LogGaussianLikelihood()
             logger.warning("No likelihood provided. Using LogGaussianLikelihood as default.")
 
@@ -57,12 +58,15 @@ class GPR(gpytorch.models.ExactGP):
 
         if kernel_module is None:
             input_dim = train_x.shape[-1]
-            kernel_module = LogScaleKernel(GaussianKernel(ard_num_dims=input_dim))  # Uses one lengthscale per dimension
-            # kernel_module = LogScaleKernel(GaussianKernel(ard_num_dims=input_dim) * PeriodicKernel(ard_num_dims=input_dim))  # Uses one lengthscale per dimension
-            # kernel_module = LogScaleKernel(GaussianKernel(ard_num_dims=input_dim) + PeriodicKernel(ard_num_dims=input_dim))  # Uses one lengthscale per dimension
-            # kernel_module = LogScaleKernel(PowerExponentialKernel(ard_num_dims=input_dim))  # Uses one lengthscale per dimension
+            # ard_num_dims=None → one shared lengthscale (isotropic); ard_num_dims=input_dim → ARD
+            # kernel_module = LogScaleKernel(GaussianKernel(ard_num_dims=None))
+            kernel_module = LogScaleKernel(GaussianKernel(ard_num_dims=input_dim))
+            # kernel_module = LogScaleKernel(GaussianKernel(ard_num_dims=input_dim) * PeriodicKernel(ard_num_dims=input_dim))
+            # kernel_module = LogScaleKernel(GaussianKernel(ard_num_dims=input_dim) + PeriodicKernel(ard_num_dims=input_dim))
+            # kernel_module = LogScaleKernel(PowerExponentialKernel(ard_num_dims=input_dim))
             logger.warning(
-                f"No kernel_module provided. Using Gaussian Kernel with ARD (ard_num_dims={input_dim}) as default."
+                "No kernel_module provided. Using LogScaleKernel(GaussianKernel(ard_num_dims=None)) "
+                f"(single lengthscale; input_dim={input_dim})."
             )
 
         if not isinstance(train_x, torch.Tensor) or not isinstance(train_y, torch.Tensor):

@@ -1,4 +1,5 @@
 import time
+import warnings
 
 import numpy as np
 import torch
@@ -9,7 +10,89 @@ from gpplus.training.stop_conditions import (
     MinLossChangeStopCondition,
 )
 from gpplus.training.eval2 import evaluate_gp_model
-from gpplus.utils.metrics_functions import compute_metrics, compute_per_source_metrics
+from gpplus.utils.metrics_functions import compute_metrics, compute_nis, compute_per_source_metrics
+
+
+def _validate_log_y_point_inverse(log_y_point_inverse: str) -> None:
+    if log_y_point_inverse not in ("median", "mean"):
+        raise ValueError(
+            f"log_y_point_inverse must be 'median' or 'mean', got {log_y_point_inverse!r}."
+        )
+
+
+def _require_finite_log_scale_c(
+    standardize_y_log_scale: bool,
+    log_scale_C: float | None,
+    y_train_mean,
+    y_train_std,
+    *,
+    caller: str,
+) -> None:
+    if not standardize_y_log_scale or y_train_mean is None or y_train_std is None:
+        return
+    if log_scale_C is None:
+        raise ValueError(
+            f"{caller}: standardize_y_log_scale=True with y scaling requires a finite "
+            "log_scale_C (shift used in log(y + C))."
+        )
+    try:
+        c = float(log_scale_C)
+    except (TypeError, ValueError) as e:
+        raise ValueError(
+            f"{caller}: log_scale_C must be a finite float, got {log_scale_C!r}."
+        ) from e
+    if not np.isfinite(c):
+        raise ValueError(
+            f"{caller}: log_scale_C must be finite, got {log_scale_C!r}."
+        )
+
+
+# Cap σ in raw log space when applying E[Y]=exp(μ+σ²/2)−C. Uncapped σ with the GP's
+# standardized predictive std can yield astronomically large exp(σ²/2) and meaningless RMSE.
+_LOG_Y_STD_CAP_FOR_LOGNORMAL_MEAN = 3.0
+
+
+def _torch_log_y_point_original(
+    exp_log_y: torch.Tensor,
+    log_y_std: torch.Tensor,
+    log_scale_C: float,
+    log_y_point_inverse: str,
+) -> torch.Tensor:
+    """Map (exp(mu_log), sigma_log) to original-scale point prediction (median or log-normal mean)."""
+    if log_y_point_inverse == "median":
+        return exp_log_y - log_scale_C
+    log_y_std_eff = torch.clamp(log_y_std, max=_LOG_Y_STD_CAP_FOR_LOGNORMAL_MEAN)
+    if torch.any(log_y_std > _LOG_Y_STD_CAP_FOR_LOGNORMAL_MEAN):
+        warnings.warn(
+            "train_eval_gp: log_y_std (raw log space) exceeded "
+            f"{_LOG_Y_STD_CAP_FOR_LOGNORMAL_MEAN} for at least one test point; "
+            "clamping for log-normal *mean* back-transform only (median path unchanged). "
+            "Large GP predictive std in standardized space × y_train_std causes this; "
+            "consider log_y_point_inverse='median' or a better-calibrated model.",
+            stacklevel=3,
+        )
+    half_var = 0.5 * (log_y_std_eff**2)
+    return exp_log_y * torch.exp(half_var) - log_scale_C
+
+
+def _np_log_y_point_original(
+    exp_log_y: np.ndarray,
+    log_y_std: np.ndarray,
+    log_scale_C: float,
+    log_y_point_inverse: str,
+) -> np.ndarray:
+    if log_y_point_inverse == "median":
+        return exp_log_y - log_scale_C
+    cap = _LOG_Y_STD_CAP_FOR_LOGNORMAL_MEAN
+    if np.any(log_y_std > cap):
+        warnings.warn(
+            "train_eval_PFN: log_y_std (raw log space) exceeded "
+            f"{cap} for at least one test point; clamping for log-normal mean back-transform only.",
+            stacklevel=3,
+        )
+    log_y_std_eff = np.minimum(log_y_std, cap)
+    half_var = 0.5 * (log_y_std_eff**2)
+    return exp_log_y * np.exp(half_var) - log_scale_C
 
 
 def _process_trainer_info(stored_params, train_results, num_epochs):
@@ -19,6 +102,125 @@ def _process_trainer_info(stored_params, train_results, num_epochs):
     """
     from gpplus.training.trainer_analysis import build_trainer_analysis_payload
     return build_trainer_analysis_payload(stored_params, train_results, num_epochs)
+
+
+def _compute_log_space_metrics(
+    y_true_original,
+    y_pred_original,
+    log_scale_C: float,
+    output_std_original=None,
+    lower_original=None,
+    upper_original=None,
+) -> dict:
+    """
+    Compute error metrics on log(y + C) space from original-scale y_true/y_pred.
+    Only finite pairs with y + C > 0 are used.
+    """
+    y_true = (
+        y_true_original.detach().cpu().numpy().reshape(-1)
+        if isinstance(y_true_original, torch.Tensor)
+        else np.asarray(y_true_original).reshape(-1)
+    )
+    y_pred = (
+        y_pred_original.detach().cpu().numpy().reshape(-1)
+        if isinstance(y_pred_original, torch.Tensor)
+        else np.asarray(y_pred_original).reshape(-1)
+    )
+    c_val = float(log_scale_C)
+    y_true_shift = y_true + c_val
+    y_pred_shift = y_pred + c_val
+    valid = (
+        np.isfinite(y_true_shift)
+        & np.isfinite(y_pred_shift)
+        & (y_true_shift > 0)
+        & (y_pred_shift > 0)
+    )
+    if output_std_original is not None:
+        out_std = (
+            output_std_original.detach().cpu().numpy().reshape(-1)
+            if isinstance(output_std_original, torch.Tensor)
+            else np.asarray(output_std_original).reshape(-1)
+        )
+    else:
+        out_std = None
+    if lower_original is not None:
+        lower_arr = (
+            lower_original.detach().cpu().numpy().reshape(-1)
+            if isinstance(lower_original, torch.Tensor)
+            else np.asarray(lower_original).reshape(-1)
+        )
+    else:
+        lower_arr = None
+    if upper_original is not None:
+        upper_arr = (
+            upper_original.detach().cpu().numpy().reshape(-1)
+            if isinstance(upper_original, torch.Tensor)
+            else np.asarray(upper_original).reshape(-1)
+        )
+    else:
+        upper_arr = None
+
+    if not np.any(valid):
+        return {
+            "RMSE_log": None,
+            "MAE_log": None,
+            "RRMSE_log": None,
+            "NIS_log": None,
+            "NIS_width_log": None,
+            "NIS_outside_log": None,
+            "log_eval_valid_fraction": 0.0,
+        }
+    y_true_log = np.log(y_true_shift[valid])
+    y_pred_log = np.log(y_pred_shift[valid])
+    rmse_log = float(np.sqrt(np.mean((y_true_log - y_pred_log) ** 2)))
+    mae_log = float(np.mean(np.abs(y_true_log - y_pred_log)))
+    std_log = float(np.std(y_true_log))
+    rrmse_log = float(rmse_log / std_log) if std_log > 0 else float("inf")
+    log_metrics = {
+        "RMSE_log": rmse_log,
+        "MAE_log": mae_log,
+        "RRMSE_log": rrmse_log,
+        "log_eval_valid_fraction": float(np.mean(valid)),
+    }
+    nis_log = None
+    if (lower_arr is not None) and (upper_arr is not None):
+        lower_shift = lower_arr + c_val
+        upper_shift = upper_arr + c_val
+        valid_bounds = (
+            valid
+            & np.isfinite(lower_shift)
+            & np.isfinite(upper_shift)
+            & (lower_shift > 0)
+            & (upper_shift > 0)
+        )
+        if np.any(valid_bounds):
+            nis_log = compute_nis(
+                np.log(y_true_shift[valid_bounds]),
+                lower=np.log(lower_shift[valid_bounds]),
+                upper=np.log(upper_shift[valid_bounds]),
+                alpha=0.05,
+            )
+    elif out_std is not None:
+        # Delta-method approximation: sigma_log ≈ sigma_y / (y_hat + C)
+        denom = y_pred_shift
+        valid_std = valid & np.isfinite(out_std) & (out_std >= 0) & (denom > 0)
+        if np.any(valid_std):
+            log_sigma = out_std[valid_std] / denom[valid_std]
+            nis_log = compute_nis(
+                np.log(y_true_shift[valid_std]),
+                y_hat=np.log(y_pred_shift[valid_std]),
+                output_std=log_sigma,
+                alpha=0.05,
+            )
+    if nis_log is not None:
+        log_metrics["NIS_log"] = float(nis_log["NIS"])
+        log_metrics["NIS_width_log"] = float(nis_log["NIS_width"])
+        log_metrics["NIS_outside_log"] = float(nis_log["NIS_outside"])
+    else:
+        log_metrics["NIS_log"] = None
+        log_metrics["NIS_width_log"] = None
+        log_metrics["NIS_outside_log"] = None
+    return log_metrics
 
 
 def train_eval_gp(
@@ -42,6 +244,7 @@ def train_eval_gp(
     y_train_std: torch.Tensor | dict | None = None,
     standardize_y_log_scale: bool = False,
     log_scale_C: float | None = None,  # C used in log(y + C) transformation. If None, will use LogScaler's C from fit.
+    log_y_point_inverse: str = "median",  # "median": exp(mu)-C; "mean": exp(mu+sigma^2/2)-C in raw log space
     source_cols: int | list[int] | None = None,
     trainer_info: bool = False,
     cholesky_jitter: float = 1e-6,  # Jitter for Cholesky; use larger (e.g. 1e-5, 1e-4) for large n
@@ -143,6 +346,15 @@ def train_eval_gp(
         )
         output_std = torch.where(torch.isfinite(output_std), output_std, torch.ones_like(output_std) * 1e-6)
 
+    _validate_log_y_point_inverse(log_y_point_inverse)
+    _require_finite_log_scale_c(
+        standardize_y_log_scale,
+        log_scale_C,
+        y_train_mean,
+        y_train_std,
+        caller="train_eval_gp",
+    )
+
     # Denormalization logic (unchanged from v1/v2)
     if y_train_mean is not None and y_train_std is not None:
         if isinstance(y_train_mean, dict) and isinstance(y_train_std, dict):
@@ -185,7 +397,9 @@ def train_eval_gp(
                         max_log_val = 700.0 if log_y_pred.dtype == torch.float32 else 1000.0
                         log_y_pred = torch.clamp(log_y_pred, min=-max_log_val, max=max_log_val)
                         exp_log_y = torch.exp(log_y_pred)
-                        y_pred_denorm[source_mask] = exp_log_y - log_scale_C
+                        y_pred_denorm[source_mask] = _torch_log_y_point_original(
+                            exp_log_y, log_y_std, float(log_scale_C), log_y_point_inverse
+                        )
                         output_std_denorm[source_mask] = exp_log_y * log_y_std
                     else:
                         y_pred_denorm[source_mask] = (y_pred[source_mask] * std) + mean
@@ -208,7 +422,9 @@ def train_eval_gp(
                     max_log_val = 700.0 if log_y_pred.dtype == torch.float32 else 1000.0
                     log_y_pred = torch.clamp(log_y_pred, min=-max_log_val, max=max_log_val)
                     exp_log_y = torch.exp(log_y_pred)
-                    y_pred = exp_log_y - log_scale_C
+                    y_pred = _torch_log_y_point_original(
+                        exp_log_y, log_y_std, float(log_scale_C), log_y_point_inverse
+                    )
                     output_std = exp_log_y * log_y_std
                 else:
                     y_pred = (y_pred * std) + mean
@@ -223,7 +439,9 @@ def train_eval_gp(
                 max_log_val = 700.0 if log_y_pred.dtype == torch.float32 else 1000.0
                 log_y_pred = torch.clamp(log_y_pred, min=-max_log_val, max=max_log_val)
                 exp_log_y = torch.exp(log_y_pred)
-                y_pred = exp_log_y - log_scale_C
+                y_pred = _torch_log_y_point_original(
+                    exp_log_y, log_y_std, float(log_scale_C), log_y_point_inverse
+                )
                 output_std = exp_log_y * log_y_std
             else:
                 y_pred = (y_pred * std_val) + mean_val
@@ -231,6 +449,14 @@ def train_eval_gp(
 
     y_pred_np = y_pred.detach().cpu().numpy().reshape(-1)
     output_std_np = output_std.detach().cpu().numpy().reshape(-1)
+
+    if standardize_y_log_scale and np.any(~np.isfinite(y_pred_np)):
+        n_bad = int(np.sum(~np.isfinite(y_pred_np)))
+        warnings.warn(
+            f"train_eval_gp: {n_bad} non-finite values in y_pred after log-scale denorm "
+            "(before NaN replacement).",
+            stacklevel=2,
+        )
 
     # Check for NaN/Inf values and replace with reasonable defaults
     if np.any(~np.isfinite(y_pred_np)):
@@ -243,15 +469,30 @@ def train_eval_gp(
                 if y_train_mean is not None:
                     if isinstance(y_train_mean, dict):
                         log_mean_val = list(y_train_mean.values())[0]
+                        log_std_val = list(y_train_std.values())[0]
                     else:
                         log_mean_val = y_train_mean
+                        log_std_val = y_train_std
                     if isinstance(log_mean_val, torch.Tensor):
                         log_mean_val = (
                             log_mean_val.item()
                             if log_mean_val.numel() == 1
                             else log_mean_val.cpu().numpy()
                         )
-                    replacement = np.exp(float(log_mean_val)) - log_scale_C
+                    if isinstance(log_std_val, torch.Tensor):
+                        log_std_val = (
+                            log_std_val.item()
+                            if log_std_val.numel() == 1
+                            else log_std_val.cpu().numpy()
+                        )
+                    mu_f = float(log_mean_val)
+                    if log_y_point_inverse == "mean":
+                        sig_f = float(log_std_val)
+                        replacement = float(
+                            np.exp(mu_f + 0.5 * sig_f * sig_f) - float(log_scale_C)
+                        )
+                    else:
+                        replacement = float(np.exp(mu_f) - float(log_scale_C))
                 else:
                     replacement = 0.0
             y_pred_np[nan_mask] = replacement
@@ -266,6 +507,18 @@ def train_eval_gp(
         replacement = np.median(valid_std) if len(valid_std) > 0 else 1.0
         output_std_np[nan_mask] = replacement
 
+    y_true_flat = (
+        y_test.detach().cpu().numpy().reshape(-1)
+        if isinstance(y_test, torch.Tensor)
+        else np.asarray(y_test).reshape(-1)
+    )
+    if y_true_flat.shape[0] != y_pred_np.shape[0]:
+        raise ValueError(
+            "train_eval_gp: y_test and predictions length mismatch — "
+            f"len(y_test)={y_true_flat.shape[0]}, len(y_pred)={y_pred_np.shape[0]}. "
+            "Expected one prediction per row of X_test (same order as y_test)."
+        )
+
     gp_metric = compute_metrics(
         y_test,
         y_pred_np,
@@ -273,6 +526,20 @@ def train_eval_gp(
         training_time=training_time,
         prediction_time=prediction_time,
     )
+    if (
+        standardize_y_log_scale
+        and y_train_mean is not None
+        and y_train_std is not None
+        and log_scale_C is not None
+    ):
+        gp_metric.update(
+            _compute_log_space_metrics(
+                y_test,
+                y_pred_np,
+                float(log_scale_C),
+                output_std_original=output_std_np,
+            )
+        )
     # When trainer provides timing breakdown: report exactly Total_Time, Full_Train_Time, Train_Time, Log_Time, Prediction_Time at top (no duplicates)
     if (
         hasattr(trainer, "full_train_time")
@@ -300,7 +567,12 @@ def train_eval_gp(
     noise_std = None
     noise_std_original_scale = None
     try:
-        noise_variance = model.likelihood.noise.detach().cpu()
+        nc = model.likelihood.noise_covar
+        tx = model.train_inputs[0]
+        if type(nc).__name__ == "LogScaleMLPNoise":
+            noise_variance = nc.variance_at(tx).mean().detach().cpu()
+        else:
+            noise_variance = model.likelihood.noise.detach().cpu()
         noise_std = np.sqrt(noise_variance)
 
         if y_train_std is not None:
@@ -668,6 +940,7 @@ def train_eval_PFN(
     y_train_std=None,
     standardize_y_log_scale: bool = False,
     log_scale_C: float | None = None,  # C used in log(y + C) transformation. If None, will use LogScaler's C from fit.
+    log_y_point_inverse: str = "median",
     source_cols=None,
 ):
     """
@@ -796,6 +1069,15 @@ def train_eval_PFN(
 
     y_test_normalized = y_test.copy() if isinstance(y_test, np.ndarray) else np.array(y_test)
 
+    _validate_log_y_point_inverse(log_y_point_inverse)
+    _require_finite_log_scale_c(
+        standardize_y_log_scale,
+        log_scale_C,
+        y_train_mean,
+        y_train_std,
+        caller="train_eval_PFN",
+    )
+
     if (y_train_mean is not None) and (y_train_std is not None):
         if isinstance(y_train_mean, dict) and isinstance(y_train_std, dict):
             if source_cols is not None:
@@ -841,7 +1123,9 @@ def train_eval_PFN(
                         max_log_val = 700.0
                         log_y_pred = np.clip(log_y_pred, -max_log_val, max_log_val)
                         exp_log_y = np.exp(log_y_pred)
-                        y_pred_test_denorm[source_mask] = exp_log_y - log_scale_C
+                        y_pred_test_denorm[source_mask] = _np_log_y_point_original(
+                            exp_log_y, log_y_std, float(log_scale_C), log_y_point_inverse
+                        )
                         output_std_test_denorm[source_mask] = exp_log_y * log_y_std
 
                         if lower_95_test_denorm is not None and upper_95_test_denorm is not None:
@@ -873,7 +1157,9 @@ def train_eval_PFN(
                     max_log_val = 700.0
                     log_y_pred = np.clip(log_y_pred, -max_log_val, max_log_val)
                     exp_log_y = np.exp(log_y_pred)
-                    y_pred_test = exp_log_y - log_scale_C
+                    y_pred_test = _np_log_y_point_original(
+                        exp_log_y, log_y_std, float(log_scale_C), log_y_point_inverse
+                    )
                     output_std_test = exp_log_y * log_y_std
                     if lower_95_test is not None and upper_95_test is not None:
                         log_lower = (lower_95_test * std) + mean
@@ -895,7 +1181,9 @@ def train_eval_PFN(
                 max_log_val = 700.0
                 log_y_pred = np.clip(log_y_pred, -max_log_val, max_log_val)
                 exp_log_y = np.exp(log_y_pred)
-                y_pred_test = exp_log_y - log_scale_C
+                y_pred_test = _np_log_y_point_original(
+                    exp_log_y, log_y_std, float(log_scale_C), log_y_point_inverse
+                )
                 output_std_test = exp_log_y * log_y_std
                 if lower_95_test is not None and upper_95_test is not None:
                     log_lower = (lower_95_test * float(y_train_std)) + float(y_train_mean)
@@ -911,9 +1199,30 @@ def train_eval_PFN(
                     lower_95_test = (lower_95_test * float(y_train_std)) + float(y_train_mean)
                     upper_95_test = (upper_95_test * float(y_train_std)) + float(y_train_mean)
 
+    if standardize_y_log_scale and isinstance(y_pred_test, np.ndarray):
+        if np.any(~np.isfinite(y_pred_test)):
+            n_bad = int(np.sum(~np.isfinite(y_pred_test)))
+            warnings.warn(
+                f"train_eval_PFN: {n_bad} non-finite values in y_pred_test after log-scale denorm.",
+                stacklevel=2,
+            )
+
     tabpfn_logits_for_metrics = tabpfn_logits_test if "tabpfn_logits_test" in locals() else None
     tabpfn_bar_dist_for_metrics = tabpfn_bar_dist_test if "tabpfn_bar_dist_test" in locals() else None
     y_test_for_crps = y_test_normalized if "y_test_normalized" in locals() else y_test
+
+    y_true_pfn = (
+        y_test.detach().cpu().numpy().reshape(-1)
+        if isinstance(y_test, torch.Tensor)
+        else np.asarray(y_test).reshape(-1)
+    )
+    y_pred_flat = np.asarray(y_pred_test).reshape(-1)
+    if y_true_pfn.shape[0] != y_pred_flat.shape[0]:
+        raise ValueError(
+            "train_eval_PFN: y_test and predictions length mismatch — "
+            f"len(y_test)={y_true_pfn.shape[0]}, len(y_pred)={y_pred_flat.shape[0]}."
+        )
+
     metrics = compute_metrics(
         y_test,
         y_pred_test,
@@ -926,6 +1235,22 @@ def train_eval_PFN(
         lower_95=lower_95_test,
         upper_95=upper_95_test,
     )
+    if (
+        standardize_y_log_scale
+        and y_train_mean is not None
+        and y_train_std is not None
+        and log_scale_C is not None
+    ):
+        metrics.update(
+            _compute_log_space_metrics(
+                y_test,
+                y_pred_test,
+                float(log_scale_C),
+                output_std_original=output_std_test,
+                lower_original=lower_95_test,
+                upper_original=upper_95_test,
+            )
+        )
 
     if isinstance(source_cols, int) or (isinstance(source_cols, (list, tuple)) and len(source_cols) > 0):
         if isinstance(source_cols, (list, tuple)) and len(source_cols) == 1:
