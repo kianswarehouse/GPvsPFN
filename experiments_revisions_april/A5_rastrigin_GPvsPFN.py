@@ -146,6 +146,8 @@ def rastrigin_GPvsPFN(num_runs=defaults.NUM_RUNS,
         X_test = X_test_all.detach().clone().to(dtype=gp_dtype)
         y_train = y_train.detach().clone().to(dtype=gp_dtype)
         y_test = y_test_all.detach().clone().to(dtype=gp_dtype)
+        X_train_raw_for_pfn = X_train.detach().clone()
+        X_test_raw_for_pfn = X_test.detach().clone()
         # Determine X scaling type
         if standardize_X:
             if x_standardize_method == 0:

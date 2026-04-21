@@ -139,6 +139,8 @@ def tabpfn1d_sin_plus_x_GPvsPFN(
         X_test = X_test_all.detach().clone().to(dtype=gp_dtype)
         y_train = y_train.detach().clone().to(dtype=gp_dtype)
         y_test = y_test_all.detach().clone().to(dtype=gp_dtype)
+        X_train_raw_for_pfn = X_train.detach().clone()
+        X_test_raw_for_pfn = X_test.detach().clone()
         if standardize_X:
             if x_standardize_method == 0:
                 Xscaler = gpplus.utils.StandardScaler()
@@ -224,8 +226,8 @@ def tabpfn1d_sin_plus_x_GPvsPFN(
             print(f"\n--- {title} TabPFN Training ---")
 
             tabpfn_metric, y_pred_tabpfn, output_std_tabpfn = train_eval_PFN(
-                X_train,
-                X_test,
+                X_train_raw_for_pfn,
+                X_test_raw_for_pfn,
                 y_train,
                 y_test,
                 amp_device=amp_device,

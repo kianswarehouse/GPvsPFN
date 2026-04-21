@@ -121,6 +121,8 @@ def borehole_SF_GPvsPFN(
         X_test = X_test_all.detach().clone().to(dtype=gp_dtype)
         y_train = y_train.detach().clone().to(dtype=gp_dtype)
         y_test = y_test_all.detach().clone().to(dtype=gp_dtype)
+        X_train_raw_for_pfn = X_train.detach().clone()
+        X_test_raw_for_pfn = X_test.detach().clone()
         # Determine X scaling type
         X_scaling_type = "None"
         if standardize_X:
@@ -218,8 +220,8 @@ def borehole_SF_GPvsPFN(
             print(f"\n--- {title} TabPFN Training ---")
             
             tabpfn_metric, y_pred_tabpfn, output_std_tabpfn = train_eval_PFN(
-                X_train,
-                X_test,
+                X_train_raw_for_pfn,
+                X_test_raw_for_pfn,
                 y_train,
                 y_test,
                 amp_device=amp_device,
