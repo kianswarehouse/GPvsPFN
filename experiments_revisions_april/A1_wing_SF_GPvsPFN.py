@@ -41,7 +41,7 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
         trainer_info=True,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
         log_lbfgs_inner=defaults.TRAINER_LOG_LBFGS_INNER,
-        single_dataset=True,
+        single_dataset=False,
         # If True: one train set (and one test set) is reused for every run.
         # If False: generate a larger train pool and use disjoint slices per run (legacy behavior).
     ):
