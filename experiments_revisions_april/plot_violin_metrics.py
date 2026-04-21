@@ -43,7 +43,9 @@ except ImportError:
     HAS_SEABORN = False
 
 
-def iter_json_files(base_dir: Path, problems: Optional[set[str]]) -> Iterable[Path]:
+def iter_json_files(base_dir: Optional[Path], problems: Optional[set[str]]) -> Iterable[Path]:
+    if base_dir is None or not base_dir.exists():
+        return
     for path in base_dir.rglob("*.json"):
         rel = path.relative_to(base_dir)
         if problems:
@@ -167,6 +169,7 @@ def collect_per_run_rows(
     problems: Optional[set[str]]
 ) -> pd.DataFrame:
     rows: List[Dict] = []
+    gpytorch_dir = gpytorch_dir or gp_tabpfn_dir
 
     # Process all files from the results directory
     # Files are processed once, and we determine model types based on filename
@@ -177,10 +180,19 @@ def collect_per_run_rows(
     # Process regular files (GP+ and GPytorch only, no TabPFN from these)
     # TabPFN data is ONLY extracted from dedicated directories (tabpfn_v25_dir and tabpfn_v2_dir)
     for path in all_paths:
-        # Skip if this path is in a TabPFN dedicated directory (shouldn't happen, but safety check)
-        if tabpfn_v25_dir and str(path).startswith(str(tabpfn_v25_dir)):
+        # Skip if this path is in a separate TabPFN dedicated directory.
+        # If tabpfn_v25_dir == gp_tabpfn_dir, we must NOT skip or GP+ gets dropped.
+        if (
+            tabpfn_v25_dir
+            and tabpfn_v25_dir != gp_tabpfn_dir
+            and str(path).startswith(str(tabpfn_v25_dir))
+        ):
             continue
-        if tabpfn_v2_dir and str(path).startswith(str(tabpfn_v2_dir)):
+        if (
+            tabpfn_v2_dir
+            and tabpfn_v2_dir != gp_tabpfn_dir
+            and str(path).startswith(str(tabpfn_v2_dir))
+        ):
             continue
             
         with path.open("r") as f:
@@ -786,6 +798,14 @@ def _create_metric_table_latex(
     filename: str, caption: str
 ) -> None:
     """Helper function to create a LaTeX table for specific metrics."""
+    def _get_stats_entry(key, model: str, metric: str) -> dict:
+        """Return stats entry or an empty placeholder when combination is missing."""
+        return (
+            stats_dict.get(key, {})
+            .get(model, {})
+            .get(metric, {"median": None, "std": None})
+        )
+
     # Calculate columns per model for LaTeX multicolumn
     model_col_counts = {}
     for model in model_order_filtered:
@@ -900,7 +920,7 @@ def _create_metric_table_latex(
                     for metric in metrics:
                         if metric == "Training_Time" and model.startswith("tabpfn"):
                             continue
-                        stats = stats_dict[key][model][metric]
+                        stats = _get_stats_entry(key, model, metric)
                         if stats["median"] is not None:
                             median_val = format_number_latex(stats['median'], metric)
                             std_val = format_number_latex(stats['std'], metric)
@@ -925,7 +945,7 @@ def _create_metric_table_latex(
                     for metric in metrics:
                         if metric == "Training_Time" and model.startswith("tabpfn"):
                             continue
-                        stats = stats_dict[key][model][metric]
+                        stats = _get_stats_entry(key, model, metric)
                         if stats["median"] is not None:
                             median_val = format_number_latex(stats['median'], metric)
                             std_val = format_number_latex(stats['std'], metric)
@@ -1957,25 +1977,27 @@ def main() -> None:
     parser.add_argument(
         "--gp_tabpfn_dir",
         type=Path,
-        default=Path("C:/Users/forty/tyler_gpplus/gp-private/results_final/1_19"),
+        default=Path("C:/Users/pmacs/gp-private/results_April20/20_runs_logging_full_Gaussian/"),
         help="Directory containing GP+ and TabPFN JSON results.",
     )
     parser.add_argument(
         "--gpytorch_dir",
         type=Path,
-        default=Path("C:/Users/forty/tyler_gpplus/gp-private/results_final/1_11"),
+        # default=Path("C:/Users/forty/tyler_gpplus/gp-private/results_final/1_11"),
+        default=None,
         help="Directory containing GPytorch JSON results (same as gp_tabpfn_dir for this setup).",
     )
     parser.add_argument(
         "--tabpfn_v25_dir",
         type=Path,
-        default=Path("C:/Users/forty/tyler_gpplus/gp-private/results_final/pfnv2_5_IQR"),
+        default=Path("C:/Users/pmacs/gp-private/results_April20/20_runs_logging_full_Gaussian/"),
         help="Directory containing TabPFN v2.5 JSON results.",
     )
     parser.add_argument(
         "--tabpfn_v2_dir",
         type=Path,
-        default=Path("C:/Users/forty/tyler_gpplus/gp-private/results_final/pfnv2_0_IQR"),
+        default=None,
+        # default=Path("C:/Users/forty/tyler_gpplus/gp-private/results_final/pfnv2_0_IQR"),
         help="Directory containing TabPFN v2 JSON results.",
     )
     parser.add_argument(
@@ -2000,7 +2022,7 @@ def main() -> None:
     parser.add_argument(
         "--remove_outliers",
         action="store_true",
-        default=True,
+        default=False,
         help="Remove outliers using IQR method before plotting. Creates additional plots with '_no_outliers' suffix.",
     )
     args = parser.parse_args()
@@ -2017,8 +2039,8 @@ def main() -> None:
     # create_summary_table(df, args.output_dir, model_order)
     # create_time_tables(df, args.output_dir, model_order)
     # create_comprehensive_tables(df, args.output_dir, model_order)
-    create_comprehensive_tables_latex(df, args.output_dir, model_order)
-    # make_violin_plots(df, args.output_dir, model_order, remove_outliers=False)
+    # create_comprehensive_tables_latex(df, args.output_dir, model_order)
+    make_violin_plots(df, args.output_dir, model_order, remove_outliers=False)
     # make_violin_plots_by_noise(df, args.output_dir, model_order, remove_outliers=False)
     
     # Create additional plots with outliers removed if requested
