@@ -216,6 +216,92 @@ def compute_nis(
     }
 
 
+def compute_lognormal_interval_bounds(
+    log_mu,
+    log_sigma,
+    log_scale_C: float,
+    *,
+    alpha: float = 0.05,
+):
+    """
+    Compute central prediction-interval bounds on original scale from
+    Normal predictive parameters in log space.
+
+    If log(y + C) ~ N(log_mu, log_sigma^2), then:
+      L = exp(q_{alpha/2}) - C
+      U = exp(q_{1-alpha/2}) - C
+    """
+    if not (0 < alpha < 1):
+        raise ValueError(f"alpha must be in (0, 1); got {alpha}")
+
+    try:
+        c_val = float(log_scale_C)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"log_scale_C must be a finite float, got {log_scale_C!r}.") from e
+    if not np.isfinite(c_val):
+        raise ValueError(f"log_scale_C must be finite, got {log_scale_C!r}.")
+
+    if isinstance(log_mu, torch.Tensor):
+        log_mu = log_mu.detach().cpu().numpy()
+    if isinstance(log_sigma, torch.Tensor):
+        log_sigma = log_sigma.detach().cpu().numpy()
+
+    log_mu = np.asarray(log_mu).reshape(-1)
+    log_sigma = np.asarray(log_sigma).reshape(-1)
+    if log_mu.shape != log_sigma.shape:
+        raise ValueError(f"Shape mismatch: log_mu {log_mu.shape}, log_sigma {log_sigma.shape}")
+
+    # Predictive std should be nonnegative; guard against tiny negative numerical artifacts.
+    log_sigma = np.maximum(log_sigma, 0.0)
+
+    # Normal inverse-CDF values for alpha/2 and 1-alpha/2.
+    dist = torch.distributions.Normal(torch.tensor(0.0), torch.tensor(1.0))
+    q_low = float(dist.icdf(torch.tensor(alpha / 2.0)).item())
+    q_high = float(dist.icdf(torch.tensor(1.0 - alpha / 2.0)).item())
+
+    lower_log = log_mu + q_low * log_sigma
+    upper_log = log_mu + q_high * log_sigma
+
+    # Clamp exponent arguments to avoid overflow.
+    max_log_val = 700.0 if lower_log.dtype == np.float32 else 1000.0
+    lower_log = np.clip(lower_log, -max_log_val, max_log_val)
+    upper_log = np.clip(upper_log, -max_log_val, max_log_val)
+
+    lower = np.exp(lower_log) - c_val
+    upper = np.exp(upper_log) - c_val
+    return lower, upper
+
+
+def compute_nis_from_log_params(
+    y_true,
+    *,
+    log_mu,
+    log_sigma,
+    log_scale_C: float,
+    alpha: float = 0.05,
+    normalize_by_y_std: bool = True,
+    eps: float = 1e-12,
+):
+    """
+    Compute NIS using 2.5/97.5% (or alpha-adjusted) quantiles implied by
+    Normal predictive parameters in log space.
+    """
+    lower, upper = compute_lognormal_interval_bounds(
+        log_mu,
+        log_sigma,
+        log_scale_C,
+        alpha=alpha,
+    )
+    return compute_nis(
+        y_true,
+        lower=lower,
+        upper=upper,
+        alpha=alpha,
+        normalize_by_y_std=normalize_by_y_std,
+        eps=eps,
+    )
+
+
 def compute_metrics(
     y_true,
     y_hat,
@@ -228,6 +314,10 @@ def compute_metrics(
     y_test_normalized=None,
     lower_95=None,
     upper_95=None,
+    log_mu=None,
+    log_sigma=None,
+    log_scale_C=None,
+    use_log_quantile_nis: bool = False,
 ):
     """
     Compute basic metrics for predictions.
@@ -242,6 +332,10 @@ def compute_metrics(
         tabpfn_logits: TabPFN logits for exact CRPS (optional, shape: n_test x n_buckets)
         tabpfn_bar_dist: TabPFN BarDistribution object (required if tabpfn_logits provided)
         y_test_normalized: Normalized y_test for CRPS (logits are in normalized space!)
+        lower_95/upper_95: Optional explicit interval bounds on original scale.
+        log_mu/log_sigma/log_scale_C: Optional predictive Normal parameters in log(y+C)
+            used to compute quantile-based NIS on original scale.
+        use_log_quantile_nis: If True and log params are provided, prefer log-quantile NIS.
 
     Returns:
         dict: Dictionary with computed metrics including time information
@@ -257,6 +351,10 @@ def compute_metrics(
         lower_95 = lower_95.detach().cpu().numpy().reshape(-1)
     if upper_95 is not None and isinstance(upper_95, torch.Tensor):
         upper_95 = upper_95.detach().cpu().numpy().reshape(-1)
+    if log_mu is not None and isinstance(log_mu, torch.Tensor):
+        log_mu = log_mu.detach().cpu().numpy().reshape(-1)
+    if log_sigma is not None and isinstance(log_sigma, torch.Tensor):
+        log_sigma = log_sigma.detach().cpu().numpy().reshape(-1)
 
     # Handle time metrics
     if training_time is not None and prediction_time is not None:
@@ -292,16 +390,31 @@ def compute_metrics(
 
     # Add NIS (and CRPS, if std available) when we have any uncertainty information
     has_bounds = (lower_95 is not None) and (upper_95 is not None)
-    if (output_std is not None) or has_bounds:
-        # If bounds are provided, compute_nis will use them; otherwise it falls back to std.
-        nis_metrics = compute_nis(
-            y_true,
-            y_hat=y_hat,
-            output_std=output_std,
-            lower=lower_95,
-            upper=upper_95,
-            alpha=0.05,
-        )
+    has_log_params = (
+        use_log_quantile_nis
+        and (log_mu is not None)
+        and (log_sigma is not None)
+        and (log_scale_C is not None)
+    )
+    if (output_std is not None) or has_bounds or has_log_params:
+        if has_log_params:
+            nis_metrics = compute_nis_from_log_params(
+                y_true,
+                log_mu=log_mu,
+                log_sigma=log_sigma,
+                log_scale_C=float(log_scale_C),
+                alpha=0.05,
+            )
+        else:
+            # If bounds are provided, compute_nis will use them; otherwise it falls back to std.
+            nis_metrics = compute_nis(
+                y_true,
+                y_hat=y_hat,
+                output_std=output_std,
+                lower=lower_95,
+                upper=upper_95,
+                alpha=0.05,
+            )
         metrics.update(nis_metrics)
         
         # CRPS (Continuous Ranked Probability Score)

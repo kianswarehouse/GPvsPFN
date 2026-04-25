@@ -10,7 +10,12 @@ from gpplus.training.stop_conditions import (
     MinLossChangeStopCondition,
 )
 from gpplus.training.eval2 import evaluate_gp_model
-from gpplus.utils.metrics_functions import compute_metrics, compute_nis, compute_per_source_metrics
+from gpplus.utils.metrics_functions import (
+    compute_lognormal_interval_bounds,
+    compute_metrics,
+    compute_nis,
+    compute_per_source_metrics,
+)
 
 
 def _validate_log_y_point_inverse(log_y_point_inverse: str) -> None:
@@ -356,6 +361,8 @@ def train_eval_gp(
     )
 
     # Denormalization logic (unchanged from v1/v2)
+    log_mu_for_metrics = None
+    log_sigma_for_metrics = None
     if y_train_mean is not None and y_train_std is not None:
         if isinstance(y_train_mean, dict) and isinstance(y_train_std, dict):
             if source_cols is not None:
@@ -369,6 +376,8 @@ def train_eval_gp(
 
                 y_pred_denorm = torch.zeros_like(y_pred)
                 output_std_denorm = torch.zeros_like(output_std)
+                log_mu_denorm = torch.zeros_like(y_pred) if standardize_y_log_scale else None
+                log_sigma_denorm = torch.zeros_like(output_std) if standardize_y_log_scale else None
                 unique_sources = torch.unique(source_indices_test)
 
                 for source_idx in unique_sources:
@@ -401,12 +410,17 @@ def train_eval_gp(
                             exp_log_y, log_y_std, float(log_scale_C), log_y_point_inverse
                         )
                         output_std_denorm[source_mask] = exp_log_y * log_y_std
+                        log_mu_denorm[source_mask] = log_y_pred
+                        log_sigma_denorm[source_mask] = log_y_std
                     else:
                         y_pred_denorm[source_mask] = (y_pred[source_mask] * std) + mean
                         output_std_denorm[source_mask] = output_std[source_mask] * std
 
                 y_pred = y_pred_denorm
                 output_std = output_std_denorm
+                if standardize_y_log_scale:
+                    log_mu_for_metrics = log_mu_denorm
+                    log_sigma_for_metrics = log_sigma_denorm
             else:
                 first_key = list(y_train_mean.keys())[0]
                 mean = y_train_mean[first_key]
@@ -426,6 +440,8 @@ def train_eval_gp(
                         exp_log_y, log_y_std, float(log_scale_C), log_y_point_inverse
                     )
                     output_std = exp_log_y * log_y_std
+                    log_mu_for_metrics = log_y_pred
+                    log_sigma_for_metrics = log_y_std
                 else:
                     y_pred = (y_pred * std) + mean
                     output_std = output_std * std
@@ -443,12 +459,24 @@ def train_eval_gp(
                     exp_log_y, log_y_std, float(log_scale_C), log_y_point_inverse
                 )
                 output_std = exp_log_y * log_y_std
+                log_mu_for_metrics = log_y_pred
+                log_sigma_for_metrics = log_y_std
             else:
                 y_pred = (y_pred * std_val) + mean_val
                 output_std = output_std * std_val
 
     y_pred_np = y_pred.detach().cpu().numpy().reshape(-1)
     output_std_np = output_std.detach().cpu().numpy().reshape(-1)
+    log_mu_np = (
+        log_mu_for_metrics.detach().cpu().numpy().reshape(-1)
+        if isinstance(log_mu_for_metrics, torch.Tensor)
+        else None
+    )
+    log_sigma_np = (
+        log_sigma_for_metrics.detach().cpu().numpy().reshape(-1)
+        if isinstance(log_sigma_for_metrics, torch.Tensor)
+        else None
+    )
 
     if standardize_y_log_scale and np.any(~np.isfinite(y_pred_np)):
         n_bad = int(np.sum(~np.isfinite(y_pred_np)))
@@ -506,6 +534,27 @@ def train_eval_gp(
         valid_std = output_std_np[np.isfinite(output_std_np)]
         replacement = np.median(valid_std) if len(valid_std) > 0 else 1.0
         output_std_np[nan_mask] = replacement
+    if log_mu_np is not None:
+        if log_mu_np.shape != y_pred_np.shape:
+            raise ValueError(
+                f"train_eval_gp: log_mu shape mismatch, got {log_mu_np.shape} vs {y_pred_np.shape}."
+            )
+        bad_mu = ~np.isfinite(log_mu_np)
+        if np.any(bad_mu):
+            valid_mu = log_mu_np[np.isfinite(log_mu_np)]
+            mu_repl = np.median(valid_mu) if len(valid_mu) > 0 else 0.0
+            log_mu_np[bad_mu] = mu_repl
+    if log_sigma_np is not None:
+        if log_sigma_np.shape != y_pred_np.shape:
+            raise ValueError(
+                f"train_eval_gp: log_sigma shape mismatch, got {log_sigma_np.shape} vs {y_pred_np.shape}."
+            )
+        bad_sigma = ~np.isfinite(log_sigma_np)
+        if np.any(bad_sigma):
+            valid_sigma = log_sigma_np[np.isfinite(log_sigma_np)]
+            sigma_repl = np.median(valid_sigma) if len(valid_sigma) > 0 else 0.0
+            log_sigma_np[bad_sigma] = sigma_repl
+        log_sigma_np = np.maximum(log_sigma_np, 0.0)
 
     y_true_flat = (
         y_test.detach().cpu().numpy().reshape(-1)
@@ -525,6 +574,15 @@ def train_eval_gp(
         output_std_np,
         training_time=training_time,
         prediction_time=prediction_time,
+        log_mu=log_mu_np,
+        log_sigma=log_sigma_np,
+        log_scale_C=log_scale_C,
+        use_log_quantile_nis=(
+            standardize_y_log_scale
+            and (log_mu_np is not None)
+            and (log_sigma_np is not None)
+            and (log_scale_C is not None)
+        ),
     )
     if (
         standardize_y_log_scale
@@ -532,12 +590,23 @@ def train_eval_gp(
         and y_train_std is not None
         and log_scale_C is not None
     ):
+        lower_original = None
+        upper_original = None
+        if (log_mu_np is not None) and (log_sigma_np is not None):
+            lower_original, upper_original = compute_lognormal_interval_bounds(
+                log_mu_np,
+                log_sigma_np,
+                float(log_scale_C),
+                alpha=0.05,
+            )
         gp_metric.update(
             _compute_log_space_metrics(
                 y_test,
                 y_pred_np,
                 float(log_scale_C),
                 output_std_original=output_std_np,
+                lower_original=lower_original,
+                upper_original=upper_original,
             )
         )
     # When trainer provides timing breakdown: report exactly Total_Time, Full_Train_Time, Train_Time, Log_Time, Prediction_Time at top (no duplicates)

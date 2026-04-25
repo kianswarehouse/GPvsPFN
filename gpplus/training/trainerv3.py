@@ -253,6 +253,7 @@ class GPTrainer:
             get_settings().apply()
 
         if self.device.type == "cpu":
+            print("max(1, (os.cpu_count() or 1) - 2):", max(1, (os.cpu_count() or 1) - 2))
             max_jobs = min(num_inits_to_train, max(1, (os.cpu_count() or 1) - 2))
             logger.info(
                 f"Running {num_inits_to_train} inits using {max_jobs} parallel processes on CPU "

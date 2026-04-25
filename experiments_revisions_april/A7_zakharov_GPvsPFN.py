@@ -7,7 +7,12 @@ from gpplus.utils.onehot_encode_data import encode_qual_data, learn_encodings
 import gpplus
 import time
 import matplotlib.pyplot as plt
-from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
+from gpplus.utils.metrics_functions import (
+    analyze_metrics,
+    compute_lognormal_interval_bounds,
+    compute_nis,
+    plot_metrics,
+)
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from gpplus.training.eval2 import evaluate_gp_model
 from tabpfn import TabPFNRegressor
@@ -40,7 +45,7 @@ def zakharov_GPvsPFN(num_runs=defaults.NUM_RUNS,
         standardize_y_log_scale=True,
         log_y_epsilon=1e-8,
         log_y_C=None,
-        log_y_point_inverse: str = "mean",
+        log_y_point_inverse: str = "median",
         compare_log_point_inverses: bool = False,
         noise_train=0.0,
         noise_test=0.0,
@@ -365,6 +370,60 @@ def zakharov_GPvsPFN(num_runs=defaults.NUM_RUNS,
             print(f"\nGP Results (Fold {i+1}/{num_runs})")
             for k, v in gp_metric.items():
                 print(f"  {k}: {v:.4f}" if v is not None and isinstance(v, (int, float)) else f"  {k}: {v}")
+            if standardize_y_log_scale and (log_scale_C is not None):
+                try:
+                    # Per-run diagnostic: compare current quantile NIS vs old Gaussian fallback NIS.
+                    y_true_np = y_test.detach().cpu().reshape(-1).numpy()
+                    y_pred_np = np.asarray(y_pred_gp).reshape(-1)
+                    out_std_np = np.asarray(output_std_gp).reshape(-1)
+
+                    nis_gaussian_fallback = compute_nis(
+                        y_true_np,
+                        y_hat=y_pred_np,
+                        output_std=out_std_np,
+                        alpha=0.05,
+                    )["NIS"]
+
+                    y_pred_std_dbg, _, _, y_std_dbg = evaluate_gp_model(model, X_test)
+                    y_pred_std_dbg_np = y_pred_std_dbg.detach().cpu().reshape(-1).numpy()
+                    y_std_dbg_np = y_std_dbg.detach().cpu().reshape(-1).numpy()
+
+                    mean_val = (
+                        float(y_train_mean.squeeze().item())
+                        if hasattr(y_train_mean, "squeeze")
+                        else float(y_train_mean)
+                    )
+                    std_val = (
+                        float(y_train_std.squeeze().item())
+                        if hasattr(y_train_std, "squeeze")
+                        else float(y_train_std)
+                    )
+                    log_mu = (y_pred_std_dbg_np * std_val) + mean_val
+                    log_sigma = y_std_dbg_np * std_val
+
+                    lower_q, upper_q = compute_lognormal_interval_bounds(
+                        log_mu,
+                        log_sigma,
+                        float(log_scale_C),
+                        alpha=0.05,
+                    )
+                    nis_log_quantile_recomputed = compute_nis(
+                        y_true_np,
+                        lower=lower_q,
+                        upper=upper_q,
+                        alpha=0.05,
+                    )["NIS"]
+                    # Persist both variants so they are captured in run logs and saved outputs.
+                    gp_metric["NIS_log_quantile_corrected"] = float(nis_log_quantile_recomputed)
+                    gp_metric["NIS_gaussian_fallback"] = float(nis_gaussian_fallback)
+                    print(
+                        "[NIS diagnostic] "
+                        f"reported={gp_metric.get('NIS'):.6f} | "
+                        f"log_quantile_recomputed={nis_log_quantile_recomputed:.6f} | "
+                        f"gaussian_fallback_old={nis_gaussian_fallback:.6f}"
+                    )
+                except Exception as e_nis:
+                    print(f"[NIS diagnostic] skipped due to: {e_nis}")
             if plot_pred_scatter and save_path is not None:
                 try:
                     plot_dir = Path(plot_save_path)
@@ -790,11 +849,11 @@ def zakharov_GPvsPFN(num_runs=defaults.NUM_RUNS,
 if __name__ == "__main__":
     zakharov_GPvsPFN(
         num_runs=10,
-        train_size=20,
+        train_size=10,
         dimensions=20,
         num_inits=16,
-        noise_train=0.002,
-        noise_test=0.002,
+        noise_train=0.08,
+        noise_test=0.08,
         save_path="./results/zakharov/temp",
         run_models=None,
     )
