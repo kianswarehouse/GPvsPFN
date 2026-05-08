@@ -1,8 +1,10 @@
 import time
 import warnings
+from contextlib import nullcontext
 
 import numpy as np
 import torch
+from gpplus.config import get_settings
 from gpplus.training import GPTrainerV3 as GPTrainer
 from gpplus.training.callbacks import FinalParameterStorageCallback
 from gpplus.training.stop_conditions import (
@@ -16,6 +18,37 @@ from gpplus.utils.metrics_functions import (
     compute_nis,
     compute_per_source_metrics,
 )
+
+
+def _print_train_eval_gp_eval_parity(model: torch.nn.Module, tag: str = "") -> None:
+    """One-shot diagnostics for series vs parallel prediction parity (main process)."""
+    label = f" {tag}" if tag else ""
+    jitter = getattr(model, "cholesky_jitter", None)
+    try:
+        det = torch.are_deterministic_algorithms_enabled()
+    except Exception:  # noqa: BLE001
+        det = None
+    nth = torch.get_num_threads()
+    try:
+        n_interop = torch.get_num_interop_threads()
+    except Exception:  # noqa: BLE001
+        n_interop = None
+    tp_summary = "n/a"
+    try:
+        from threadpoolctl import threadpool_info
+
+        info = threadpool_info()
+        tp_summary = ", ".join(
+            f"{e.get('user_api', e.get('prefix', '?'))}={e.get('num_threads', '?')}"
+            for e in info
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    print(
+        f"[train_eval_gp eval parity{label}] cholesky_jitter={jitter!r} "
+        f"deterministic_algorithms={det} torch_num_threads={nth} "
+        f"torch_num_interop_threads={n_interop!r} threadpool_info={tp_summary}"
+    )
 
 
 def _validate_log_y_point_inverse(log_y_point_inverse: str) -> None:
@@ -258,6 +291,8 @@ def train_eval_gp(
     callback_save_path: str | None = None,  # Base path for saving callback data (if None, uses default paths)
     log_lbfgs_inner: bool = True,  # Enabled by default: log/store per-iteration loss inside LBFGSScipy step(); metrics via callbacks
     lbfgs_inner_extra_metrics: list | None = None,  # Optional [(name, fn(context)->float), ...] for LBFGSInnerMetricsCallbackV3
+    n_jobs: int | None = None,  # Joblib worker count for multi-init training. None=trainer default; 1=force series.
+    inner_max_num_threads: int | None = 1,  # BLAS threads cap per worker AND in main during eval when set.
 ):
     """
     Train a GP model and evaluate metrics on the provided test set.
@@ -311,6 +346,8 @@ def train_eval_gp(
         initializer_class=initializer_class,
         initializer_kwargs=initializer_kwargs,
         cholesky_jitter=cholesky_jitter,
+        n_jobs=n_jobs,
+        inner_max_num_threads=inner_max_num_threads,
     )
 
     # Training (use trainer's full_train_time for training_time when available)
@@ -327,7 +364,64 @@ def train_eval_gp(
     if X_test.device != eval_device:
         X_test = X_test.to(eval_device)
 
-    y_pred, _, _, output_std = evaluate_gp_model(model, X_test)
+    # After parallel (loky) training, re-apply main-process settings before prediction
+    # so ill-conditioned GP solves match series / worker numerics.
+    try:
+        torch.manual_seed(int(seed) if seed is not None else 0)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        torch.use_deterministic_algorithms(True, warn_only=True)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        get_settings().apply()
+    except Exception:  # noqa: BLE001
+        pass
+
+    eval_blas_ctx = nullcontext()
+    if inner_max_num_threads is not None and str(device).lower().startswith("cpu"):
+        try:
+            from threadpoolctl import threadpool_limits
+
+            eval_blas_ctx = threadpool_limits(limits=inner_max_num_threads)
+        except ImportError:
+            pass
+
+    _prev_torch_threads = torch.get_num_threads()
+    _prev_torch_interop = None
+    try:
+        _prev_torch_interop = torch.get_num_interop_threads()
+    except Exception:  # noqa: BLE001
+        _prev_torch_interop = None
+
+    with eval_blas_ctx:
+        if inner_max_num_threads is not None and str(device).lower().startswith("cpu"):
+            try:
+                nt = max(1, int(inner_max_num_threads))
+                torch.set_num_threads(nt)
+                try:
+                    torch.set_num_interop_threads(1)
+                except Exception:  # noqa: BLE001
+                    pass
+            except Exception:  # noqa: BLE001
+                pass
+
+        _print_train_eval_gp_eval_parity(model, tag="before_predict")
+
+        try:
+            y_pred, _, _, output_std = evaluate_gp_model(model, X_test)
+        finally:
+            try:
+                torch.set_num_threads(_prev_torch_threads)
+            except Exception:  # noqa: BLE001
+                pass
+            if _prev_torch_interop is not None:
+                try:
+                    torch.set_num_interop_threads(_prev_torch_interop)
+                except Exception:  # noqa: BLE001
+                    pass
+
     prediction_time = time.time() - t_pred_start
 
     # Check for NaN/Inf in model outputs before denormalization
