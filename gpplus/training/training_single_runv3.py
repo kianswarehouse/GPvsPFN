@@ -158,6 +158,11 @@ class GPTrainerSingleProcess:
             "model": self.model,
             "trainer": self,
             "device": str(self.device),
+            # Pass the 1-based init index so callbacks can label results per-init.
+            # Without this, FinalParameterStorageCallback in each loky worker only
+            # sees its own _run_count (always 1), making every parallel init record
+            # collapse onto run=1 in the trainer-analysis JSON.
+            "run_index": self.run_index,
         }
         t0 = time.perf_counter()
         for cb in self.callbacks:
@@ -286,6 +291,7 @@ class GPTrainerSingleProcess:
                 "loss": loss,
                 "device": str(self.device),
                 "jitter": run_jitter,
+                "run_index": self.run_index,
             }
             # v3: no epoch-level metrics; callbacks may compute them if desired.
             t0 = time.perf_counter()
@@ -355,6 +361,7 @@ class GPTrainerSingleProcess:
             "best_loss": best_loss,
             "best_state_dict": best_state_dict,
             "device": str(self.device),
+            "run_index": self.run_index,
         }
         best_lbfgs_iter = getattr(self, "_best_lbfgs_iter", None)
         if best_lbfgs_iter is not None:

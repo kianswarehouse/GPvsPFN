@@ -177,9 +177,24 @@ class LBFGSScipy(torch.optim.Optimizer):
         else:
             self._lbfgs_stop_reason = task or "UNKNOWN"
 
-        # Update parameters with final result
+        # Update parameters with final result.
+        # IMPORTANT: scipy returns (x, f, d) where x is the recorded optimum and
+        # f = func(x). Without resetting _last_loss here, downstream code may
+        # report the loss from the LAST line-search probe (which can sit at a
+        # slightly different point than result[0]) while the saved state_dict
+        # comes from result[0]. That mismatch is what caused per-init
+        # `final_parameters` to disagree across series and parallel trainers.
         target_device = self._params[0].device
         final_params = torch.from_numpy(result[0]).to(target_device)
         self._distribute_flat_params(final_params)
+        try:
+            final_loss_value = float(result[1])
+            ref_dtype = self._params[0].dtype if self._params else torch.float64
+            self._last_loss = torch.tensor(
+                final_loss_value, device=target_device, dtype=ref_dtype
+            )
+        except (TypeError, ValueError):
+            # Fall back to whatever closure recorded last; should never happen with scipy.
+            pass
 
         return self._last_loss

@@ -1,6 +1,7 @@
+import gpytorch
 import torch
 
-from ..config import logger
+from ..config import get_settings, logger
 from ..likelihoods import MultiLikelihood
 
 
@@ -25,11 +26,16 @@ def evaluate_gp_model(
                 - **upper** (torch.Tensor): Upper confidence bound for each test point.
                 - **stddev** (torch.Tensor): Standard deviation of the predictions.
     """
-    # Set the model to evaluation mode
-    # model.eval() recursively sets all submodules (including likelihood) to eval mode
+    # Align linear_operator / GPyTorch globals with training, then evaluate with
+    # slower stable fast_computations(False...) to reduce host-to-host variance.
+    get_settings().apply()
     model.eval()
 
-    with torch.no_grad():  # gpytorch.settings.fast_pred_var():
+    with torch.no_grad(), gpytorch.settings.fast_computations(
+        covar_root_decomposition=False,
+        log_prob=False,
+        solves=False,
+    ):  # gpytorch.settings.fast_pred_var():
         # Make predictions
         # Option 1: Without nugget (latent function f) - follows Equation 29b structure
         # observed_pred = model(test_x)

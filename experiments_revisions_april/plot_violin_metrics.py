@@ -30,7 +30,7 @@ import argparse
 import json
 import re
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -57,6 +57,52 @@ def iter_json_files(base_dir: Optional[Path], problems: Optional[set[str]]) -> I
             if problem_lower not in problems_lower:
                 continue
         yield path
+
+
+def _try_resolve(p: Path) -> Path:
+    try:
+        return p.resolve()
+    except OSError:
+        return p
+
+
+def same_resolved_dir(a: Optional[Path], b: Optional[Path]) -> bool:
+    if a is None or b is None:
+        return False
+    return _try_resolve(a) == _try_resolve(b)
+
+
+def path_is_under(path: Path, base: Path) -> bool:
+    try:
+        _try_resolve(path).relative_to(_try_resolve(base))
+        return True
+    except ValueError:
+        return False
+
+
+def _skip_gp_pass_for_tabpfn_tree(
+    path: Path,
+    tabpfn_dir: Optional[Path],
+    gp_dir: Path,
+    gpytorch_dir: Path,
+) -> bool:
+    """Skip GP pass only when JSONs live in a TabPFN tree separate from both GP roots."""
+    if tabpfn_dir is None:
+        return False
+    if same_resolved_dir(tabpfn_dir, gp_dir) or same_resolved_dir(tabpfn_dir, gpytorch_dir):
+        return False
+    return path_is_under(path, tabpfn_dir)
+
+
+def _base_dir_for_meta(path: Path, gp_dir: Path, gpytorch_dir: Path) -> Path:
+    """Pick gp_dir vs gpytorch_dir so relative_to matches on-disk layout (handles rel vs abs paths)."""
+    if same_resolved_dir(gp_dir, gpytorch_dir):
+        return gp_dir
+    if path_is_under(path, gpytorch_dir):
+        return gpytorch_dir
+    if path_is_under(path, gp_dir):
+        return gp_dir
+    return gp_dir
 
 
 def parse_meta_from_filename(path: Path, base_dir: Path) -> Dict[str, str]:
@@ -164,41 +210,37 @@ def extract_rows_from_section(
 
 
 def collect_per_run_rows(
-    gp_tabpfn_dir: Path, gpytorch_dir: Path, seek_dir: Optional[Path], 
-    tabpfn_v25_dir: Optional[Path], tabpfn_v2_dir: Optional[Path], 
-    problems: Optional[set[str]]
+    gp_dir: Path,
+    gpytorch_dir: Path,
+    seek_dir: Optional[Path],
+    tabpfn_v25_dir: Optional[Path],
+    tabpfn_v2_dir: Optional[Path],
+    problems: Optional[set[str]],
+    extra_named_gp: Optional[List[Tuple[str, Path]]] = None,
+    noise_levels: Optional[List[str]] = None,
 ) -> pd.DataFrame:
     rows: List[Dict] = []
-    gpytorch_dir = gpytorch_dir or gp_tabpfn_dir
+    gpytorch_dir = gpytorch_dir or gp_dir
 
     # Process all files from the results directory
     # Files are processed once, and we determine model types based on filename
-    all_paths = set(iter_json_files(gp_tabpfn_dir, problems))
-    if gpytorch_dir != gp_tabpfn_dir:
+    all_paths = set(iter_json_files(gp_dir, problems))
+    if not same_resolved_dir(gpytorch_dir, gp_dir):
         all_paths.update(iter_json_files(gpytorch_dir, problems))
     
     # Process regular files (GP+ and GPytorch only, no TabPFN from these)
-    # TabPFN data is ONLY extracted from dedicated directories (tabpfn_v25_dir and tabpfn_v2_dir)
+    # TabPFN metrics are read in a second pass from tabpfn_*_dir trees. When a tree
+    # matches gp_dir or gpytorch_dir (same folder holds GP and TabPFN), do not skip
+    # the GP pass here — and use resolved paths so rel vs abs roots still match.
     for path in all_paths:
-        # Skip if this path is in a separate TabPFN dedicated directory.
-        # If tabpfn_v25_dir == gp_tabpfn_dir, we must NOT skip or GP+ gets dropped.
-        if (
-            tabpfn_v25_dir
-            and tabpfn_v25_dir != gp_tabpfn_dir
-            and str(path).startswith(str(tabpfn_v25_dir))
-        ):
+        if _skip_gp_pass_for_tabpfn_tree(path, tabpfn_v25_dir, gp_dir, gpytorch_dir):
             continue
-        if (
-            tabpfn_v2_dir
-            and tabpfn_v2_dir != gp_tabpfn_dir
-            and str(path).startswith(str(tabpfn_v2_dir))
-        ):
+        if _skip_gp_pass_for_tabpfn_tree(path, tabpfn_v2_dir, gp_dir, gpytorch_dir):
             continue
             
         with path.open("r") as f:
             data = json.load(f)
-        # Use gp_tabpfn_dir as base for parsing (or gpytorch_dir if path is from there)
-        base_dir = gp_tabpfn_dir if str(path).startswith(str(gp_tabpfn_dir)) else gpytorch_dir
+        base_dir = _base_dir_for_meta(path, gp_dir, gpytorch_dir)
         meta = parse_meta_from_filename(path, base_dir)
         meta["source_file"] = str(path)
         
@@ -234,6 +276,25 @@ def collect_per_run_rows(
             # Extract TabPFN v2 data
             rows.extend(extract_rows_from_section(data, "tabpfn_data", "tabpfn_v2", meta))
 
+    # Optional extra named result trees.
+    # Treat each extra entry as its own model_family label and ingest whichever
+    # sections are present in those JSONs (gp_data and/or tabpfn_data).
+    for model_name, edir in extra_named_gp or []:
+        if not edir.exists():
+            print(f"Warning: --extra_gp path does not exist, skipping: {model_name} -> {edir}")
+            continue
+        for path in iter_json_files(edir, problems):
+            if _skip_gp_pass_for_tabpfn_tree(path, tabpfn_v25_dir, gp_dir, gpytorch_dir):
+                continue
+            if _skip_gp_pass_for_tabpfn_tree(path, tabpfn_v2_dir, gp_dir, gpytorch_dir):
+                continue
+            with path.open("r") as f:
+                data = json.load(f)
+            meta = parse_meta_from_filename(path, edir)
+            meta["source_file"] = str(path)
+            rows.extend(extract_rows_from_section(data, "gp_data", model_name, meta))
+            rows.extend(extract_rows_from_section(data, "tabpfn_data", model_name, meta))
+
     # Seek
     if seek_dir:
         for path in iter_json_files(seek_dir, problems):
@@ -258,16 +319,109 @@ def collect_per_run_rows(
     # M2AX uses test_size as grouping parameter (not noise), so keep the test_size value
     # (it was already extracted from filename in parse_meta_from_filename)
     df["noise_label"] = df["noise_label"].replace("", "unknown")
+
+    # Real datasets often have no noise tags in filenames; if a whole problem has only
+    # unknown noise labels, collapse it to a single explicit bucket so plotting creates
+    # one consolidated figure instead of expecting noise splits.
+    for problem, idx in df.groupby("problem").groups.items():
+        if (df.loc[idx, "noise_label"] == "unknown").all():
+            df.loc[idx, "noise_label"] = "all"
     
-    # Filter to only two noise levels: 0.005 and 0.05
-    df = df[df["noise_label"].isin(["0.005", "0.05"])]
+    # Optional noise filtering. Keep selected levels, but for problems that do not
+    # use noise labels (e.g. real datasets yielding "all"), keep those rows
+    # so entire problems are not silently dropped.
+    if noise_levels:
+        requested = {str(v) for v in noise_levels}
+        filtered = df[df["noise_label"].isin(requested)]
+        present_problems = set(filtered["problem"].dropna().unique())
+        all_problems = set(df["problem"].dropna().unique())
+        missing_problems = all_problems - present_problems
+        if missing_problems:
+            filtered = pd.concat(
+                [filtered, df[df["problem"].isin(missing_problems)]],
+                ignore_index=True,
+            )
+        df = filtered
     
     return df
 
 
-def get_model_order(seek_dir: Optional[Path] = None) -> list[str]:
-    """Get the model order, excluding seek if seek_dir is not provided."""
-    base_models = ["gpplus", "tabpfn_v2.5", "tabpfn_v2", "gpytorch"]
+RESERVED_GP_MODEL_FAMILY_NAMES = frozenset(
+    {"gpplus", "gpytorch", "seek", "tabpfn_v2.5", "tabpfn_v2"}
+)
+
+
+def parse_extra_named_gp_entries(entries: Optional[List[str]]) -> List[Tuple[str, Path]]:
+    """Parse repeated ``NAME=PATH`` CLI entries into (model_family, directory) pairs."""
+    if not entries:
+        return []
+    out: List[Tuple[str, Path]] = []
+    seen_names: set[str] = set()
+    reserved_lower = {x.lower() for x in RESERVED_GP_MODEL_FAMILY_NAMES}
+    for raw in entries:
+        s = raw.strip()
+        if not s:
+            continue
+        if "=" not in s:
+            raise SystemExit(f"Invalid --extra_gp {raw!r}: expected NAME=PATH")
+        name, path_str = s.split("=", 1)
+        name = name.strip()
+        path_str = path_str.strip()
+        if not name:
+            raise SystemExit(f"Invalid --extra_gp {raw!r}: name before '=' cannot be empty")
+        if not path_str:
+            raise SystemExit(f"Invalid --extra_gp {raw!r}: path after '=' cannot be empty")
+        if name.lower() in reserved_lower:
+            raise SystemExit(
+                f"Invalid extra model name {name!r}: conflicts with a built-in model id "
+                f"(reserved: {', '.join(sorted(RESERVED_GP_MODEL_FAMILY_NAMES))})."
+            )
+        if name in seen_names:
+            raise SystemExit(f"Duplicate --extra_gp name {name!r}")
+        seen_names.add(name)
+        out.append((name, Path(path_str)))
+    return out
+
+
+def display_label_for_model_family(m: str) -> str:
+    """Axis / legend / table title label for a model_family string."""
+    if m == "tabpfn_v2.5":
+        return "TabPFN v2.5"
+    if m == "tabpfn_v2":
+        return "TabPFN v2"
+    if m in ("gpplus", "gpytorch", "seek"):
+        return m.upper()
+    label = m.replace("_", " ")
+    # Keep long custom model names readable in legends/axes.
+    # Prefer breaking before parenthetical suffix, e.g. "TabPFN v2.5\n(student_t)".
+    if " (" in label:
+        return label.replace(" (", "\n(", 1)
+    # Fallback: split long labels into two lines at nearest middle space.
+    if len(label) > 18 and " " in label:
+        mid = len(label) // 2
+        spaces = [i for i, ch in enumerate(label) if ch == " "]
+        split_idx = min(spaces, key=lambda i: abs(i - mid))
+        return f"{label[:split_idx]}\n{label[split_idx + 1:]}"
+    return label
+
+
+def get_model_order(
+    gpytorch_dir: Optional[Path] = None,
+    tabpfn_v25_dir: Optional[Path] = None,
+    tabpfn_v2_dir: Optional[Path] = None,
+    seek_dir: Optional[Path] = None,
+    extra_named_gp: Optional[List[Tuple[str, Path]]] = None,
+) -> list[str]:
+    """Get model order based on directories explicitly provided."""
+    base_models = ["gpplus"]
+    for name, _ in extra_named_gp or []:
+        base_models.append(name)
+    if tabpfn_v25_dir is not None:
+        base_models.append("tabpfn_v2.5")
+    if tabpfn_v2_dir is not None:
+        base_models.append("tabpfn_v2")
+    if gpytorch_dir is not None:
+        base_models.append("gpytorch")
     if seek_dir is not None:
         base_models.append("seek")
     return base_models
@@ -475,7 +629,7 @@ def create_table_in_ax(ax, table_data, stats, metrics, method_name: str):
     table.scale(1, 2.0)
     
     # Add method name as subtitle
-    ax.set_title(method_name.upper(), fontsize=11, fontweight="bold", pad=10)
+    ax.set_title(display_label_for_model_family(method_name), fontsize=11, fontweight="bold", pad=10)
 
 
 def _create_simple_table(ax, table_body, col_labels, title: str) -> None:
@@ -1253,14 +1407,7 @@ def make_violin_plots(df: pd.DataFrame, out_dir: Path, model_order: list[str], r
         # X-ticks at method centers
         ax.set_xticks([mi + 1 for mi in range(n_methods)])
         # Format model labels for display
-        labels = []
-        for m in model_order:
-            if m == "tabpfn_v2.5":
-                labels.append("TabPFN v2.5")
-            elif m == "tabpfn_v2":
-                labels.append("TabPFN v2")
-            else:
-                labels.append(m.upper())
+        labels = [display_label_for_model_family(m) for m in model_order]
         ax.set_xticklabels(labels, fontsize=14)
         ax.set_ylabel(metric, fontsize=16)
         ax.tick_params(axis='both', which='major', labelsize=14)
@@ -1408,14 +1555,7 @@ def make_violin_plots(df: pd.DataFrame, out_dir: Path, model_order: list[str], r
         # X-ticks at method centers
         ax.set_xticks([mi + 1 for mi in range(n_methods)])
         # Format model labels for display
-        labels = []
-        for m in model_order:
-            if m == "tabpfn_v2.5":
-                labels.append("TabPFN v2.5")
-            elif m == "tabpfn_v2":
-                labels.append("TabPFN v2")
-            else:
-                labels.append(m.upper())
+        labels = [display_label_for_model_family(m) for m in model_order]
         ax.set_xticklabels(labels, fontsize=14)
         ax.set_ylabel(metric, fontsize=16)
         ax.tick_params(axis='both', which='major', labelsize=14)
@@ -1649,6 +1789,9 @@ def make_violin_plots_by_noise(df: pd.DataFrame, out_dir: Path, model_order: lis
         "gpytorch": "#2ca02c",
         "seek": "#9467bd",
     }
+    _alt_model_colors = [
+        "#bcbd22", "#17becf", "#aec7e8", "#ffbb78", "#98df8a", "#ff9896", "#c5b0d5",
+    ]
 
     def _plot_grouped_metric_by_noise(
         ax,
@@ -1680,12 +1823,11 @@ def make_violin_plots_by_noise(df: pd.DataFrame, out_dir: Path, model_order: lis
 
         # Assign colors to each model
         model_colors: dict[str, str] = {}
-        for model in models:
+        for mi, model in enumerate(models):
             if model in model_color_map:
                 model_colors[model] = model_color_map[model]
             else:
-                # Fallback color
-                model_colors[model] = "#9467bd"
+                model_colors[model] = _alt_model_colors[mi % len(_alt_model_colors)]
 
         for ni, noise in enumerate(noise_levels):
             center = ni + 1  # noise level positions at 1,2,3,...
@@ -1845,12 +1987,7 @@ def make_violin_plots_by_noise(df: pd.DataFrame, out_dir: Path, model_order: lis
         if model_colors:
             model_handles = []
             for m, col in model_colors.items():
-                if m == "tabpfn_v2.5":
-                    label = "TabPFN v2.5"
-                elif m == "tabpfn_v2":
-                    label = "TabPFN v2"
-                else:
-                    label = m.upper()
+                label = display_label_for_model_family(m)
                 model_handles.append(
                     Line2D([0], [0], marker="s", color="none", markerfacecolor=col, 
                           markersize=10, label=label)
@@ -1944,8 +2081,15 @@ def make_violin_plots_by_noise(df: pd.DataFrame, out_dir: Path, model_order: lis
 
             if model_colors:
                 model_handles = [
-                    Line2D([0], [0], marker="s", color="none", markerfacecolor=col,
-                          markersize=10, label=m.upper())
+                    Line2D(
+                        [0],
+                        [0],
+                        marker="s",
+                        color="none",
+                        markerfacecolor=col,
+                        markersize=10,
+                        label=display_label_for_model_family(m),
+                    )
                     for m, col in model_colors.items()
                 ]
                 # Mean/median style handles
@@ -1975,22 +2119,22 @@ def make_violin_plots_by_noise(df: pd.DataFrame, out_dir: Path, model_order: lis
 def main() -> None:
     parser = argparse.ArgumentParser(description="Make violin plots for RRMSE and NIS per problem.")
     parser.add_argument(
-        "--gp_tabpfn_dir",
+        "--gp_dir",
         type=Path,
-        default=Path("C:/Users/pmacs/gp-private/results_April20/20_runs_logging_full_Gaussian/"),
-        help="Directory containing GP+ and TabPFN JSON results.",
+        default=Path("C:/Users/forty/tyler_gpplus/gp-private/results_April28/20_runs_real_datasets"),
+        help="Directory containing GP+ JSON results (gp_data section).",
     )
     parser.add_argument(
         "--gpytorch_dir",
         type=Path,
         # default=Path("C:/Users/forty/tyler_gpplus/gp-private/results_final/1_11"),
         default=None,
-        help="Directory containing GPytorch JSON results (same as gp_tabpfn_dir for this setup).",
+        help="Directory containing GPytorch JSON results (defaults to --gp_dir when omitted).",
     )
     parser.add_argument(
         "--tabpfn_v25_dir",
         type=Path,
-        default=Path("C:/Users/pmacs/gp-private/results_April20/20_runs_logging_full_Gaussian/"),
+        default=Path("C:/Users/forty/tyler_gpplus/gp-private/results_April28/20_runs_real_datasets_pfn"),
         help="Directory containing TabPFN v2.5 JSON results.",
     )
     parser.add_argument(
@@ -2008,15 +2152,38 @@ def main() -> None:
         help="Directory containing Seek JSON results.",
     )
     parser.add_argument(
+        "--extra_gp",
+        action="append",
+        default=None,
+        # default=["GP+ (student_t)=C:/Users/forty/tyler_gpplus/gp-private/results_April28/20_runs_Gaussian_student_t/",
+        # "TabPFN v2.5 (student_t)=C:/Users/forty/tyler_gpplus/gp-private/results_April28/20_runs_TabPFN_student_t/",
+        # "TabPFN v2.5 (CPU)=C:/Users/forty/tyler_gpplus/gp-private/results_April28/20_runs_TabPFN_cpu/"],
+        metavar="NAME=PATH",
+        help=(
+            "Extra GP results directory: gp_data rows are tagged with NAME (model id). "
+            "Repeat, e.g. --extra_gp median_runs=C:/out/median --extra_gp mean_runs=C:/out/mean. "
+            "NAME must not match built-in ids (gpplus, gpytorch, ...). PATH must not contain '='."
+        ),
+    )
+    parser.add_argument(
         "--problems",
         nargs="*",
         default=None,
         help="Optional list of problem names to include (e.g., rosenbrock wing buckling borehole).",
     )
     parser.add_argument(
+        "--noise_levels",
+        nargs="*",
+        default=["0.005", "0.05"],
+        help=(
+            "Noise labels to include (default: 0.005 0.05). "
+            "For real datasets with no noise tags, rows are preserved automatically."
+        ),
+    )
+    parser.add_argument(
         "--output_dir",
         type=Path,
-        default=Path("plots_violin_final"),
+        default=Path("plots_violin_May01_real_datasets"),
         help="Directory to write violin plot pdfs.",
     )
     parser.add_argument(
@@ -2028,14 +2195,31 @@ def main() -> None:
     args = parser.parse_args()
 
     problems = set(args.problems) if args.problems else None
+    extra_named_gp = parse_extra_named_gp_entries(args.extra_gp)
     df = collect_per_run_rows(
-        args.gp_tabpfn_dir, args.gpytorch_dir, args.seek_dir, 
-        args.tabpfn_v25_dir, args.tabpfn_v2_dir, problems
+        args.gp_dir,
+        args.gpytorch_dir,
+        args.seek_dir,
+        args.tabpfn_v25_dir,
+        args.tabpfn_v2_dir,
+        problems,
+        extra_named_gp=extra_named_gp,
+        noise_levels=args.noise_levels,
     )
     if df.empty:
         raise SystemExit("No data found; nothing to plot.")
 
-    model_order = get_model_order(args.seek_dir)
+    requested_model_order = get_model_order(
+        gpytorch_dir=args.gpytorch_dir,
+        tabpfn_v25_dir=args.tabpfn_v25_dir,
+        tabpfn_v2_dir=args.tabpfn_v2_dir,
+        seek_dir=args.seek_dir,
+        extra_named_gp=extra_named_gp,
+    )
+    present_models = set(df["model_family"].dropna().unique())
+    model_order = [m for m in requested_model_order if m in present_models]
+    if not model_order:
+        raise SystemExit("No model data found for the selected directories.")
     # create_summary_table(df, args.output_dir, model_order)
     # create_time_tables(df, args.output_dir, model_order)
     # create_comprehensive_tables(df, args.output_dir, model_order)

@@ -1,11 +1,18 @@
 import copy
 import os
 import time
+from contextlib import nullcontext
 from typing import List, Optional
 
 import gpytorch
 import torch
-from joblib import Parallel, delayed
+from joblib import Parallel, delayed, parallel_config
+
+try:
+    from threadpoolctl import threadpool_info, threadpool_limits
+except ImportError:
+    threadpool_info = None
+    threadpool_limits = None
 
 from ..config import get_settings, logger
 from .callbacks import Callback
@@ -47,8 +54,16 @@ class GPTrainer:
         log_lbfgs_inner: bool | None = None,
         # If set, build trainer analysis (inits, best_parameters, average_final_parameters) and save to this path after train()
         trainer_analysis_save_path: Optional[str] = None,
+        # Number of joblib workers to use for multi-init training. None defaults to
+        # max(1, cpu_count - 2) on CPU and num_gpus on CUDA. Pass 1 to force series.
+        n_jobs: Optional[int] = None,
+        # BLAS thread cap per worker (also applied to the main process when n_jobs == 1).
+        # Default 1 keeps numerics consistent between series and parallel paths.
+        inner_max_num_threads: Optional[int] = 1,
     ):
         self.trainer_analysis_save_path = trainer_analysis_save_path
+        self.n_jobs = n_jobs
+        self.inner_max_num_threads = inner_max_num_threads
         # -------------------------------------------------------
         # Set up the device (CPU or CUDA)
         # -------------------------------------------------------
@@ -231,12 +246,31 @@ class GPTrainer:
 
         num_inits_to_train = len(init_indices)
 
-        def safe_single_process(init_index, device_override=None):
+        # Use a list so the closure can flip it after the first worker logs its info.
+        threadpool_logged = [False]
+
+        def _log_threadpool_once(tag):
+            if threadpool_logged[0] or threadpool_info is None:
+                return
+            try:
+                info = threadpool_info()
+                summary = ", ".join(
+                    f"{e.get('user_api', e.get('prefix', '?'))}={e.get('num_threads', '?')}"
+                    for e in info
+                )
+                logger.info("threadpool_info[%s]: %s", tag, summary)
+                print(f"[trainerv3] threadpool_info[{tag}]: {summary}")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("threadpool_info() failed: %s", exc)
+            threadpool_logged[0] = True
+
+        def safe_single_process(init_index, device_override=None, tag="worker"):
             try:
                 original_device = self.device
                 if device_override is not None:
                     self.device = device_override
                 _worker_init()
+                _log_threadpool_once(tag)
                 result = self.train_single_process(init_index)
                 self.device = original_device
                 return result
@@ -251,31 +285,102 @@ class GPTrainer:
 
         def _worker_init():
             get_settings().apply()
+            # Reseed PyTorch's global RNG inside the worker. loky spawns fresh
+            # processes whose default RNG state diverges from the main process,
+            # which can affect any init paths that fall back to the global RNG.
+            try:
+                seed_val = self.seed if self.seed is not None else 0
+                torch.manual_seed(int(seed_val))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("torch.manual_seed failed in worker: %s", exc)
+            # Force deterministic CPU kernels where available; warn-only avoids
+            # crashes on ops that lack a deterministic implementation.
+            try:
+                torch.use_deterministic_algorithms(True, warn_only=True)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("torch.use_deterministic_algorithms failed: %s", exc)
 
+        # Apply deterministic settings to the MAIN process unconditionally so that
+        # series mode (where _worker_init runs in main) and parallel mode (where
+        # _worker_init runs only inside loky workers) leave the main process in
+        # the same state. Without this, parallel left main with
+        # torch.use_deterministic_algorithms=False while series left it True, which
+        # selected different FP code paths in the post-train() eval phase and
+        # produced very different per-init test RRMSE for ill-conditioned models.
+        try:
+            seed_val = self.seed if self.seed is not None else 0
+            torch.manual_seed(int(seed_val))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("torch.manual_seed failed in main process: %s", exc)
+        try:
+            torch.use_deterministic_algorithms(True, warn_only=True)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("torch.use_deterministic_algorithms failed in main: %s", exc)
+
+        # Resolve effective n_jobs: explicit override wins, otherwise legacy default.
         if self.device.type == "cpu":
-            print("max(1, (os.cpu_count() or 1) - 2):", max(1, (os.cpu_count() or 1) - 2))
-            max_jobs = min(num_inits_to_train, max(1, (os.cpu_count() or 1) - 2))
-            logger.info(
-                f"Running {num_inits_to_train} inits using {max_jobs} parallel processes on CPU "
-                "(using joblib 'loky' backend - eliminates time.sleep polling)."
+            requested_jobs = self.n_jobs if self.n_jobs is not None else max(1, (os.cpu_count() or 1) - 2)
+            max_jobs = min(num_inits_to_train, max(1, requested_jobs))
+            # max_jobs = 1
+            inner = self.inner_max_num_threads
+
+            # Pin BLAS in the main process when running series so its FP rounding
+            # matches the per-worker pinning that joblib applies in the parallel path.
+            blas_ctx = (
+                threadpool_limits(limits=inner)
+                if (max_jobs == 1 and threadpool_limits is not None and inner is not None)
+                else nullcontext()
             )
-            results = Parallel(n_jobs=max_jobs, backend="loky", verbose=0)(
-                delayed(safe_single_process)(init_index) for init_index in init_indices
-            )
+
+            if max_jobs == 1:
+                logger.info(
+                    "Running %d inits in series (n_jobs=1) with BLAS threads pinned to %s.",
+                    num_inits_to_train,
+                    inner if inner is not None else "default",
+                )
+                with blas_ctx:
+                    results = [
+                        safe_single_process(init_index, tag="series_main")
+                        for init_index in init_indices
+                    ]
+            else:
+                logger.info(
+                    "Running %d inits using %d parallel processes on CPU "
+                    "(joblib 'loky', inner_max_num_threads=%s).",
+                    num_inits_to_train,
+                    max_jobs,
+                    inner if inner is not None else "default",
+                )
+                # joblib exposes per-backend BLAS thread caps via parallel_config,
+                # not directly on Parallel(...). Setting it here ensures each loky
+                # worker gets the requested OMP/MKL/OPENBLAS thread count.
+                pc_kwargs = {}
+                if inner is not None:
+                    pc_kwargs["inner_max_num_threads"] = inner
+                with parallel_config(backend="loky", **pc_kwargs):
+                    results = Parallel(n_jobs=max_jobs, verbose=0)(
+                        delayed(safe_single_process)(init_index, tag="loky_worker")
+                        for init_index in init_indices
+                    )
         elif str(self.device).startswith("cuda"):
             torch.cuda.empty_cache()
             num_gpus = torch.cuda.device_count()
-            max_jobs = min(num_inits_to_train, num_gpus if num_gpus > 0 else 1)
+            requested_jobs = self.n_jobs if self.n_jobs is not None else (num_gpus if num_gpus > 0 else 1)
+            max_jobs = min(num_inits_to_train, max(1, requested_jobs))
             logger.info(
                 f"Running {num_inits_to_train} inits distributed across {num_gpus} GPUs "
-                "(using joblib 'threading' backend with verbose=0)."
+                f"(using joblib 'threading' backend with verbose=0; n_jobs={max_jobs})."
             )
             results = Parallel(n_jobs=max_jobs, backend="threading", verbose=0)(
-                delayed(safe_single_process)(init_index, device_override=torch.device(f"cuda:{i % max(1, num_gpus)}"))
+                delayed(safe_single_process)(
+                    init_index,
+                    device_override=torch.device(f"cuda:{i % max(1, num_gpus)}"),
+                    tag="cuda_worker",
+                )
                 for i, init_index in enumerate(init_indices)
             )
         else:
-            results = [safe_single_process(init_index) for init_index in init_indices]
+            results = [safe_single_process(init_index, tag="local") for init_index in init_indices]
 
         return results
 

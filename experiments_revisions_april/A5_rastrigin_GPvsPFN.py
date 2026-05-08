@@ -7,7 +7,8 @@ import time
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from tabpfn import TabPFNRegressor
-from load_experimental_data import generate_rastrigin_data
+from load_experimental_data import generate_rastrigin_data, rastrigin_function
+from gp_prediction_diagnostics import run_gp_prediction_diagnostics
 import defaults
 
 # import warnings
@@ -149,6 +150,7 @@ def rastrigin_GPvsPFN(num_runs=defaults.NUM_RUNS,
         X_train_raw_for_pfn = X_train.detach().clone()
         X_test_raw_for_pfn = X_test.detach().clone()
         # Determine X scaling type
+        Xscaler = None
         if standardize_X:
             if x_standardize_method == 0:
                 Xscaler = gpplus.utils.StandardScaler()
@@ -234,6 +236,35 @@ def rastrigin_GPvsPFN(num_runs=defaults.NUM_RUNS,
             print(f"\nGP Results (Run {i+1}/{num_runs})")
             for k, v in gp_metric.items():
                 print(f"  {k}: {v:.4f}" if v is not None and isinstance(v, (int, float)) else f"  {k}: {v}")
+
+            run_gp_prediction_diagnostics(
+                save_path=save_path,
+                run_index=i,
+                experiment_title=title,
+                dimensions=dimensions,
+                cont_cols=cont_cols,
+                x_bounds=x_bounds,
+                X_train_orig=X_train_raw_for_pfn,
+                X_train_raw_for_pfn=X_train_raw_for_pfn,
+                X_test_raw_for_pfn=X_test_raw_for_pfn,
+                y_train=y_train,
+                y_test=y_test,
+                y_pred_gp=y_pred_gp,
+                output_std_gp=output_std_gp,
+                model=model,
+                Xscaler=Xscaler,
+                standardize_X=standardize_X,
+                y_train_mean=y_train_mean if standardize_y else None,
+                y_train_std=y_train_std if standardize_y else None,
+                standardize_y=standardize_y,
+                standardize_y_log_scale=False,
+                log_scale_C=None,
+                log_y_point_inverse="median",
+                truth_fn=lambda X: rastrigin_function(X, dimensions),
+                plot_prediction_diagnostics=defaults.PLOT_PREDICTION_DIAGNOSTICS,
+                diagnostic_run_indices=tuple(defaults.PREDICTION_DIAGNOSTIC_RUN_INDICES),
+                max_marginal_dims=defaults.PREDICTION_DIAGNOSTIC_MAX_MARGINAL_DIMS,
+            )
 
         # =============================================================================
         # TabPFN Section

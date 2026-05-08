@@ -38,14 +38,27 @@ TRAINER_GP_DEVICE = 'cpu'
 TRAINER_AMP_DEVICE = 'cuda'
 DTYPE_GP = torch.float64
 DTYPE_PFN = torch.float32
-NOISE_TYPE = "gaussian"
+NOISE_TYPE = "gaussian" # "gaussian" or "uniform" or "student_t"
 
 
 # TRAINER_ANALYSIS = True # make settings into problems
 # PLOT_METRICS = False
 
+# True vs pred scatter + GP 1D / marginal plots for synthetic benchmarks (A4–A9);
+# writes under <save_path>/plots/prediction_diagnostics_<title>/run_XXX/ (same title string as experiment JSON, path-sanitized)
+PLOT_PREDICTION_DIAGNOSTICS = False
+PREDICTION_DIAGNOSTIC_RUN_INDICES = (0,)  # 0-based run indices
+PREDICTION_DIAGNOSTIC_MAX_MARGINAL_DIMS = 3  # partial dependence slices when dimensions > 1
+
 SEED = 42
 SEED_TRAINER = None
+
+# Joblib worker count for the multi-init GP trainer. None lets the trainer pick
+# its legacy default (max(1, cpu_count - 2) on CPU); set to 1 to force series.
+TRAINER_N_JOBS = None
+# BLAS/OpenMP threads cap per worker (and inside the main process when n_jobs==1).
+# Default 1 so series and parallel runs see identical FP rounding.
+TRAINER_INNER_MAX_NUM_THREADS = 1
 
 
 def get_default_gp_callbacks(

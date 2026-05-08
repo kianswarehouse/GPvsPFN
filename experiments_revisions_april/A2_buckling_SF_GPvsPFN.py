@@ -131,7 +131,7 @@ def buckling_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
         run_enc, _, _, _ = encode_qual_data(run_data, qual_dict=qual_dict, source_col=None)
         X_train_runs_enc.append(run_enc)
     
-    # print(cat_cols)
+    print(cat_cols)
     TabPFN_metrics = []
     GPPlus_metrics = []
     GPTrainer_info = []  # Accumulate trainer logs across runs

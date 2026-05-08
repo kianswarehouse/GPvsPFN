@@ -89,7 +89,10 @@ def build_trainer_analysis_payload(
     for i, record in enumerate(stored_params):
         initial = record.get("initial") or {}
         final = record.get("final") or {}
-        init_id = i + 1
+        # Prefer explicit init id from FinalParameterStorageCallback ("run" is 1-based init label).
+        # Positional i+1 is wrong when stored_params omits some inits (e.g. failed parallel runs).
+        run_raw = record.get("run")
+        init_id = int(run_raw) if run_raw is not None else i + 1
         run_data = {
             "init": init_id,
             "best_iter": record.get("best_iter"),
@@ -122,8 +125,10 @@ def build_trainer_analysis_payload(
     best_parameters = None
     if best_run_idx is not None and best_run_idx < len(stored_params):
         r = stored_params[best_run_idx]
+        br_run = r.get("run")
+        best_init = int(br_run) if br_run is not None else best_run_idx + 1
         best_parameters = {
-            "init": best_run_idx + 1,
+            "init": best_init,
             "best_iter": r.get("best_iter"),
             "loss": r.get("best_loss"),
             "initial_parameters": dict(r.get("initial") or {}),
@@ -138,7 +143,6 @@ def build_trainer_analysis_payload(
                 best_parameters[key] = r[key]
         if "epoch_metrics" in r:
             best_parameters["epoch_metrics"] = r["epoch_metrics"]
-        best_init = best_run_idx + 1
         if best_init in lbfgs_inner_by_init:
             best_parameters["lbfgs_inner_metrics"] = lbfgs_inner_by_init[best_init]
         if best_init in iteration_params_by_init:

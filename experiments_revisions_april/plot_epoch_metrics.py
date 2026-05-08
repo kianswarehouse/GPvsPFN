@@ -31,6 +31,36 @@ EPOCH_METRIC_KEYS = ["loss", "NIS", "LOO_NLL", "KF", "MSE", "R2"]
 ITER_METRIC_KEYS = EPOCH_METRIC_KEYS
 
 
+DELTA_LOG10_LOSS_KEY = "__delta_log10_loss__"
+
+
+def _compute_delta_log10(
+    xs: np.ndarray,
+    ys: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Compute per-step improvement in log10-space:
+      delta[t] = log10(y[t-1]) - log10(y[t])
+    Positive values indicate improvement (decreasing metric).
+    """
+    if len(xs) < 2 or len(ys) < 2:
+        return np.array([]), np.array([])
+    prev_y = ys[:-1]
+    next_y = ys[1:]
+    mask = (
+        np.isfinite(prev_y)
+        & np.isfinite(next_y)
+        & np.isfinite(xs[1:])
+        & (prev_y > 0.0)
+        & (next_y > 0.0)
+    )
+    if not np.any(mask):
+        return np.array([]), np.array([])
+    delta_x = xs[1:][mask]
+    delta_y = np.log10(prev_y[mask]) - np.log10(next_y[mask])
+    return delta_x, delta_y
+
+
 def _get_metric_arrays(
     run: dict,
     entry_key: str,
@@ -129,6 +159,13 @@ def _plot_iter_metrics_for_runs(
     if not metric_keys:
         raise ValueError("No inner-iteration metric data found")
 
+    include_delta_log10 = any(
+        len((_get_iter_metric_arrays(r).get("loss", ([], []))[0])) >= 2
+        for r in runs_with_metrics
+    )
+    if include_delta_log10:
+        metric_keys.append(DELTA_LOG10_LOSS_KEY)
+
     n = len(metric_keys)
     ncols = 2 if n > 1 else 1
     nrows = (n + ncols - 1) // ncols
@@ -148,11 +185,16 @@ def _plot_iter_metrics_for_runs(
         labeled_best = False
         for r in runs:
             arrs = _get_iter_metric_arrays(r)
-            it_v, val_v = arrs.get(key, ([], []))
+            source_key = "loss" if key == DELTA_LOG10_LOSS_KEY else key
+            it_v, val_v = arrs.get(source_key, ([], []))
             if not it_v or not val_v:
                 continue
             it_v = np.array(it_v)
             val_v = np.array(val_v)
+            if key == DELTA_LOG10_LOSS_KEY:
+                it_v, val_v = _compute_delta_log10(it_v, val_v)
+                if len(it_v) == 0 or len(val_v) == 0:
+                    continue
             if r.get("_best_rrmse"):
                 ax.plot(
                     it_v,
@@ -187,8 +229,13 @@ def _plot_iter_metrics_for_runs(
                 )
                 labeled_all = True
         ax.set_xlabel("LBFGS iteration")
-        ax.set_ylabel(key.replace("_", " "))
-        ax.set_title(key.replace("_", " "))
+        if key == DELTA_LOG10_LOSS_KEY:
+            ax.set_ylabel("Delta log10 loss")
+            ax.set_title("Delta log10 loss")
+            ax.axhline(0.0, color="black", linewidth=1.0, alpha=0.5, linestyle="--")
+        else:
+            ax.set_ylabel(key.replace("_", " "))
+            ax.set_title(key.replace("_", " "))
         ax.legend(loc="best", fontsize=8)
         ax.grid(True, alpha=0.3)
 
@@ -231,6 +278,13 @@ def plot_iter_metrics_all_from_data(
     if not metric_keys:
         raise ValueError("No inner-iteration metric data found")
 
+    include_delta_log10 = any(
+        len((_get_iter_metric_arrays(r).get("loss", ([], []))[0])) >= 2
+        for r in inits_with_metrics
+    )
+    if include_delta_log10:
+        metric_keys.append(DELTA_LOG10_LOSS_KEY)
+
     n = len(metric_keys)
     ncols = 2 if n > 1 else 1
     nrows = (n + ncols - 1) // ncols
@@ -251,11 +305,16 @@ def plot_iter_metrics_all_from_data(
         chosen_vals: list[float] = []
         for r in all_runs:
             arrs = _get_iter_metric_arrays(r)
-            it_v, val_v = arrs.get(key, ([], []))
+            source_key = "loss" if key == DELTA_LOG10_LOSS_KEY else key
+            it_v, val_v = arrs.get(source_key, ([], []))
             if not it_v or not val_v:
                 continue
             it_v = np.array(it_v)
             val_v = np.array(val_v)
+            if key == DELTA_LOG10_LOSS_KEY:
+                it_v, val_v = _compute_delta_log10(it_v, val_v)
+                if len(it_v) == 0 or len(val_v) == 0:
+                    continue
             if r.get("_best_rrmse"):
                 ax.plot(
                     it_v,
@@ -292,8 +351,13 @@ def plot_iter_metrics_all_from_data(
                 )
                 labeled_all = True
         ax.set_xlabel("LBFGS iteration")
-        ax.set_ylabel(key.replace("_", " "))
-        ax.set_title(key.replace("_", " "))
+        if key == DELTA_LOG10_LOSS_KEY:
+            ax.set_ylabel("Delta log10 loss")
+            ax.set_title("Delta log10 loss")
+            ax.axhline(0.0, color="black", linewidth=1.0, alpha=0.5, linestyle="--")
+        else:
+            ax.set_ylabel(key.replace("_", " "))
+            ax.set_title(key.replace("_", " "))
         ax.legend(loc="best", fontsize=8)
         ax.grid(True, alpha=0.3)
         # iter2 style: scale y-axis to chosen + best RRMSE inits so convergence is visible
@@ -360,6 +424,13 @@ def _plot_epoch_metrics_impl(
             metric_keys.append(key)
     if not metric_keys:
         raise ValueError("No epoch metric data found")
+
+    include_delta_log10 = any(
+        len((_get_iter_metric_arrays(r).get("loss", ([], []))[0])) >= 2
+        for r in runs_with_metrics
+    )
+    if include_delta_log10:
+        metric_keys.append(DELTA_LOG10_LOSS_KEY)
 
     n = len(metric_keys)
     ncols = 2 if n > 1 else 1
@@ -584,11 +655,16 @@ def _plot_iter2_metrics_impl(
         chosen_vals: list[float] = []
         for r in all_runs:
             arrs = _get_iter_metric_arrays(r)
-            it_v, val_v = arrs.get(key, ([], []))
+            source_key = "loss" if key == DELTA_LOG10_LOSS_KEY else key
+            it_v, val_v = arrs.get(source_key, ([], []))
             if not it_v or not val_v:
                 continue
             it_v = np.array(it_v)
             val_v = np.array(val_v)
+            if key == DELTA_LOG10_LOSS_KEY:
+                it_v, val_v = _compute_delta_log10(it_v, val_v)
+                if len(it_v) == 0 or len(val_v) == 0:
+                    continue
             if r.get("_best_rrmse"):
                 ax.plot(it_v, val_v, c="red", alpha=0.95, linewidth=2.5, zorder=6,
                         label="Best RRMSE (init)" if not labeled_best else None)
@@ -604,8 +680,13 @@ def _plot_iter2_metrics_impl(
                         label="All inits" if not labeled_all else None)
                 labeled_all = True
         ax.set_xlabel("LBFGS iteration")
-        ax.set_ylabel(key.replace("_", " "))
-        ax.set_title(key.replace("_", " "))
+        if key == DELTA_LOG10_LOSS_KEY:
+            ax.set_ylabel("Delta log10 loss")
+            ax.set_title("Delta log10 loss")
+            ax.axhline(0.0, color="black", linewidth=1.0, alpha=0.5, linestyle="--")
+        else:
+            ax.set_ylabel(key.replace("_", " "))
+            ax.set_title(key.replace("_", " "))
         ax.legend(loc="best", fontsize=8)
         ax.grid(True, alpha=0.3)
 
