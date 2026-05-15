@@ -1,38 +1,25 @@
-# gpplus
+# GPvsPFN Comparison
+Public repository containing scripts for validating experiments and additional results for the paper "On the Uncertainty Quantification Ability of Tabular Foundation Models" - part of the IEEE Computing in Science and Engineering Special Issue on "Controversies on the Usage of AI/ML for Science and Engineering".
 
-GPPlus library
+# What is currently in this repo: 
+- Current snapshot of our GP+ library.
+- Scripts to generate data and run comparison studies between GP+ and TabPFN v2.5.
+- A requirements.txt file containing a list of necessary package and their versions to run these experiments.
+- Detailed results from comparison studies (including additonal experiments conducted on real-world datasets and their results).
 
-## Overview
+# Setup:
+1. Clone repository to a new environment: https://github.com/kianswarehouse/GPvsPFN.git
+2. Navigate to the repo's foler: cd GPvsPFN
+3. Install all required packages: pip install requirements.txt
+4. Install GP+ package: pip install .
 
-GPPlus is a Python library that provides generalized Gaussian Process modeling. This repository contains the source code and documentation for the library.
 
-## Installation
+# Running experiments:
+- Run comparisons on specific problems individually in the 'A#' scripts within the 'experiments' folder.
+- Run all comparison problems using 'run_GPvsPFN...' script.
+   - The setups in the problems can be easily changed in the function calls for each problem (train_size, num_test, dimensions, etc.).
+   - Defaults for all problems are in the 'defaults.py' file.
 
-To install the package, follow these steps:
 
-1. Clone the repository:
-
-   git clone https://github.com/Bostanabad-Research-Group/gp-private.git
-
-2. Navigate to the gp-private directory:
-
-   cd gp-private
-
-3. Install the package using pip:
-
-   pip install .
-
-## Usage
-
-After installation, you can import and use the library in your Python scripts. For example:
-
-import gpplus  # or the appropriate module name
-''' Your code here using gpplus '''
-
-## Contributing
-
-We welcome contributions from the community! Please, check our [contributing guideline](CONTRIBUTING.md).
-
-## License
-
-MIT License
+# TabPFN usage:
+Use of PriorLab's TabPFN v2.5 model requires token authentification through HuggingFace website. Instructions will automatically be provided in the console's output. The instructions will advise you to sign in and create a token (https://huggingface.co/settings/tokens). In the token's permissions, under 'Repositories', check the box that says "Read access to contents of all public gated repos you can access". Then save the token, then copy and paste it into the console when prompted.
