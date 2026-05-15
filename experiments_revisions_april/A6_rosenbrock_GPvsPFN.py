@@ -148,6 +148,8 @@ def rosenbrock_GPvsPFN(num_runs=defaults.NUM_RUNS,
         y_test = y_test_all.detach().clone().to(dtype=gp_dtype)
         X_train_raw_for_pfn = X_train.detach().clone()
         X_test_raw_for_pfn = X_test.detach().clone()
+        y_train_raw_for_pfn = y_train.detach().clone()
+        y_test_raw_for_pfn = y_test.detach().clone()
         # Determine X scaling type
         Xscaler = None
         if standardize_X:
@@ -300,8 +302,8 @@ def rosenbrock_GPvsPFN(num_runs=defaults.NUM_RUNS,
             tabpfn_metric, y_pred_tabpfn, output_std_tabpfn = train_eval_PFN(
                 X_train_raw_for_pfn,
                 X_test_raw_for_pfn,
-                y_train,
-                y_test,
+                y_train_raw_for_pfn,
+                y_test_raw_for_pfn,
                 amp_device=amp_device,
                 amp_dtype=pfn_dtype,
                 regressor=regressor,

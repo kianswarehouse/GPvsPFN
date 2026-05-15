@@ -183,8 +183,11 @@ def buckling_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
         X_test = X_enc_test_all.detach().clone().to(dtype=gp_dtype)
         y_train = y_train.detach().clone().to(dtype=gp_dtype)
         y_test = y_test_all.detach().clone().to(dtype=gp_dtype)
-        X_train_raw_for_pfn = X_train.detach().clone()
-        X_test_raw_for_pfn = X_test.detach().clone()
+        # TabPFN: same train/test rows as GP but raw 4-column inputs (no one-hot encoding)
+        X_train_raw_for_pfn = X_train_runs[run_idx].detach().clone().to(dtype=gp_dtype)
+        X_test_raw_for_pfn = X_test_all.detach().clone().to(dtype=gp_dtype)
+        y_train_raw_for_pfn = y_train.detach().clone()
+        y_test_raw_for_pfn = y_test.detach().clone()
         # Determine X scaling type
         X_scaling_type = "None"
         if standardize_X:
@@ -265,10 +268,6 @@ def buckling_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
                     cont_cols=cont_cols,
                     # cat_cols=cat_cols,
                     cat_cols=grouped_cat,
-                    # cat_encoder='nn',
-                    # z_dim=3,
-                    # source_cols=source_cols,
-                    # fix_lengthscale_cat=True,
                     )  
                 )
             else:
@@ -347,8 +346,8 @@ def buckling_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
             tabpfn_metric, y_pred_tabpfn, output_std_tabpfn = train_eval_PFN(
                 X_train_raw_for_pfn,
                 X_test_raw_for_pfn,
-                y_train,
-                y_test,
+                y_train_raw_for_pfn,
+                y_test_raw_for_pfn,
                 amp_device=amp_device,
                 amp_dtype=pfn_dtype,
                 regressor=regressor,
