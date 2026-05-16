@@ -1,4 +1,4 @@
-# GPvsPFN Comparison
+# Gaussian Processes vs Tabular Prior Fitted Network
 Public repository containing scripts for validating experiments and additional results for the paper "On the Uncertainty Quantification Ability of Tabular Foundation Models" - part of the IEEE Computing in Science and Engineering Special Issue on "Controversies on the Usage of AI/ML for Science and Engineering".
 
 # What is currently in this repo: 
