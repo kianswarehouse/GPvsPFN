@@ -246,23 +246,7 @@ class GPTrainer:
 
         num_inits_to_train = len(init_indices)
 
-        # Use a list so the closure can flip it after the first worker logs its info.
-        threadpool_logged = [False]
 
-        def _log_threadpool_once(tag):
-            if threadpool_logged[0] or threadpool_info is None:
-                return
-            try:
-                info = threadpool_info()
-                summary = ", ".join(
-                    f"{e.get('user_api', e.get('prefix', '?'))}={e.get('num_threads', '?')}"
-                    for e in info
-                )
-                logger.info("threadpool_info[%s]: %s", tag, summary)
-                print(f"[trainerv3] threadpool_info[{tag}]: {summary}")
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("threadpool_info() failed: %s", exc)
-            threadpool_logged[0] = True
 
         def safe_single_process(init_index, device_override=None, tag="worker"):
             try:
@@ -270,7 +254,6 @@ class GPTrainer:
                 if device_override is not None:
                     self.device = device_override
                 _worker_init()
-                _log_threadpool_once(tag)
                 result = self.train_single_process(init_index)
                 self.device = original_device
                 return result

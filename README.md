@@ -1,30 +1,30 @@
-# *** SCRIPTS STILL BEING FINALIZED ***
-
 # Gaussian Processes vs Tabular Prior Fitted Network
 Public repository containing scripts for validating experiments and additional results for the paper "On the Uncertainty Quantification Ability of Tabular Foundation Models" - part of the IEEE Computing in Science and Engineering Special Issue on "Controversies on the Usage of AI/ML for Science and Engineering".
 
 # What is currently in this repo: 
-- Current snapshot of our GP+ library (5-17-2026).
-- Scripts to generate data and run comparison studies between GP+ and TabPFN v2.5.
-- A requirements.txt file containing a list of necessary package and their versions to run these experiments.
-- Detailed results from comparison studies (including additonal experiments conducted on real-world datasets and their results).
+- A requirements.txt file containing a list of necessary package and their versions to run these experiments [folder: 'GPvsPFN'].
+- Current snapshot of our GP+ library (5-17-2026) [folder: 'gpplus'].
+- Scripts to generate data and run comparison studies between GP+ and TabPFN v2.5 [folder: 'experiments'].
+- Detailed results from comparison studies (including additonal experiments conducted on real-world datasets and their results) [folder: 'experiments/results_paper'].
 
 # Setup:
-1. Clone repository to a new environment: https://github.com/kianswarehouse/GPvsPFN.git
-2. Install compatible version of pytorch: https://pytorch.org/
-3. Navigate to the repo's foler: cd GPvsPFN
-4. Install all required packages: pip install -r requirements.txt
-5. Install GP+ package: pip install .
+1. Clone repository to a new environment (use python 3.11): https://github.com/kianswarehouse/GPvsPFN.git
+2. Navigate to the repo's foler: cd GPvsPFN
+3. Install all required packages to environment: pip install -r requirements.txt
+<!-- 2. Install compatible version of pytorch: https://pytorch.org/ -->
+<!-- 5. Install GP+ package: pip install . -->
 
 
 # Running experiments:
-- Run comparisons on specific problems individually in the 'A#' scripts within the 'experiments' folder.
-- Run all comparison problems using 'B#' scripts.
+- All material for running experiments will be in the 'experiments' folder
+- Run all comparison problems produced in the paper using the '00_run_all_experiments' script.
+- Run comparisons on specific problems individually in the 'A#' scripts within the 'experiments' folder, or edit the '00'/'B#' scripts.
    - The setups in the problems can be easily changed in the function calls for each problem (train_size, num_test, dimensions, etc.).
-
 - Defaults for all problems are in the 'defaults.py' file.
-   - Detailed trainer analysis for GP+ can be enabled by setting 'TRAINER_INFO = TRUE'
+   - Control which model to run with 'run_models'. If 'run_models = None' both models will be ran. If 'run_models = 'gp'', only GP+ model will be used. If 'run_models = 'pfn'', only PFN model will be used.
+   - Detailed trainer analysis for GP+ can be enabled by setting 'TRAINER_INFO = TRUE' (GP+ model must be running)
    - GPvsPFN RRMSE and NIS result plotting can be enabled with 'PLOT_METRICS = TRUE'
+   - Results will be saved to the 'experiments/results' folder, unless the save-path is edited.
 
 
 # TabPFN usage:
