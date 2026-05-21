@@ -4,12 +4,6 @@ import time
 import numpy as np
 import torch
 from sklearn.metrics import mean_squared_error
-try:
-    # Optional dependency used for exact CRPS computation (TabPFN bucket sampling).
-    # If unavailable, we still support Gaussian closed-form CRPS via compute_crps_gaussian.
-    from CRPS.CRPS import CRPS as pscore
-except ModuleNotFoundError:  # pragma: no cover
-    pscore = None
 
 # from sklearn.metrics import mean_absolute_error, r2_score
 
@@ -20,116 +14,6 @@ try:
     matplotlib.use("Agg", force=True)
 except Exception as e:
     logging.warning(f"Failed to set matplotlib backend: {e}")
-
-
-def compute_crps_gaussian(y_true, y_hat, output_std):
-    """
-    Compute Continuous Ranked Probability Score (CRPS) for Gaussian predictions.
-    
-    Uses the closed-form analytical formula for Gaussian CRPS (exact, no sampling needed).
-    
-    For Gaussian predictions N(μ, σ²), the closed-form CRPS is:
-    CRPS = σ * [z * (2*Φ(z) - 1) + 2*φ(z) - 1/√π]
-    where z = (y_true - μ) / σ, Φ is the standard normal CDF, φ is the standard normal PDF
-    
-    Args:
-        y_true: True values (1D array)
-        y_hat: Predicted means (1D array)
-        output_std: Predicted standard deviations (1D array)
-    
-    Returns:
-        float: Mean CRPS across all predictions
-    """
-    from scipy.stats import norm
-    
-    # Convert to numpy if needed
-    if isinstance(y_true, torch.Tensor):
-        y_true = y_true.cpu().numpy()
-    if isinstance(y_hat, torch.Tensor):
-        y_hat = y_hat.cpu().numpy()
-    if isinstance(output_std, torch.Tensor):
-        output_std = output_std.cpu().numpy()
-    
-    y_true = np.asarray(y_true).flatten()
-    y_hat = np.asarray(y_hat).flatten()
-    output_std = np.asarray(output_std).flatten()
-    
-    # Avoid division by zero
-    output_std = np.maximum(output_std, 1e-10)
-    
-    # Standardized residuals
-    z = (y_true - y_hat) / output_std
-    
-    # Standard normal CDF and PDF
-    phi_z = norm.cdf(z)
-    pdf_z = norm.pdf(z)
-    
-    # CRPS formula for Gaussian distribution (closed-form, exact)
-    crps = output_std * (z * (2 * phi_z - 1) + 2 * pdf_z - 1 / np.sqrt(np.pi))
-    
-    return crps.mean()
-
-
-def compute_nlpd_gaussian(y_true, y_hat, output_std, eps: float = 1e-12):
-    """
-    Compute Gaussian negative log predictive density (NLPD) as mean over samples.
-    """
-    if isinstance(y_true, torch.Tensor):
-        y_true = y_true.detach().cpu().numpy()
-    if isinstance(y_hat, torch.Tensor):
-        y_hat = y_hat.detach().cpu().numpy()
-    if isinstance(output_std, torch.Tensor):
-        output_std = output_std.detach().cpu().numpy()
-
-    y_true = np.asarray(y_true).reshape(-1)
-    y_hat = np.asarray(y_hat).reshape(-1)
-    output_std = np.asarray(output_std).reshape(-1)
-
-    valid_mask = (
-        np.isfinite(y_true)
-        & np.isfinite(y_hat)
-        & np.isfinite(output_std)
-        & (output_std > 0.0)
-    )
-    if not np.any(valid_mask):
-        return None
-
-    y_true_valid = y_true[valid_mask]
-    y_hat_valid = y_hat[valid_mask]
-    sigma = np.maximum(output_std[valid_mask], eps)
-    sigma2 = sigma * sigma
-
-    nlpd = 0.5 * np.log(2.0 * np.pi * sigma2) + 0.5 * ((y_true_valid - y_hat_valid) ** 2 / sigma2)
-    return float(np.mean(nlpd))
-
-
-def logits_to_ensemble(logits, bar_dist, n_samples=1000):
-    """
-    Convert TabPFN logits to ensemble members by sampling from bar distribution.
-    
-    Args:
-        logits: TabPFN logits (2D array), shape (n, n_buckets)
-        bar_dist: BarDistribution object with sample() method
-        n_samples: Number of samples per prediction
-    
-    Returns:
-        np.ndarray: Ensemble members, shape (n, n_samples)
-    """
-    if isinstance(logits, torch.Tensor):
-        logits = logits.cpu()
-    else:
-        logits = torch.tensor(logits, dtype=torch.float32)
-    
-    # Move bar_dist to CPU if needed
-    if hasattr(bar_dist, 'borders') and bar_dist.borders.device.type == 'cuda':
-        bar_dist = bar_dist.cpu()
-    
-    ensemble = []
-    for i in range(len(logits)):
-        samples = np.array([bar_dist.sample(logits[i].unsqueeze(0)).item() for _ in range(n_samples)])
-        ensemble.append(samples)
-    
-    return np.array(ensemble)
 
 
 def compute_nis(
@@ -309,9 +193,6 @@ def compute_metrics(
     start_time=None,
     training_time=None,
     prediction_time=None,
-    tabpfn_logits=None,
-    tabpfn_bar_dist=None,
-    y_test_normalized=None,
     lower_95=None,
     upper_95=None,
     log_mu=None,
@@ -329,9 +210,6 @@ def compute_metrics(
         start_time: Start time for timing (optional, deprecated - use training_time and prediction_time instead)
         training_time: Training time in seconds (optional)
         prediction_time: Prediction time in seconds (optional)
-        tabpfn_logits: TabPFN logits for exact CRPS (optional, shape: n_test x n_buckets)
-        tabpfn_bar_dist: TabPFN BarDistribution object (required if tabpfn_logits provided)
-        y_test_normalized: Normalized y_test for CRPS (logits are in normalized space!)
         lower_95/upper_95: Optional explicit interval bounds on original scale.
         log_mu/log_sigma/log_scale_C: Optional predictive Normal parameters in log(y+C)
             used to compute quantile-based NIS on original scale.
@@ -388,7 +266,7 @@ def compute_metrics(
             "MAE": np.mean(np.abs(y_true - y_hat)),
         }
 
-    # Add NIS (and CRPS, if std available) when we have any uncertainty information
+    # Add NIS when we have uncertainty information (std, bounds, or log-quantile params)
     has_bounds = (lower_95 is not None) and (upper_95 is not None)
     has_log_params = (
         use_log_quantile_nis
@@ -416,80 +294,6 @@ def compute_metrics(
                 alpha=0.05,
             )
         metrics.update(nis_metrics)
-        
-        # CRPS (Continuous Ranked Probability Score)
-        # - Exact (bucket-sampling) CRPS requires optional CRPS package + TabPFN logits/bar_dist
-        # - Gaussian CRPS is always computed (closed form) when output_std is provided
-        if (
-            (pscore is not None)
-            and (output_std is not None)
-            and (tabpfn_logits is not None)
-            and (tabpfn_bar_dist is not None)
-        ):
-            # Exact CRPS using bar distribution buckets
-            # Note: logits and bar_dist are in normalized space, need to transform back
-            
-            # Get logits and probabilities
-            if isinstance(tabpfn_logits, torch.Tensor):
-                logits_torch = tabpfn_logits.cpu()
-            else:
-                logits_torch = torch.tensor(tabpfn_logits, dtype=torch.float32)
-            
-            probs = torch.softmax(logits_torch, dim=-1).numpy()
-            borders = tabpfn_bar_dist.borders.cpu().numpy()
-            bucket_centers = (borders[:-1] + borders[1:]) / 2
-            
-            # Transform bucket centers back to original scale
-            # If y_test_normalized is provided, we need to denormalize
-            if y_test_normalized is not None:
-                # Infer normalization parameters from y_true and y_test_normalized
-                # y_normalized = (y - mean) / std, so y = y_normalized * std + mean
-                y_mean = y_true.mean()
-                y_std = y_true.std()
-                bucket_centers_original = bucket_centers * y_std + y_mean
-            else:
-                bucket_centers_original = bucket_centers
-            
-            # Use all bins (no subsampling)
-            n_bins = len(bucket_centers_original)
-            
-            # Compute CRPS using weighted buckets
-            crps_values = []
-            fcrps_values = []
-            n_samples = 1000
-            for i in range(len(y_true)):
-                # Sample from buckets according to probabilities
-                ensemble = np.random.choice(bucket_centers_original, size=n_samples, p=probs[i])
-                crps_result = pscore(ensemble, y_true[i]).compute()
-                crps_values.append(crps_result[0])
-                fcrps_values.append(crps_result[1])
-            
-            crps_exact = np.mean(crps_values)
-            fcrps_exact = np.mean(fcrps_values)
-            metrics["CRPS_exact"] = crps_exact
-            metrics["NCRPS_exact"] = crps_exact / y_true.std()
-            metrics["fCRPS_exact"] = fcrps_exact
-            metrics["NfCRPS_exact"] = fcrps_exact / y_true.std()
-            print(f"[CRPS] Using exact CRPS with {n_bins} bins, {n_samples} samples (denormalized)")
-        elif (tabpfn_logits is not None) and (tabpfn_bar_dist is not None) and (pscore is None):
-            logging.warning(
-                "CRPS package not installed; skipping exact CRPS (CRPS_exact/NCRPS_exact). "
-                "Install CRPS or set tabpfn_logits=None."
-            )
-        
-        if output_std is not None:
-            # Always compute Gaussian CRPS for comparison
-            crps = compute_crps_gaussian(y_true, y_hat, output_std)
-            metrics["CRPS"] = crps
-            # Normalized CRPS (similar to RRMSE normalization)
-            metrics["NCRPS"] = crps / y_true.std()
-
-            # Gaussian negative log predictive density (NLPD)
-            nlpd = compute_nlpd_gaussian(y_true, y_hat, output_std)
-            if nlpd is not None:
-                metrics["NLPD"] = nlpd
-        
-        return metrics
 
     return metrics
 
@@ -560,7 +364,7 @@ def format_metric_value(key: str, value: float, precision: int = 4) -> str:
 
 def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None, title: str = None):
     """
-    Summarize metrics across seeds for all available metrics (RRMSE, NIS, CRPS, etc.), 
+    Summarize metrics across seeds for all available metrics (RRMSE, NIS, etc.), 
     including per-source statistics.
 
     Args:
@@ -568,7 +372,7 @@ def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None
 
     Returns:
         dict with per-metric summary: {metric: {mean, std, median, min, max}}
-        and per-source summaries for RRMSE, NIS, CRPS, etc.
+        and per-source summaries for RRMSE, NIS, etc.
     """
     import numpy as np
     import pandas as pd
@@ -615,10 +419,10 @@ def analyze_metrics(metrics_list, print_summary: bool = False, label: str = None
             "count": int(len(vals)),
         }
 
-    # Extract per-source metrics for RRMSE, NIS, CRPS, etc.
+    # Extract per-source metrics for RRMSE, NIS, etc.
     per_source_stats = {}
     source_columns = [col for col in df.columns if col.startswith("source_") and
-                     ("_RRMSE" in col or "_NIS" in col or "_CRPS" in col or "_NCRPS" in col or "_NLPD" in col)]
+                     ("_RRMSE" in col or "_NIS" in col)]
 
     if source_columns:
         # Group by source
@@ -804,108 +608,35 @@ def plot_metrics(*args, labels: list = None, title: str = None, save_path: str =
 
     # Always create individual plots
     individual_figs = {}
-    for metric in ["RRMSE", "NIS", "NCRPS"]:
-        # Special handling for NCRPS: show TabPFN NfCRPS_exact, TabPFN NCRPS, and GP NCRPS
-        if metric == "NCRPS":
-            crps_data = []
-            crps_labels = []
-            
-            # Extract TabPFN NfCRPS_exact (from first metrics list) - first
-            if len(metrics_lists) > 0:
-                tabpfn_nfcrps_exact = extract([metrics_lists[0]], "NfCRPS_exact")[0]
-                if len(tabpfn_nfcrps_exact) > 0:
-                    crps_data.append(tabpfn_nfcrps_exact)
-                    crps_labels.append("TabPFN NfCRPS_exact")
-                
-                # Extract TabPFN NCRPS (from first metrics list) - second
-                tabpfn_ncrps = extract([metrics_lists[0]], "NCRPS")[0]
-                if len(tabpfn_ncrps) > 0:
-                    crps_data.append(tabpfn_ncrps)
-                    crps_labels.append("TabPFN NCRPS")
-            
-            # Extract GP NCRPS (from second metrics list) - third
-            if len(metrics_lists) > 1:
-                gp_ncrps = extract([metrics_lists[1]], "NCRPS")[0]
-                if len(gp_ncrps) > 0:
-                    crps_data.append(gp_ncrps)
-                    crps_labels.append("GP NCRPS")
-            
-            if len(crps_data) > 0:
-                fig, ax = plt.subplots(figsize=(7, 4))
-                create_violin_plot(ax, crps_data, metric, crps_labels, n_seeds)
-                
-                if title:
-                    try:
-                        fig.suptitle(title)
-                    except Exception as e:
-                        logging.warning(f"Failed to set figure title: {e}")
-                
-                plt.tight_layout()
-                save_figure(fig, metric.lower(), save_path, title)
-                individual_figs[metric] = fig
-        else:
-            # Regular metrics (RRMSE, NIS)
-            data = extract(metrics_lists, metric)
-            # Skip if no data for this metric
-            if all(len(d) == 0 for d in data):
-                continue
-            fig, ax = plt.subplots(figsize=(7, 4))
-            create_violin_plot(ax, data, metric, labels, n_seeds)
+    for metric in ["RRMSE", "NIS"]:
+        data = extract(metrics_lists, metric)
+        # Skip if no data for this metric
+        if all(len(d) == 0 for d in data):
+            continue
+        fig, ax = plt.subplots(figsize=(7, 4))
+        create_violin_plot(ax, data, metric, labels, n_seeds)
 
-            if title:
-                try:
-                    fig.suptitle(title)
-                except Exception as e:
-                    logging.warning(f"Failed to set figure title: {e}")
+        if title:
+            try:
+                fig.suptitle(title)
+            except Exception as e:
+                logging.warning(f"Failed to set figure title: {e}")
 
-            plt.tight_layout()
-            save_figure(fig, metric.lower(), save_path, title)
-            individual_figs[metric] = fig
+        plt.tight_layout()
+        save_figure(fig, metric.lower(), save_path, title)
+        individual_figs[metric] = fig
 
     result = {"individual": individual_figs}
 
     # Create combined plot if subplots=True
     if subplots:
-        # Create one figure with three subplots
-        combined_fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 4))
+        combined_fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 4))
 
-        # Plot RRMSE
         rrmse_data = extract(metrics_lists, "RRMSE")
         create_violin_plot(ax1, rrmse_data, "RRMSE", labels, n_seeds)
 
-        # Plot NIS
         nis_data = extract(metrics_lists, "NIS")
         create_violin_plot(ax2, nis_data, "NIS", labels, n_seeds)
-
-        # Plot NCRPS: show TabPFN NfCRPS_exact, TabPFN NCRPS, and GP NCRPS
-        crps_data = []
-        crps_labels = []
-        
-        # Extract TabPFN NfCRPS_exact (from first metrics list) - first
-        if len(metrics_lists) > 0:
-            tabpfn_nfcrps_exact = extract([metrics_lists[0]], "NfCRPS_exact")[0]
-            if len(tabpfn_nfcrps_exact) > 0:
-                crps_data.append(tabpfn_nfcrps_exact)
-                crps_labels.append("TabPFN NfCRPS_exact")
-            
-            # Extract TabPFN NCRPS (from first metrics list) - second
-            tabpfn_ncrps = extract([metrics_lists[0]], "NCRPS")[0]
-            if len(tabpfn_ncrps) > 0:
-                crps_data.append(tabpfn_ncrps)
-                crps_labels.append("TabPFN NCRPS")
-        
-        # Extract GP NCRPS (from second metrics list) - third
-        if len(metrics_lists) > 1:
-            gp_ncrps = extract([metrics_lists[1]], "NCRPS")[0]
-            if len(gp_ncrps) > 0:
-                crps_data.append(gp_ncrps)
-                crps_labels.append("GP NCRPS")
-        
-        if len(crps_data) > 0:
-            create_violin_plot(ax3, crps_data, "NCRPS", crps_labels, n_seeds)
-        else:
-            # Hide the third subplot if no NCRPS data
-            ax3.set_visible(False)
 
         # Set overall title if provided
         if title:
@@ -995,7 +726,7 @@ def compute_per_source_metrics(
                 "num_samples": int(len(source_y_true)),  # Number of predictions for this source
             }
 
-            # Add NIS and CRPS if output_std is provided
+            # Add NIS if output_std is provided
             if source_output_std is not None:
                 nis_metrics = compute_nis(
                     source_y_true,
@@ -1004,14 +735,6 @@ def compute_per_source_metrics(
                     alpha=0.05,
                 )
                 source_metrics.update(nis_metrics)
-                
-                # CRPS
-                source_crps = compute_crps_gaussian(source_y_true, source_y_hat, source_output_std)
-                source_metrics["CRPS"] = source_crps
-                source_metrics["NCRPS"] = source_crps / source_y_true.std()
-                source_nlpd = compute_nlpd_gaussian(source_y_true, source_y_hat, source_output_std)
-                if source_nlpd is not None:
-                    source_metrics["NLPD"] = source_nlpd
 
             per_source_metrics[source_name] = source_metrics
 

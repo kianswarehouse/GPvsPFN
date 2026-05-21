@@ -1,6 +1,7 @@
 import gpytorch
 import torch
 
+
 from ..utils.encoders import MatrixEncoder, NeuralEncoder
 from .gaussian_kernel import GaussianKernel
 

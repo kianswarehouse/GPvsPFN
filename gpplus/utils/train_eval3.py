@@ -1163,10 +1163,6 @@ def train_eval_PFN(
                 print(f"[TIMER] criterion.variance(logits) calculation took: {t_var_calc:.4f}s")
                 y_pred_tabpfn = full_predictions.get("mean")
 
-                tabpfn_logits_for_crps = logits.detach().cpu()
-                tabpfn_bar_dist_for_crps = criterion
-                print(f"[CRPS] Storing logits shape: {logits.shape} for CRPS")
-
         if "quantiles" in full_predictions:
             q_95 = full_predictions["quantiles"]
             if isinstance(q_95, list) and len(q_95) >= 2:
@@ -1186,9 +1182,6 @@ def train_eval_PFN(
 
         y_pred_test = y_pred_tabpfn
         output_std_test = np.sqrt(y_var_tabpfn)
-        if "tabpfn_logits_for_crps" in locals():
-            tabpfn_logits_test = tabpfn_logits_for_crps
-            tabpfn_bar_dist_test = tabpfn_bar_dist_for_crps
     else:
         t_fit_start = time.time()
         X_all = np.concatenate([X_train, X_test], axis=0)
@@ -1206,11 +1199,6 @@ def train_eval_PFN(
             y_mean = regressor.predict_mean(logits)
             y_var = regressor.predict_variance(logits)
 
-            logits_test = logits[-len(y_test) :]
-            tabpfn_logits_for_crps = logits_test.detach().cpu()
-            tabpfn_bar_dist_for_crps = regressor.bardist_
-            print(f"[CRPS] Storing logits shape: {logits_test.shape} for CRPS")
-
         y_pred = y_mean.detach().cpu().numpy().reshape(-1)
         output_std = (y_var.detach().cpu().numpy().reshape(-1)) ** 0.5
         prediction_time = time.time() - t_pred_start
@@ -1226,11 +1214,6 @@ def train_eval_PFN(
             lower_95_test, upper_95_test = q025, q975
         except Exception:
             lower_95_test, upper_95_test = None, None
-        if "tabpfn_logits_for_crps" in locals():
-            tabpfn_logits_test = tabpfn_logits_for_crps
-            tabpfn_bar_dist_test = tabpfn_bar_dist_for_crps
-
-    y_test_normalized = y_test.copy() if isinstance(y_test, np.ndarray) else np.array(y_test)
 
     _validate_log_y_point_inverse(log_y_point_inverse)
     _require_finite_log_scale_c(
@@ -1370,10 +1353,6 @@ def train_eval_PFN(
                 stacklevel=2,
             )
 
-    tabpfn_logits_for_metrics = tabpfn_logits_test if "tabpfn_logits_test" in locals() else None
-    tabpfn_bar_dist_for_metrics = tabpfn_bar_dist_test if "tabpfn_bar_dist_test" in locals() else None
-    y_test_for_crps = y_test_normalized if "y_test_normalized" in locals() else y_test
-
     y_true_pfn = (
         y_test.detach().cpu().numpy().reshape(-1)
         if isinstance(y_test, torch.Tensor)
@@ -1392,9 +1371,6 @@ def train_eval_PFN(
         output_std_test,
         training_time=training_time,
         prediction_time=prediction_time,
-        tabpfn_logits=tabpfn_logits_for_metrics,
-        tabpfn_bar_dist=tabpfn_bar_dist_for_metrics,
-        y_test_normalized=y_test_for_crps,
         lower_95=lower_95_test,
         upper_95=upper_95_test,
     )
