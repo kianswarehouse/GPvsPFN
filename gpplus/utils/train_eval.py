@@ -1,119 +1,264 @@
 import time
+import warnings
+from contextlib import nullcontext
 
 import numpy as np
 import torch
+from gpplus.config import get_settings
 from gpplus.training import GPTrainer
 from gpplus.training.callbacks import FinalParameterStorageCallback
-# from gpplus.training.eval import evaluate_gp_model
-from gpplus.training.stop_conditions import ConvergencePatienceStopCondition, MinLossChangeStopCondition
+from gpplus.training.stop_conditions import (
+    ConvergencePatienceStopCondition,
+    MinLossChangeStopCondition,
+)
 from gpplus.training.eval2 import evaluate_gp_model
-from gpplus.training.optimizers import LBFGSScipy
-from gpplus.utils.metrics_functions import compute_metrics, compute_per_source_metrics
+from gpplus.utils.metrics_functions import (
+    compute_lognormal_interval_bounds,
+    compute_metrics,
+    compute_nis,
+    compute_per_source_metrics,
+)
+
+
+def _print_train_eval_gp_eval_parity(model: torch.nn.Module, tag: str = "") -> None:
+    """One-shot diagnostics for series vs parallel prediction parity (main process)."""
+    label = f" {tag}" if tag else ""
+    jitter = getattr(model, "cholesky_jitter", None)
+    try:
+        det = torch.are_deterministic_algorithms_enabled()
+    except Exception:  # noqa: BLE001
+        det = None
+    nth = torch.get_num_threads()
+    try:
+        n_interop = torch.get_num_interop_threads()
+    except Exception:  # noqa: BLE001
+        n_interop = None
+    tp_summary = "n/a"
+    try:
+        from threadpoolctl import threadpool_info
+
+        info = threadpool_info()
+        tp_summary = ", ".join(
+            f"{e.get('user_api', e.get('prefix', '?'))}={e.get('num_threads', '?')}"
+            for e in info
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    print(
+        f"[train_eval_gp eval parity{label}] cholesky_jitter={jitter!r} "
+        f"deterministic_algorithms={det} torch_num_threads={nth} "
+        f"torch_num_interop_threads={n_interop!r} threadpool_info={tp_summary}"
+    )
+
+
+def _validate_log_y_point_inverse(log_y_point_inverse: str) -> None:
+    if log_y_point_inverse not in ("median", "mean"):
+        raise ValueError(
+            f"log_y_point_inverse must be 'median' or 'mean', got {log_y_point_inverse!r}."
+        )
+
+
+def _require_finite_log_scale_c(
+    standardize_y_log_scale: bool,
+    log_scale_C: float | None,
+    y_train_mean,
+    y_train_std,
+    *,
+    caller: str,
+) -> None:
+    if not standardize_y_log_scale or y_train_mean is None or y_train_std is None:
+        return
+    if log_scale_C is None:
+        raise ValueError(
+            f"{caller}: standardize_y_log_scale=True with y scaling requires a finite "
+            "log_scale_C (shift used in log(y + C))."
+        )
+    try:
+        c = float(log_scale_C)
+    except (TypeError, ValueError) as e:
+        raise ValueError(
+            f"{caller}: log_scale_C must be a finite float, got {log_scale_C!r}."
+        ) from e
+    if not np.isfinite(c):
+        raise ValueError(
+            f"{caller}: log_scale_C must be finite, got {log_scale_C!r}."
+        )
+
+
+# Cap σ in raw log space when applying E[Y]=exp(μ+σ²/2)−C. Uncapped σ with the GP's
+# standardized predictive std can yield astronomically large exp(σ²/2) and meaningless RMSE.
+_LOG_Y_STD_CAP_FOR_LOGNORMAL_MEAN = 3.0
+
+
+def _torch_log_y_point_original(
+    exp_log_y: torch.Tensor,
+    log_y_std: torch.Tensor,
+    log_scale_C: float,
+    log_y_point_inverse: str,
+) -> torch.Tensor:
+    """Map (exp(mu_log), sigma_log) to original-scale point prediction (median or log-normal mean)."""
+    if log_y_point_inverse == "median":
+        return exp_log_y - log_scale_C
+    log_y_std_eff = torch.clamp(log_y_std, max=_LOG_Y_STD_CAP_FOR_LOGNORMAL_MEAN)
+    if torch.any(log_y_std > _LOG_Y_STD_CAP_FOR_LOGNORMAL_MEAN):
+        warnings.warn(
+            "train_eval_gp: log_y_std (raw log space) exceeded "
+            f"{_LOG_Y_STD_CAP_FOR_LOGNORMAL_MEAN} for at least one test point; "
+            "clamping for log-normal *mean* back-transform only (median path unchanged). "
+            "Large GP predictive std in standardized space × y_train_std causes this; "
+            "consider log_y_point_inverse='median' or a better-calibrated model.",
+            stacklevel=3,
+        )
+    half_var = 0.5 * (log_y_std_eff**2)
+    return exp_log_y * torch.exp(half_var) - log_scale_C
+
+
+def _np_log_y_point_original(
+    exp_log_y: np.ndarray,
+    log_y_std: np.ndarray,
+    log_scale_C: float,
+    log_y_point_inverse: str,
+) -> np.ndarray:
+    if log_y_point_inverse == "median":
+        return exp_log_y - log_scale_C
+    cap = _LOG_Y_STD_CAP_FOR_LOGNORMAL_MEAN
+    if np.any(log_y_std > cap):
+        warnings.warn(
+            "train_eval_PFN: log_y_std (raw log space) exceeded "
+            f"{cap} for at least one test point; clamping for log-normal mean back-transform only.",
+            stacklevel=3,
+        )
+    log_y_std_eff = np.minimum(log_y_std, cap)
+    half_var = 0.5 * (log_y_std_eff**2)
+    return exp_log_y * np.exp(half_var) - log_scale_C
 
 
 def _process_trainer_info(stored_params, train_results, num_epochs):
     """
     Process stored parameters from callback into a structured trainer log.
-    
-    Args:
-        stored_params: List of parameter records from FinalParameterStorageCallback
-        train_results: Results from trainer.train()
-        num_epochs: Number of epochs used in training
-        
-    Returns:
-        dict: Structured trainer log with runs, best_parameters, and average_final_parameters
+    Delegates to the shared trainer_analysis module.
     """
-    import numpy as np
-    
-    runs_data = []
-    best_run_idx = None
-    best_loss = float('inf')
-    
-    # Process each run: pass through full initial/final from callback (incl. raw_constant, constant, encoder_embedding_*)
-    for i, record in enumerate(stored_params):
-        initial = record.get("initial") or {}
-        final = record.get("final") or {}
-        initial_parameters = dict(initial)  # full copy: raw_noise, raw_outputscale, raw_constant, encoder_embedding_*, etc.
-        final_parameters = dict(final)
-        run_data = {
-            "run": record.get("run", i + 1),
-            "num_epochs": record.get("num_epochs", num_epochs),
-            "best_epoch": record.get("best_epoch"),
-            "epoch": record.get("epoch"),
-            "loss": record.get("best_loss"),
-            "jitter": record.get("jitter"),
-            "initial_parameters": initial_parameters,
-            "final_parameters": final_parameters,
-        }
-        runs_data.append(run_data)
-        
-        # Track best run
-        loss = record.get("best_loss")
-        if loss is not None and loss < best_loss:
-            best_loss = loss
-            best_run_idx = i
-    
-    # Extract best parameters (full initial/final incl. raw_constant, encoder_embedding_*)
-    best_parameters = None
-    if best_run_idx is not None and best_run_idx < len(stored_params):
-        best_record = stored_params[best_run_idx]
-        best_initial = best_record.get("initial") or {}
-        best_final = best_record.get("final") or {}
-        best_parameters = {
-            "run": best_record.get("run", best_run_idx + 1),
-            "num_epochs": best_record.get("num_epochs", num_epochs),
-            "best_epoch": best_record.get("best_epoch"),
-            "loss": best_record.get("best_loss"),
-            "jitter": best_record.get("jitter"),
-            "initial_parameters": dict(best_initial),
-            "final_parameters": dict(best_final),
-        }
-    
-    # Calculate average final parameters statistics
-    avg_final_params = {}
-    if stored_params:
-        # Collect all final parameter values
-        param_collections = {}
-        
-        for record in stored_params:
-            final = record.get("final", {})
-            for key, value in final.items():
-                # Skip encoder embeddings (nested lists) and other non-scalar aggregates
-                if key.startswith("encoder_embedding_"):
-                    continue
-                if key not in param_collections:
-                    param_collections[key] = []
+    from gpplus.training.trainer_analysis import build_trainer_analysis_payload
+    return build_trainer_analysis_payload(stored_params, train_results, num_epochs)
 
-                if value is None:
-                    continue
-                elif isinstance(value, (list, tuple)):
-                    # Nested list (e.g. matrix): skip for avg stats
-                    if value and isinstance(value[0], (list, tuple)):
-                        continue
-                    param_collections[key].extend([float(v) for v in value if v is not None])
-                elif isinstance(value, (int, float)):
-                    param_collections[key].append(float(value))
-                elif hasattr(value, 'item'):  # Tensor
-                    param_collections[key].append(float(value.item()))
-        
-        # Calculate statistics for each parameter
-        for key, values in param_collections.items():
-            if len(values) > 0:
-                values_array = np.array(values)
-                avg_final_params[key] = {
-                    "min": float(np.min(values_array)),
-                    "mean": float(np.mean(values_array)),
-                    "median": float(np.median(values_array)),
-                    "std": float(np.std(values_array, ddof=1)) if len(values_array) > 1 else 0.0,
-                    "max": float(np.max(values_array)),
-                    "count": int(len(values_array)),
-                }
-    
-    return {
-        "runs": runs_data,
-        "best_parameters": best_parameters,
-        "average_final_parameters": avg_final_params,
+
+def _compute_log_space_metrics(
+    y_true_original,
+    y_pred_original,
+    log_scale_C: float,
+    output_std_original=None,
+    lower_original=None,
+    upper_original=None,
+) -> dict:
+    """
+    Compute error metrics on log(y + C) space from original-scale y_true/y_pred.
+    Only finite pairs with y + C > 0 are used.
+    """
+    y_true = (
+        y_true_original.detach().cpu().numpy().reshape(-1)
+        if isinstance(y_true_original, torch.Tensor)
+        else np.asarray(y_true_original).reshape(-1)
+    )
+    y_pred = (
+        y_pred_original.detach().cpu().numpy().reshape(-1)
+        if isinstance(y_pred_original, torch.Tensor)
+        else np.asarray(y_pred_original).reshape(-1)
+    )
+    c_val = float(log_scale_C)
+    y_true_shift = y_true + c_val
+    y_pred_shift = y_pred + c_val
+    valid = (
+        np.isfinite(y_true_shift)
+        & np.isfinite(y_pred_shift)
+        & (y_true_shift > 0)
+        & (y_pred_shift > 0)
+    )
+    if output_std_original is not None:
+        out_std = (
+            output_std_original.detach().cpu().numpy().reshape(-1)
+            if isinstance(output_std_original, torch.Tensor)
+            else np.asarray(output_std_original).reshape(-1)
+        )
+    else:
+        out_std = None
+    if lower_original is not None:
+        lower_arr = (
+            lower_original.detach().cpu().numpy().reshape(-1)
+            if isinstance(lower_original, torch.Tensor)
+            else np.asarray(lower_original).reshape(-1)
+        )
+    else:
+        lower_arr = None
+    if upper_original is not None:
+        upper_arr = (
+            upper_original.detach().cpu().numpy().reshape(-1)
+            if isinstance(upper_original, torch.Tensor)
+            else np.asarray(upper_original).reshape(-1)
+        )
+    else:
+        upper_arr = None
+
+    if not np.any(valid):
+        return {
+            "RMSE_log": None,
+            "MAE_log": None,
+            "RRMSE_log": None,
+            "NIS_log": None,
+            "NIS_width_log": None,
+            "NIS_outside_log": None,
+            "log_eval_valid_fraction": 0.0,
+        }
+    y_true_log = np.log(y_true_shift[valid])
+    y_pred_log = np.log(y_pred_shift[valid])
+    rmse_log = float(np.sqrt(np.mean((y_true_log - y_pred_log) ** 2)))
+    mae_log = float(np.mean(np.abs(y_true_log - y_pred_log)))
+    std_log = float(np.std(y_true_log))
+    rrmse_log = float(rmse_log / std_log) if std_log > 0 else float("inf")
+    log_metrics = {
+        "RMSE_log": rmse_log,
+        "MAE_log": mae_log,
+        "RRMSE_log": rrmse_log,
+        "log_eval_valid_fraction": float(np.mean(valid)),
     }
+    nis_log = None
+    if (lower_arr is not None) and (upper_arr is not None):
+        lower_shift = lower_arr + c_val
+        upper_shift = upper_arr + c_val
+        valid_bounds = (
+            valid
+            & np.isfinite(lower_shift)
+            & np.isfinite(upper_shift)
+            & (lower_shift > 0)
+            & (upper_shift > 0)
+        )
+        if np.any(valid_bounds):
+            nis_log = compute_nis(
+                np.log(y_true_shift[valid_bounds]),
+                lower=np.log(lower_shift[valid_bounds]),
+                upper=np.log(upper_shift[valid_bounds]),
+                alpha=0.05,
+            )
+    elif out_std is not None:
+        # Delta-method approximation: sigma_log ≈ sigma_y / (y_hat + C)
+        denom = y_pred_shift
+        valid_std = valid & np.isfinite(out_std) & (out_std >= 0) & (denom > 0)
+        if np.any(valid_std):
+            log_sigma = out_std[valid_std] / denom[valid_std]
+            nis_log = compute_nis(
+                np.log(y_true_shift[valid_std]),
+                y_hat=np.log(y_pred_shift[valid_std]),
+                output_std=log_sigma,
+                alpha=0.05,
+            )
+    if nis_log is not None:
+        log_metrics["NIS_log"] = float(nis_log["NIS"])
+        log_metrics["NIS_width_log"] = float(nis_log["NIS_width"])
+        log_metrics["NIS_outside_log"] = float(nis_log["NIS_outside"])
+    else:
+        log_metrics["NIS_log"] = None
+        log_metrics["NIS_width_log"] = None
+        log_metrics["NIS_outside_log"] = None
+    return log_metrics
 
 
 def train_eval_gp(
@@ -122,80 +267,77 @@ def train_eval_gp(
     y_test,
     num_epochs: int,
     seed: int,
-    num_runs: int,
+    num_inits: int,
     lr: float,
-    convergence_patience: int=10,
-    min_epochs: int=0,
-    min_loss_change: float=1e-7,
+    convergence_patience: int = 10,
+    min_epochs: int = 0,
+    min_loss_change: float = 1e-7,
     optimizer_class=None,
-    optimizer_kwargs: dict = None,
+    optimizer_kwargs: dict | None = None,
     initializer_class=None,
-    initializer_kwargs: dict = None,
+    initializer_kwargs: dict | None = None,
     device: str = "cpu",
     # dtype: torch.dtype = torch.float64,
-    y_train_mean: torch.Tensor | None = None,
-    y_train_std: torch.Tensor | None = None,
+    y_train_mean: torch.Tensor | dict | None = None,
+    y_train_std: torch.Tensor | dict | None = None,
     standardize_y_log_scale: bool = False,
-    log_scale_C: float = None,  # C used in log(y + C) transformation. If None, will use LogScaler's C from fit.
-    y_train_min: torch.Tensor | dict | None = None,  # Unused, kept for backward compatibility
+    log_scale_C: float | None = None,  # C used in log(y + C) transformation. If None, will use LogScaler's C from fit.
+    log_y_point_inverse: str = "median",  # "median": exp(mu)-C; "mean": exp(mu+sigma^2/2)-C in raw log space
     source_cols: int | list[int] | None = None,
     trainer_info: bool = False,
-    # Prescreening parameters
-    enable_prescreening: bool = False,
-    num_test: int | None = None,  # Total candidates to evaluate (default: num_runs * input_dim)
-    prescreening_warmup_epochs: int = 0,
-    prescreening_warmup_lr: float = 0.01,
-    prescreening_optimizer_class=None,  # Optimizer for warmup (default: torch.optim.Adam)
-    recorder=None,  # PrescreeningRecorder instance
     cholesky_jitter: float = 1e-6,  # Jitter for Cholesky; use larger (e.g. 1e-5, 1e-4) for large n
+    fold_index: int | None = None,  # Fold index for multi-fold experiments (sets fold_index on callbacks)
+    callbacks: list | None = None,  # Optional list of callbacks (if None, creates default callbacks)
+    callback_save_path: str | None = None,  # Base path for saving callback data (if None, uses default paths)
+    log_lbfgs_inner: bool = True,  # Enabled by default: log/store per-iteration loss inside LBFGSScipy step(); metrics via callbacks
+    lbfgs_inner_extra_metrics: list | None = None,  # Optional [(name, fn(context)->float), ...] for LBFGSInnerMetricsCallbackV3
+    n_jobs: int | None = None,  # Joblib worker count for multi-init training. None=trainer default; 1=force series.
+    inner_max_num_threads: int | None = 1,  # BLAS threads cap per worker AND in main during eval when set.
 ):
     """
     Train a GP model and evaluate metrics on the provided test set.
 
-    If y_train_mean/std are provided, predictions and uncertainty are denormalized
-    before metrics are computed.
-
-    If source_cols is provided, per-source metrics will be computed and added to the
-    main metrics dictionary with source-specific prefixes.
-
-    Args:
-        source_cols: Column index(es) for source identification. If provided, per-source
-                    metrics will be computed and added to the main metrics.
-                    - If int: single source column (data not encoded)
-                    - If list with 1 element: converted to int (data not encoded)
-                    - If list with multiple elements: multiple source columns (one-hot encoded data)
-
-    Returns:
-        gp_metric: dict of computed metrics (includes Total_Time, Training_Time, Prediction_Time)
-                  and per-source metrics if source_cols is provided
-        y_pred: numpy array of predictions (denormalized if mean/std provided)
-        output_std: numpy array of predictive std (denormalized if mean/std provided)
+    This v3 variant:
+    - Uses GPTrainerV3 (v2 trainer core + original aggregation of callbacks).
+    - Supports advanced optimization losses and per-iteration L-BFGS metrics.
+    - Preserves v1 callback/aggregation behaviour (parameter/jitter tracking).
     """
-    # Set optimizer kwargs based on optimizer type
-    # optimizer_kwargs = None
+    # Set optimizer kwargs based on optimizer type (Adam convenience)
     if optimizer_class is torch.optim.Adam or (
         isinstance(optimizer_class, type) and issubclass(optimizer_class, torch.optim.Adam)
     ):
         optimizer_kwargs = {"lr": lr if lr is not None else 0.01}
-    # elif optimizer_class == LBFGSScipy or (
-    #     hasattr(optimizer_class, "__name__") and optimizer_class.__name__ == "LBFGSScipy"
-    # ):
-    #     optimizer_kwargs = {
-    #         "max_iter": 2000,
-    #         "max_eval": 5000,
-    #         "tolerance_grad": 1e-5,
-    #         "tolerance_change": 1e-9,
-    #         "history_size": 10,
-    #     }
 
-    callbacks = [FinalParameterStorageCallback(save_file=None, verbose=False)]
+    # Use provided callbacks; if none are supplied, disable callbacks by default.
+    if callbacks is None:
+        callbacks = [FinalParameterStorageCallback(save_file=None, verbose=False)]
+
+
+        # callbacks = 
+            # # Jitter tracking across runs/epochs
+            # callbacks.append(
+            #     JitterTrackingCallback(
+            #         save_file=jitter_save_file,
+            #         verbose=True,
+            #     )
+            # )
+
+
+    # Set fold_index on callbacks that support it
+    if fold_index is not None:
+        for cb in callbacks:
+            if hasattr(cb, "set_fold_index"):
+                cb.set_fold_index(fold_index)
 
     trainer = GPTrainer(
         model=model,
         num_epochs=num_epochs,
         seed=seed,
-        num_runs=num_runs,
-        stop_conditions=[ConvergencePatienceStopCondition(patience=convergence_patience), MinLossChangeStopCondition(min_loss_change=min_loss_change)],
+        num_inits=num_inits,
+        stop_conditions=[
+            ConvergencePatienceStopCondition(patience=convergence_patience),
+            MinLossChangeStopCondition(min_loss_change=min_loss_change),
+        ],
         min_epochs=min_epochs,
         callbacks=callbacks,
         optimizer_class=optimizer_class,
@@ -204,49 +346,119 @@ def train_eval_gp(
         initializer_class=initializer_class,
         initializer_kwargs=initializer_kwargs,
         cholesky_jitter=cholesky_jitter,
-        enable_prescreening=enable_prescreening,
-        num_test=num_test,
-        prescreening_warmup_epochs=prescreening_warmup_epochs,
-        prescreening_warmup_lr=prescreening_warmup_lr,
-        prescreening_optimizer_class=prescreening_optimizer_class,
-        recorder=recorder,
+        n_jobs=n_jobs,
+        inner_max_num_threads=inner_max_num_threads,
     )
 
-    # Measure training time
-    t_train_start = time.time()
+    # Training (use trainer's full_train_time for training_time when available)
     train_results = trainer.train()
-    training_time = time.time() - t_train_start
+    training_time = float(getattr(trainer, "full_train_time", 0.0) or 0.0)
 
     # Measure prediction time
     t_pred_start = time.time()
-    y_pred, _, _, output_std = evaluate_gp_model(model, X_test)
+    # Always evaluate on the same device as the model's training inputs / parameters
+    if hasattr(model, "train_inputs") and model.train_inputs:
+        eval_device = model.train_inputs[0].device
+    else:
+        eval_device = next(model.parameters()).device
+    if X_test.device != eval_device:
+        X_test = X_test.to(eval_device)
+
+    # After parallel (loky) training, re-apply main-process settings before prediction
+    # so ill-conditioned GP solves match series / worker numerics.
+    try:
+        torch.manual_seed(int(seed) if seed is not None else 0)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        torch.use_deterministic_algorithms(True, warn_only=True)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        get_settings().apply()
+    except Exception:  # noqa: BLE001
+        pass
+
+    eval_blas_ctx = nullcontext()
+    if inner_max_num_threads is not None and str(device).lower().startswith("cpu"):
+        try:
+            from threadpoolctl import threadpool_limits
+
+            eval_blas_ctx = threadpool_limits(limits=inner_max_num_threads)
+        except ImportError:
+            pass
+
+    _prev_torch_threads = torch.get_num_threads()
+    _prev_torch_interop = None
+    try:
+        _prev_torch_interop = torch.get_num_interop_threads()
+    except Exception:  # noqa: BLE001
+        _prev_torch_interop = None
+
+    with eval_blas_ctx:
+        if inner_max_num_threads is not None and str(device).lower().startswith("cpu"):
+            try:
+                nt = max(1, int(inner_max_num_threads))
+                torch.set_num_threads(nt)
+                try:
+                    torch.set_num_interop_threads(1)
+                except Exception:  # noqa: BLE001
+                    pass
+            except Exception:  # noqa: BLE001
+                pass
+
+        _print_train_eval_gp_eval_parity(model, tag="before_predict")
+
+        try:
+            y_pred, _, _, output_std = evaluate_gp_model(model, X_test)
+        finally:
+            try:
+                torch.set_num_threads(_prev_torch_threads)
+            except Exception:  # noqa: BLE001
+                pass
+            if _prev_torch_interop is not None:
+                try:
+                    torch.set_num_interop_threads(_prev_torch_interop)
+                except Exception:  # noqa: BLE001
+                    pass
+
     prediction_time = time.time() - t_pred_start
 
     # Check for NaN/Inf in model outputs before denormalization
     if torch.any(~torch.isfinite(y_pred)):
         nan_count = torch.sum(~torch.isfinite(y_pred)).item()
         import warnings
+
         warnings.warn(
             f"train_eval_gp: Model predictions contain {nan_count} NaN/Inf values before denormalization. "
             "This may indicate model training issues. Replacing with mean prediction (0 in standardized space)."
         )
-        # Replace NaN/Inf with 0 (mean in standardized space) - this will be handled correctly in inverse transform
         y_pred = torch.where(torch.isfinite(y_pred), y_pred, torch.zeros_like(y_pred))
-    
+
     if torch.any(~torch.isfinite(output_std)):
         nan_count = torch.sum(~torch.isfinite(output_std)).item()
         import warnings
+
         warnings.warn(
             f"train_eval_gp: Model output_std contains {nan_count} NaN/Inf values before denormalization. "
             "This may indicate model training issues."
         )
-        # Replace NaN/Inf with small positive value
         output_std = torch.where(torch.isfinite(output_std), output_std, torch.ones_like(output_std) * 1e-6)
 
+    _validate_log_y_point_inverse(log_y_point_inverse)
+    _require_finite_log_scale_c(
+        standardize_y_log_scale,
+        log_scale_C,
+        y_train_mean,
+        y_train_std,
+        caller="train_eval_gp",
+    )
+
+    # Denormalization logic (unchanged from v1/v2)
+    log_mu_for_metrics = None
+    log_sigma_for_metrics = None
     if y_train_mean is not None and y_train_std is not None:
-        # Check if y_train_mean/std are dictionaries (method 2: per-source standardization)
         if isinstance(y_train_mean, dict) and isinstance(y_train_std, dict):
-            # Extract source indices from X_test for per-source denormalization
             if source_cols is not None:
                 is_onehot = isinstance(source_cols, (list, tuple)) and len(source_cols) > 1
                 if is_onehot:
@@ -256,16 +468,16 @@ def train_eval_gp(
                     source_col = source_cols[0] if isinstance(source_cols, (list, tuple)) else source_cols
                     source_indices_test = X_test[:, source_col].long()
 
-                # Denormalize per source
                 y_pred_denorm = torch.zeros_like(y_pred)
                 output_std_denorm = torch.zeros_like(output_std)
+                log_mu_denorm = torch.zeros_like(y_pred) if standardize_y_log_scale else None
+                log_sigma_denorm = torch.zeros_like(output_std) if standardize_y_log_scale else None
                 unique_sources = torch.unique(source_indices_test)
 
                 for source_idx in unique_sources:
                     source_mask = source_indices_test == source_idx
                     source_key = source_idx.item()
 
-                    # Use the mean/std for this source, or fallback to source 0 or first available
                     if source_key in y_train_mean:
                         mean = y_train_mean[source_key]
                         std = y_train_std[source_key]
@@ -276,195 +488,328 @@ def train_eval_gp(
                         first_key = list(y_train_mean.keys())[0]
                         mean = y_train_mean[first_key]
                         std = y_train_std[first_key]
-                    
-                    # Ensure mean/std are properly squeezed to avoid broadcasting issues
+
                     if isinstance(mean, torch.Tensor):
                         mean = mean.squeeze()
                     if isinstance(std, torch.Tensor):
                         std = std.squeeze()
 
                     if standardize_y_log_scale:
-                        # Unstandardize in log space
                         log_y_pred = (y_pred[source_mask] * std) + mean
                         log_y_std = output_std[source_mask] * std
-                        # Clamp to prevent overflow in exp (exp(700) ≈ inf for float32)
                         max_log_val = 700.0 if log_y_pred.dtype == torch.float32 else 1000.0
                         log_y_pred = torch.clamp(log_y_pred, min=-max_log_val, max=max_log_val)
-                        # Convert from log space to original space: exp(log_data) - C
-                        # This is the inverse of log(y + C)
                         exp_log_y = torch.exp(log_y_pred)
-                        y_pred_denorm[source_mask] = exp_log_y - log_scale_C
-                        # Use delta method: std_original ≈ exp(log_mean) * log_std
+                        y_pred_denorm[source_mask] = _torch_log_y_point_original(
+                            exp_log_y, log_y_std, float(log_scale_C), log_y_point_inverse
+                        )
                         output_std_denorm[source_mask] = exp_log_y * log_y_std
+                        log_mu_denorm[source_mask] = log_y_pred
+                        log_sigma_denorm[source_mask] = log_y_std
                     else:
                         y_pred_denorm[source_mask] = (y_pred[source_mask] * std) + mean
                         output_std_denorm[source_mask] = output_std[source_mask] * std
 
                 y_pred = y_pred_denorm
                 output_std = output_std_denorm
+                if standardize_y_log_scale:
+                    log_mu_for_metrics = log_mu_denorm
+                    log_sigma_for_metrics = log_sigma_denorm
             else:
-                # If source_cols not provided but we have dicts, use first available source
                 first_key = list(y_train_mean.keys())[0]
                 mean = y_train_mean[first_key]
                 std = y_train_std[first_key]
-                
-                # Ensure mean/std are properly squeezed to avoid broadcasting issues
+
                 if isinstance(mean, torch.Tensor):
                     mean = mean.squeeze()
                 if isinstance(std, torch.Tensor):
                     std = std.squeeze()
                 if standardize_y_log_scale:
-                    # Unstandardize in log space
                     log_y_pred = (y_pred * std) + mean
                     log_y_std = output_std * std
-                    # Clamp to prevent overflow in exp (exp(700) ≈ inf for float32)
                     max_log_val = 700.0 if log_y_pred.dtype == torch.float32 else 1000.0
                     log_y_pred = torch.clamp(log_y_pred, min=-max_log_val, max=max_log_val)
-                    # Convert from log space to original space: exp(log_data) - C
-                    # This is the inverse of log(y + C)
                     exp_log_y = torch.exp(log_y_pred)
-                    y_pred = exp_log_y - log_scale_C
-                    # Use delta method: std_original ≈ exp(log_mean) * log_std
+                    y_pred = _torch_log_y_point_original(
+                        exp_log_y, log_y_std, float(log_scale_C), log_y_point_inverse
+                    )
                     output_std = exp_log_y * log_y_std
+                    log_mu_for_metrics = log_y_pred
+                    log_sigma_for_metrics = log_y_std
                 else:
                     y_pred = (y_pred * std) + mean
                     output_std = output_std * std
-                    print(f"y_pred after denorm (normal, first 5): {y_pred[:5].squeeze().tolist()}")
-                    print(f"y_pred after denorm (normal, last 5): {y_pred[-5:].squeeze().tolist()}")
         else:
-            # Single mean/std for all data (methods 0 and 1)
-            # Ensure mean/std are properly squeezed to avoid broadcasting issues
             mean_val = y_train_mean.squeeze() if isinstance(y_train_mean, torch.Tensor) else y_train_mean
             std_val = y_train_std.squeeze() if isinstance(y_train_std, torch.Tensor) else y_train_std
-            
+
             if standardize_y_log_scale:
-                # Unstandardize in log space
                 log_y_pred = (y_pred * std_val) + mean_val
                 log_y_std = output_std * std_val
-                # Clamp to prevent overflow in exp (exp(700) ≈ inf for float32)
                 max_log_val = 700.0 if log_y_pred.dtype == torch.float32 else 1000.0
                 log_y_pred = torch.clamp(log_y_pred, min=-max_log_val, max=max_log_val)
-                # Convert from log space to original space: exp(log_data) - C
-                # This is the inverse of log(y + C)
                 exp_log_y = torch.exp(log_y_pred)
-                y_pred = exp_log_y - log_scale_C
-                # Use delta method: std_original ≈ exp(log_mean) * log_std
+                y_pred = _torch_log_y_point_original(
+                    exp_log_y, log_y_std, float(log_scale_C), log_y_point_inverse
+                )
                 output_std = exp_log_y * log_y_std
-                print(f"y_pred after denorm (single, first 5): {y_pred[:5].squeeze().tolist()}")
-                print(f"y_pred after denorm (single, last 5): {y_pred[-5:].squeeze().tolist()}")
+                log_mu_for_metrics = log_y_pred
+                log_sigma_for_metrics = log_y_std
             else:
                 y_pred = (y_pred * std_val) + mean_val
                 output_std = output_std * std_val
 
     y_pred_np = y_pred.detach().cpu().numpy().reshape(-1)
     output_std_np = output_std.detach().cpu().numpy().reshape(-1)
-    
+    log_mu_np = (
+        log_mu_for_metrics.detach().cpu().numpy().reshape(-1)
+        if isinstance(log_mu_for_metrics, torch.Tensor)
+        else None
+    )
+    log_sigma_np = (
+        log_sigma_for_metrics.detach().cpu().numpy().reshape(-1)
+        if isinstance(log_sigma_for_metrics, torch.Tensor)
+        else None
+    )
+
+    if standardize_y_log_scale and np.any(~np.isfinite(y_pred_np)):
+        n_bad = int(np.sum(~np.isfinite(y_pred_np)))
+        warnings.warn(
+            f"train_eval_gp: {n_bad} non-finite values in y_pred after log-scale denorm "
+            "(before NaN replacement).",
+            stacklevel=2,
+        )
+
     # Check for NaN/Inf values and replace with reasonable defaults
     if np.any(~np.isfinite(y_pred_np)):
         nan_mask = ~np.isfinite(y_pred_np)
         if standardize_y_log_scale:
-            # For log-scale, use median of valid predictions or fallback to exp(log_mean) - epsilon
             valid_preds = y_pred_np[np.isfinite(y_pred_np)]
             if len(valid_preds) > 0:
                 replacement = np.median(valid_preds)
             else:
-            # Fallback: use exp(log_mean) - epsilon (inverse of log(y + epsilon))
                 if y_train_mean is not None:
                     if isinstance(y_train_mean, dict):
                         log_mean_val = list(y_train_mean.values())[0]
+                        log_std_val = list(y_train_std.values())[0]
                     else:
                         log_mean_val = y_train_mean
+                        log_std_val = y_train_std
                     if isinstance(log_mean_val, torch.Tensor):
-                        log_mean_val = log_mean_val.item() if log_mean_val.numel() == 1 else log_mean_val.cpu().numpy()
-                    replacement = np.exp(float(log_mean_val)) - log_scale_C
+                        log_mean_val = (
+                            log_mean_val.item()
+                            if log_mean_val.numel() == 1
+                            else log_mean_val.cpu().numpy()
+                        )
+                    if isinstance(log_std_val, torch.Tensor):
+                        log_std_val = (
+                            log_std_val.item()
+                            if log_std_val.numel() == 1
+                            else log_std_val.cpu().numpy()
+                        )
+                    mu_f = float(log_mean_val)
+                    if log_y_point_inverse == "mean":
+                        sig_f = float(log_std_val)
+                        replacement = float(
+                            np.exp(mu_f + 0.5 * sig_f * sig_f) - float(log_scale_C)
+                        )
+                    else:
+                        replacement = float(np.exp(mu_f) - float(log_scale_C))
                 else:
                     replacement = 0.0
             y_pred_np[nan_mask] = replacement
         else:
-            # For standard scale, use median of valid predictions
             valid_preds = y_pred_np[np.isfinite(y_pred_np)]
             replacement = np.median(valid_preds) if len(valid_preds) > 0 else 0.0
             y_pred_np[nan_mask] = replacement
-    
+
     if np.any(~np.isfinite(output_std_np)):
         nan_mask = ~np.isfinite(output_std_np)
         valid_std = output_std_np[np.isfinite(output_std_np)]
         replacement = np.median(valid_std) if len(valid_std) > 0 else 1.0
         output_std_np[nan_mask] = replacement
+    if log_mu_np is not None:
+        if log_mu_np.shape != y_pred_np.shape:
+            raise ValueError(
+                f"train_eval_gp: log_mu shape mismatch, got {log_mu_np.shape} vs {y_pred_np.shape}."
+            )
+        bad_mu = ~np.isfinite(log_mu_np)
+        if np.any(bad_mu):
+            valid_mu = log_mu_np[np.isfinite(log_mu_np)]
+            mu_repl = np.median(valid_mu) if len(valid_mu) > 0 else 0.0
+            log_mu_np[bad_mu] = mu_repl
+    if log_sigma_np is not None:
+        if log_sigma_np.shape != y_pred_np.shape:
+            raise ValueError(
+                f"train_eval_gp: log_sigma shape mismatch, got {log_sigma_np.shape} vs {y_pred_np.shape}."
+            )
+        bad_sigma = ~np.isfinite(log_sigma_np)
+        if np.any(bad_sigma):
+            valid_sigma = log_sigma_np[np.isfinite(log_sigma_np)]
+            sigma_repl = np.median(valid_sigma) if len(valid_sigma) > 0 else 0.0
+            log_sigma_np[bad_sigma] = sigma_repl
+        log_sigma_np = np.maximum(log_sigma_np, 0.0)
+
+    y_true_flat = (
+        y_test.detach().cpu().numpy().reshape(-1)
+        if isinstance(y_test, torch.Tensor)
+        else np.asarray(y_test).reshape(-1)
+    )
+    if y_true_flat.shape[0] != y_pred_np.shape[0]:
+        raise ValueError(
+            "train_eval_gp: y_test and predictions length mismatch — "
+            f"len(y_test)={y_true_flat.shape[0]}, len(y_pred)={y_pred_np.shape[0]}. "
+            "Expected one prediction per row of X_test (same order as y_test)."
+        )
 
     gp_metric = compute_metrics(
-        y_test, y_pred_np, output_std_np, training_time=training_time, prediction_time=prediction_time
+        y_test,
+        y_pred_np,
+        output_std_np,
+        training_time=training_time,
+        prediction_time=prediction_time,
+        log_mu=log_mu_np,
+        log_sigma=log_sigma_np,
+        log_scale_C=log_scale_C,
+        use_log_quantile_nis=(
+            standardize_y_log_scale
+            and (log_mu_np is not None)
+            and (log_sigma_np is not None)
+            and (log_scale_C is not None)
+        ),
     )
+    if (
+        standardize_y_log_scale
+        and y_train_mean is not None
+        and y_train_std is not None
+        and log_scale_C is not None
+    ):
+        lower_original = None
+        upper_original = None
+        if (log_mu_np is not None) and (log_sigma_np is not None):
+            lower_original, upper_original = compute_lognormal_interval_bounds(
+                log_mu_np,
+                log_sigma_np,
+                float(log_scale_C),
+                alpha=0.05,
+            )
+        gp_metric.update(
+            _compute_log_space_metrics(
+                y_test,
+                y_pred_np,
+                float(log_scale_C),
+                output_std_original=output_std_np,
+                lower_original=lower_original,
+                upper_original=upper_original,
+            )
+        )
+    # When trainer provides timing breakdown: report exactly Total_Time, Full_Train_Time, Train_Time, Log_Time, Prediction_Time at top (no duplicates)
+    if (
+        hasattr(trainer, "full_train_time")
+        and trainer.full_train_time is not None
+        and hasattr(trainer, "train_time")
+        and trainer.train_time is not None
+        and hasattr(trainer, "log_time")
+        and trainer.log_time is not None
+    ):
+        _time_keys = ("Total_Time", "Full_Train_Time", "Train_Time", "Log_Time", "Prediction_Time")
+        _skip = ("Total_Time", "Training_Time", "Prediction_Time")
+        new_metric = {
+            "Total_Time": gp_metric["Total_Time"],
+            "Full_Train_Time": float(trainer.full_train_time),
+            "Train_Time": float(trainer.train_time),
+            "Log_Time": float(trainer.log_time),
+            "Prediction_Time": gp_metric["Prediction_Time"],
+        }
+        for k, v in gp_metric.items():
+            if k not in _skip:
+                new_metric[k] = v
+        gp_metric = new_metric
 
     # Extract noise and noise_std (will be added in correct order later)
     noise_std = None
     noise_std_original_scale = None
     try:
-        # Get noise (variance) from likelihood - this is already transformed (10^raw_noise)
-        noise_variance = model.likelihood.noise.detach().cpu()
-        # Compute noise std = sqrt(noise)
+        nc = model.likelihood.noise_covar
+        tx = model.train_inputs[0]
+        if type(nc).__name__ == "LogScaleMLPNoise":
+            noise_variance = nc.variance_at(tx).mean().detach().cpu()
+        else:
+            noise_variance = model.likelihood.noise.detach().cpu()
         noise_std = np.sqrt(noise_variance)
 
-        # Convert to original output scale if y was standardized
         if y_train_std is not None:
             if isinstance(y_train_std, dict):
-                # For per-source std, use first available or source 0
                 if 0 in y_train_std:
                     std_to_use = y_train_std[0]
-                    mean_to_use = y_train_mean[0] if isinstance(y_train_mean, dict) and 0 in y_train_mean else None
+                    mean_to_use = (
+                        y_train_mean[0]
+                        if isinstance(y_train_mean, dict) and 0 in y_train_mean
+                        else None
+                    )
                 else:
                     std_to_use = list(y_train_std.values())[0]
-                    mean_to_use = list(y_train_mean.values())[0] if isinstance(y_train_mean, dict) else None
+                    mean_to_use = (
+                        list(y_train_mean.values())[0]
+                        if isinstance(y_train_mean, dict)
+                        else None
+                    )
             else:
                 std_to_use = y_train_std
                 mean_to_use = y_train_mean
-            
+
             if standardize_y_log_scale:
-                # For log-scale, noise_std is in log-standardized space
-                # Convert it to original scale: noise_std_original ≈ exp(log_mean) * noise_std_log
                 if mean_to_use is not None:
-                    # Convert to tensors/numpy as needed
                     if isinstance(mean_to_use, torch.Tensor):
-                        log_mean = mean_to_use.item() if mean_to_use.numel() == 1 else mean_to_use.cpu().numpy()
+                        log_mean = (
+                            mean_to_use.item()
+                            if mean_to_use.numel() == 1
+                            else mean_to_use.cpu().numpy()
+                        )
                     else:
                         log_mean = float(mean_to_use) if np.isscalar(mean_to_use) else mean_to_use
-                    
+
                     if isinstance(std_to_use, torch.Tensor):
-                        log_std = std_to_use.item() if std_to_use.numel() == 1 else std_to_use.cpu().numpy()
+                        log_std = (
+                            std_to_use.item()
+                            if std_to_use.numel() == 1
+                            else std_to_use.cpu().numpy()
+                        )
                     else:
                         log_std = float(std_to_use) if np.isscalar(std_to_use) else std_to_use
-                    
-                    # Unstandardize noise_std in log space, then convert to original space
+
                     log_noise_std = noise_std * log_std
-                    # Convert from log space to original space using delta method
                     noise_std_original_scale = np.exp(log_mean) * log_noise_std
                 else:
-                    # Fallback: just use std conversion (less accurate)
                     if isinstance(std_to_use, torch.Tensor):
-                        std_val = std_to_use.item() if std_to_use.numel() == 1 else std_to_use.cpu().numpy()
+                        std_val = (
+                            std_to_use.item()
+                            if std_to_use.numel() == 1
+                            else std_to_use.cpu().numpy()
+                        )
                     else:
                         std_val = std_to_use
                     noise_std_original_scale = noise_std * std_val
             else:
                 if isinstance(std_to_use, torch.Tensor):
-                    std_val = std_to_use.item() if std_to_use.numel() == 1 else std_to_use.cpu().numpy()
+                    std_val = (
+                        std_to_use.item()
+                        if std_to_use.numel() == 1
+                        else std_to_use.cpu().numpy()
+                    )
                 else:
                     std_val = std_to_use
                 noise_std_original_scale = noise_std * std_val
         else:
             noise_std_original_scale = noise_std
     except Exception as e:
-        # If extraction fails, don't break the function
         import logging
 
         logging.warning(f"Could not extract noise std: {e}")
 
-    # Always extract directly from the model after training (the best model is already loaded)
-    # This is more reliable than relying on callbacks, especially with multi-run training
-    # where callbacks are deep-copied and JSON files get overwritten
+    # Always extract directly from the model after training (best model already loaded)
     best_model_metrics = None
 
-    # Find best run from train_results to get metadata
     best_run = (
         min(
             [r for r in train_results if r.get("loss") is not None],
@@ -475,32 +820,52 @@ def train_eval_gp(
         else None
     )
 
-    # Determine num_epochs from trainer
     num_epochs_actual = trainer.num_epochs if hasattr(trainer, "num_epochs") else None
+    best_epoch_value = None
+    jitter_value = None
+    jitter_max_value = None
+
+    if best_run is not None:
+        callback_data = best_run.get("callback_data", {}) or {}
+        for cb_key, stored_params_list in callback_data.items():
+            if "FinalParameterStorage" in cb_key or "ParameterStorage" in cb_key:
+                if stored_params_list:
+                    import math
+
+                    def _loss_or_inf(rec):
+                        val = rec.get("best_loss")
+                        return float(val) if val is not None else math.inf
+
+                    record = min(stored_params_list, key=_loss_or_inf)
+                    best_epoch_value = record.get("best_epoch", best_epoch_value)
+                    jitter_value = record.get("jitter", jitter_value)
+                    jitter_max_value = record.get("jitter_max", jitter_max_value)
+                    if num_epochs_actual is None:
+                        num_epochs_actual = record.get("num_epochs", num_epochs_actual)
+                break
 
     if hasattr(trainer, "cholesky_jitter"):
-        # Extract metrics directly from the loaded best model (which is already in model after training)
-        # Create a temporary callback instance to use the extraction method
         temp_callback = FinalParameterStorageCallback(verbose=False)
         extracted_params = temp_callback._extract_final_parameters(
             model,
-            epoch=best_run.get("run_index", 0) if best_run else 0,  # Use run_index as proxy for epoch
+            epoch=0,
             best_loss=best_run.get("loss") if best_run else None,
             cholesky_jitter=trainer.cholesky_jitter,
-            best_epoch=None,  # Not available from results
+            best_epoch=None,
+            jitter_max=None,
         )
         if extracted_params:
             lengthscales_extracted = extracted_params.get("lengthscales")
             cat_lengthscales_extracted = extracted_params.get("cat_lengthscales")
             source_lengthscales_extracted = extracted_params.get("source_lengthscales")
-            # Convert to expected format
             best_model_metrics = {
                 "num_epochs": num_epochs_actual
                 if num_epochs_actual is not None
                 else extracted_params.get("num_epochs"),
-                "best_epoch": extracted_params.get("best_epoch"),
+                "best_epoch": best_epoch_value,
                 "best_loss": best_run.get("loss") if best_run else extracted_params.get("best_loss"),
-                "jitter": extracted_params.get("jitter"),
+                "jitter": jitter_value if jitter_value is not None else extracted_params.get("jitter"),
+                "jitter_max": jitter_max_value,
                 "raw_noise": extracted_params.get("raw_noise"),
                 "outputscale": extracted_params.get("outputscale"),
                 "raw_power": extracted_params.get("raw_power"),
@@ -511,17 +876,15 @@ def train_eval_gp(
             }
 
     if best_model_metrics:
-        # Add metrics in desired order: jitter, raw_noise (all), noise (all), noise_std (all), outputscale
         gp_metric["jitter"] = best_model_metrics.get("jitter")
+        if best_model_metrics.get("jitter_max") is not None:
+            gp_metric["jitter_max"] = best_model_metrics.get("jitter_max")
 
-        # Helper to add array/scalar metrics
         def add_metric(name, value):
             if value is None:
                 return
-            # Convert to numpy if it's a tensor
             if hasattr(value, "numpy"):
                 value = value.numpy()
-            # Check if it's a single-element array
             if hasattr(value, "size") and value.size == 1:
                 gp_metric[name] = float(value.item() if hasattr(value, "item") else value.flat[0])
             elif hasattr(value, "__len__") and len(value) > 1:
@@ -530,103 +893,71 @@ def train_eval_gp(
             else:
                 gp_metric[name] = float(value)
 
-        # Extract and add raw_noise
         try:
             raw_noise = model.likelihood.raw_noise.detach().cpu()
-            add_metric("raw_noise", raw_noise.numpy().flatten() if raw_noise.numel() > 1 else raw_noise.item())
+            add_metric(
+                "raw_noise",
+                raw_noise.numpy().flatten() if raw_noise.numel() > 1 else raw_noise.item(),
+            )
         except Exception:
             add_metric("raw_noise", best_model_metrics.get("raw_noise"))
 
         add_metric("noise", noise_std)
         add_metric("noise_std", noise_std_original_scale)
         gp_metric["outputscale"] = best_model_metrics.get("outputscale")
-        
-        # Add power parameters (for PowerExponentialKernel)
+
         raw_power = best_model_metrics.get("raw_power")
         power = best_model_metrics.get("power")
         if raw_power is not None:
-            gp_metric["raw_power"] = float(raw_power) if isinstance(raw_power, (int, float)) else float(raw_power.item() if hasattr(raw_power, "item") else raw_power)
+            gp_metric["raw_power"] = (
+                float(raw_power)
+                if isinstance(raw_power, (int, float))
+                else float(raw_power.item() if hasattr(raw_power, "item") else raw_power)
+            )
         if power is not None:
-            gp_metric["power"] = float(power) if isinstance(power, (int, float)) else float(power.item() if hasattr(power, "item") else power)
+            gp_metric["power"] = (
+                float(power)
+                if isinstance(power, (int, float))
+                else float(power.item() if hasattr(power, "item") else power)
+            )
 
-        # Add other metrics
         gp_metric.update(
             {
                 "num_epochs": best_model_metrics.get("num_epochs"),
                 "best_epoch": best_model_metrics.get("best_epoch"),
             }
         )
-        # Add individual lengthscales as separate metrics
+
         lengthscales = best_model_metrics.get("lengthscales")
-        # Debug output
         if lengthscales is None:
-            print(
-                f"[DEBUG train_eval] lengthscales is None. best_model_metrics keys: {list(best_model_metrics.keys())}"
-            )
-            print(f"[DEBUG train_eval] best_model_metrics content: {best_model_metrics}")
+            pass
         elif isinstance(lengthscales, (list, tuple)):
-            print(
-                f"[DEBUG train_eval] Found {len(lengthscales)} cont_lengthscales: {lengthscales[:5]}..."
-                if len(lengthscales) > 5
-                else f"[DEBUG train_eval] Found {len(lengthscales)} cont_lengthscales: {lengthscales}"
-            )
             if len(lengthscales) > 0:
                 for i, ls_val in enumerate(lengthscales):
                     gp_metric[f"cont_lengthscale_{i}"] = ls_val
-            else:
-                # Empty list - this shouldn't happen but handle it
-                import logging
-
-                logging.warning("lengthscales is an empty list")
         else:
-            # Single value case (scalar)
-            print(f"[DEBUG train_eval] lengthscales is a scalar: {lengthscales}")
             gp_metric["cont_lengthscale_0"] = lengthscales
 
-        # Add individual cat_lengthscales as separate metrics
         cat_lengthscales = best_model_metrics.get("cat_lengthscales")
         if cat_lengthscales is not None:
             if isinstance(cat_lengthscales, (list, tuple)):
-                print(
-                    f"[DEBUG train_eval] Found {len(cat_lengthscales)} cat_lengthscales: {cat_lengthscales[:5]}..."
-                    if len(cat_lengthscales) > 5
-                    else f"[DEBUG train_eval] Found {len(cat_lengthscales)} cat_lengthscales: {cat_lengthscales}"
-                )
                 if len(cat_lengthscales) > 0:
                     for i, ls_val in enumerate(cat_lengthscales):
                         gp_metric[f"cat_lengthscale_{i}"] = ls_val
             else:
-                # Single value case (scalar)
-                print(f"[DEBUG train_eval] cat_lengthscales is a scalar: {cat_lengthscales}")
                 gp_metric["cat_lengthscale_0"] = cat_lengthscales
 
-        # Add individual source_lengthscales as separate metrics
         source_lengthscales = best_model_metrics.get("source_lengthscales")
         if source_lengthscales is not None:
             if isinstance(source_lengthscales, (list, tuple)):
-                print(
-                    (
-                        f"[DEBUG train_eval] Found {len(source_lengthscales)} "
-                        f"source_lengthscales: {source_lengthscales[:5]}..."
-                    )
-                    if len(source_lengthscales) > 5
-                    else (
-                        f"[DEBUG train_eval] Found {len(source_lengthscales)} "
-                        f"source_lengthscales: {source_lengthscales}"
-                    )
-                )
                 if len(source_lengthscales) > 0:
                     for i, ls_val in enumerate(source_lengthscales):
                         gp_metric[f"source_lengthscale_{i}"] = ls_val
             else:
-                # Single value case (scalar)
-                print(f"[DEBUG train_eval] source_lengthscales is a scalar: {source_lengthscales}")
                 gp_metric["source_lengthscale_0"] = source_lengthscales
     else:
-        print("[DEBUG train_eval] No best_model_metrics found at all!")
+        pass
 
-        # Still add noise metrics even if best_model_metrics is None
-        # Helper to add array/scalar metrics
         def add_metric(name, value):
             if value is None:
                 return
@@ -645,9 +976,8 @@ def train_eval_gp(
         add_metric("noise", noise_std)
         add_metric("noise_std", noise_std_original_scale)
 
-    # Compute per-source metrics if source_cols is provided
+    # Per-source metrics
     if isinstance(source_cols, int) or (isinstance(source_cols, (list, tuple)) and len(source_cols) > 0):
-        # Convert single-element list to integer for consistency
         if isinstance(source_cols, (list, tuple)) and len(source_cols) == 1:
             source_cols = source_cols[0]
 
@@ -661,15 +991,13 @@ def train_eval_gp(
             prediction_time=prediction_time,
         )
 
-        # Add per-source metrics directly to the main metrics dictionary
         for source_name, source_metrics in gp_per_source_metric["per_source"].items():
             for metric_name, metric_value in source_metrics.items():
                 gp_metric[f"{source_name}_{metric_name}"] = metric_value
 
-    # Add y_train_mean and y_train_std to metrics for this run
+    # Store y_train_mean/std used for this run
     if y_train_mean is not None and y_train_std is not None:
         if isinstance(y_train_mean, dict) and isinstance(y_train_std, dict):
-            # Method 2: per-source means/stds
             for source_key, mean_val in y_train_mean.items():
                 gp_metric[f"y_train_mean_source_{source_key}"] = float(
                     mean_val.item() if hasattr(mean_val, "item") else mean_val
@@ -679,42 +1007,86 @@ def train_eval_gp(
                     std_val.item() if hasattr(std_val, "item") else std_val
                 )
         else:
-            # Methods 0 and 1: single mean/std
-            # Handle tensors that may need squeezing (e.g., from LogScaler with keepdim=True)
             if hasattr(y_train_mean, "item"):
-                mean_val = y_train_mean.item() if y_train_mean.numel() == 1 else y_train_mean.squeeze().item()
+                mean_val = (
+                    y_train_mean.item()
+                    if y_train_mean.numel() == 1
+                    else y_train_mean.squeeze().item()
+                )
             else:
                 mean_val = y_train_mean
             if hasattr(y_train_std, "item"):
-                std_val = y_train_std.item() if y_train_std.numel() == 1 else y_train_std.squeeze().item()
+                std_val = (
+                    y_train_std.item()
+                    if y_train_std.numel() == 1
+                    else y_train_std.squeeze().item()
+                )
             else:
                 std_val = y_train_std
             gp_metric["y_train_mean"] = float(mean_val)
             gp_metric["y_train_std"] = float(std_val)
 
-    # Process trainer info if requested
+    # Trainer info structure (includes optional lbfgs_inner_metrics)
     gp_trainer_info = None
     if trainer_info:
-        # Collect stored parameters from all runs in train_results
-        all_stored_params = []
-        for result in train_results:
-            callback_data = result.get("callback_data", {})
-            # Look for FinalParameterStorageCallback data
-            for cb_key, stored_params_list in callback_data.items():
-                if "FinalParameterStorage" in cb_key or "ParameterStorage" in cb_key:
-                    all_stored_params.extend(stored_params_list)
-        
-        if all_stored_params:
-            gp_trainer_info = _process_trainer_info(all_stored_params, train_results, num_epochs)
-        else:
-            # Return empty structure if no parameters stored
-            gp_trainer_info = {
-                "runs": [],
-                "best_parameters": None,
-                "average_final_parameters": {},
-            }
+        from gpplus.training.trainer_analysis import build_stored_params_from_results, build_trainer_analysis_payload
+        all_stored_params = build_stored_params_from_results(train_results)
 
-    # Always return 4 values (gp_trainer_info will be None if trainer_info is False)
+        if all_stored_params:
+            gp_trainer_info = build_trainer_analysis_payload(all_stored_params, train_results, num_epochs)
+        else:
+            # Fallback when no callback data: extract from model and best run
+            best_run = (
+                min(
+                    [r for r in train_results if r.get("loss") is not None],
+                    key=lambda x: x.get("loss", float("inf")),
+                    default=None,
+                )
+                if train_results
+                else None
+            )
+            if best_run is not None and hasattr(trainer, "cholesky_jitter"):
+                temp_cb = FinalParameterStorageCallback(verbose=False)
+                extracted = temp_cb._extract_final_parameters(
+                    model,
+                    epoch=best_run.get("init_index", 0),
+                    best_loss=best_run.get("loss"),
+                    cholesky_jitter=trainer.cholesky_jitter,
+                    best_epoch=None,
+                )
+                if extracted:
+                    run_id = int(best_run.get("init_index", 0)) + 1
+                    record = {
+                        "run": run_id,
+                        "num_epochs": extracted.get(
+                            "num_epochs",
+                            getattr(trainer, "num_epochs", None),
+                        ),
+                        "best_epoch": extracted.get("best_epoch"),
+                        "best_loss": best_run.get("loss"),
+                        "jitter": extracted.get("jitter"),
+                        "initial": None,
+                        "final": extracted,
+                    }
+                    all_stored_params = [record]
+                    gp_trainer_info = build_trainer_analysis_payload(all_stored_params, train_results, num_epochs)
+
+            if gp_trainer_info is None:
+                gp_trainer_info = {
+                    "inits": [],
+                    "best_parameters": None,
+                    "average_final_parameters": {},
+                }
+        # Add trainer timing to gp_trainer_info for JSON output
+        if gp_trainer_info is not None and hasattr(trainer, "full_train_time"):
+            if trainer.full_train_time is not None:
+                gp_trainer_info["full_train_time"] = float(trainer.full_train_time)
+            if trainer.train_time is not None:
+                gp_trainer_info["train_time"] = float(trainer.train_time)
+            if trainer.log_time is not None:
+                gp_trainer_info["log_time"] = float(trainer.log_time)
+
+    # Always return 4 values (gp_trainer_info may be None)
     return gp_metric, y_pred_np, output_std_np, gp_trainer_info
 
 
@@ -729,115 +1101,47 @@ def train_eval_PFN(
     regressor=None,
     y_train_mean=None,
     y_train_std=None,
-    standardize_y_log_scale:bool=False,
-    log_scale_C: float=None,  # C used in log(y + C) transformation. If None, will use LogScaler's C from fit.
+    standardize_y_log_scale: bool = False,
+    log_scale_C: float | None = None,  # C used in log(y + C) transformation. If None, will use LogScaler's C from fit.
+    log_y_point_inverse: str = "median",
     source_cols=None,
-    # use_iqr_std:bool=False,  # If True, use IQR approximation for std; if False, try mean_of_square method
 ):
     """
-    Train/evaluate TabPFN on provided split and return metrics, preds, std.
-
-    Supports both TabPFNRegressor (sklearn-like API) and VanillaDirectTabPFNRegressor (custom API).
-
-    If source_cols is provided, per-source metrics will be computed and added to the
-    main metrics dictionary with source-specific prefixes.
-
-    Args:
-        regressor: TabPFNRegressor or VanillaDirectTabPFNRegressor instance. 
-                  If None, creates a new VanillaDirectTabPFNRegressor.
-        source_cols: Column index(es) for source identification. If provided, per-source
-                    metrics will be computed and added to the main metrics.
-                    - If int: single source column (data not encoded)
-                    - If list with 1 element: converted to int (data not encoded)
-                    - If list with multiple elements: multiple source columns (one-hot encoded data)
-        use_iqr_std: If True (default), use IQR/1.35 approximation for uncertainty.
-                    If False, attempt to use mean_of_square method from full output.
-
-    Returns:
-        metrics: dict of computed metrics and per-source metrics if source_cols is provided
-        y_pred_test: numpy array of predictions
-        output_std_test: numpy array of predictive std
+    Thin wrapper around PFN evaluation identical to v1/v2.
+    Left unchanged so existing PFN experiments can swap to train_eval3
+    without behavioural changes on the PFN side.
     """
     import numpy as np
     import torch
 
-    # if regressor is None:
-    #     from gpplus.tabpfn.tabpfn_wrapper import VanillaDirectTabPFNRegressor
-    #     regressor = VanillaDirectTabPFNRegressor(device=amp_device)
-
-    # Check if regressor is standard TabPFNRegressor (sklearn-like API) or wrapper (custom API)
     try:
         from tabpfn import TabPFNRegressor as StandardTabPFNRegressor
+
         is_standard_tabpfn = isinstance(regressor, StandardTabPFNRegressor)
     except ImportError:
         is_standard_tabpfn = False
-    
+
     if is_standard_tabpfn:
-        # Standard TabPFN library - use sklearn-like API
-        # Convert to numpy arrays
         X_train_np = X_train.detach().cpu().numpy() if isinstance(X_train, torch.Tensor) else X_train
         X_test_np = X_test.detach().cpu().numpy() if isinstance(X_test, torch.Tensor) else X_test
         y_train_np = y_train.detach().cpu().numpy() if isinstance(y_train, torch.Tensor) else y_train
         y_test_np = y_test.detach().cpu().numpy() if isinstance(y_test, torch.Tensor) else y_test
-        
-        # Ensure 1D arrays for y
+
         if y_train_np.ndim > 1:
             y_train_np = y_train_np.ravel()
         if y_test_np.ndim > 1:
             y_test_np = y_test_np.ravel()
-        
-        # Measure fitting time (training time)
+
         t_fit_start = time.time()
-        # Fit if not already fitted
-        if not hasattr(regressor, 'feature_names_in_'):
+        if not hasattr(regressor, "feature_names_in_"):
             regressor.fit(X_train_np, y_train_np)
         training_time = time.time() - t_fit_start
-        
-        # Measure prediction time
+
         t_pred_start = time.time()
         y_var_tabpfn = None
         lower_95_test = None
         upper_95_test = None
-        
-        # Choose variance estimation method based on use_iqr_std
-        # if use_iqr_std:
-        #     # Use "main" output for IQR approximation
-        #     # Also request both:
-        #     #   - IQR quantiles (25%, 75%) for std via IQR/1.35
-        #     #   - 95% central interval bounds (2.5%, 97.5%)
-        #     # in the same call (no extra model forward pass).
-        #     predictions = regressor.predict(
-        #         X_test_np,
-        #         output_type="main",
-        #         quantiles=[0.025, 0.25, 0.75, 0.975],
-        #     )
-        #     t_predict_call = time.time() - t_pred_start
-        #     print(f"[TIMER] predict(output_type='main') took: {t_predict_call:.4f}s")
-            
-        #     y_pred_tabpfn = predictions.get("mean", predictions.get("median"))
-            
-        #     # IQR approximation method (default, better calibration in practice)
-        #     t_variance_start = time.time()
-        #     if "quantiles" in predictions:
-        #         quantiles = predictions["quantiles"]
-        #         if isinstance(quantiles, list) and len(quantiles) >= 4:
-        #             # Order we requested: [0.025, 0.25, 0.75, 0.975]
-        #             q025, q25, q75, q975 = quantiles
-        #             # Use interquartile range as proxy for std: IQR/1.35 ≈ std for normal dist
-        #             iqr = q75 - q25
-        #             y_var_tabpfn = (iqr / 1.35) ** 2
-        #     t_variance_iqr = time.time() - t_variance_start
-        #     print(f"[TIMER] IQR variance calculation took: {t_variance_iqr:.4f}s")
-        #     # Extract 95% bounds (2.5% and 97.5%) from the same call
-        #     if "quantiles" in predictions:
-        #         quantiles = predictions["quantiles"]
-        #         if isinstance(quantiles, list) and len(quantiles) >= 4:
-        #             q025, _, _, q975 = quantiles
-        #             lower_95_test, upper_95_test = q025, q975
-        # else:
-        # Use "full" output for exact variance from logits.
-        # Also request 95% central interval bounds (2.5%, 97.5%) in the same call
-        # (no extra model forward pass).
+
         full_predictions = regressor.predict(
             X_test_np,
             output_type="full",
@@ -845,12 +1149,11 @@ def train_eval_PFN(
         )
         t_predict_call = time.time() - t_pred_start
         print(f"[TIMER] predict(output_type='full') took: {t_predict_call:.4f}s")
-        
+
         if "logits" in full_predictions and "criterion" in full_predictions:
             logits = full_predictions["logits"]
             criterion = full_predictions["criterion"]
-            # Use criterion's variance method directly
-            if hasattr(criterion, 'variance'):
+            if hasattr(criterion, "variance"):
                 t_var_calc_start = time.time()
                 if isinstance(logits, np.ndarray):
                     logits = torch.tensor(logits)
@@ -858,17 +1161,13 @@ def train_eval_PFN(
                 y_var_tabpfn = variance.detach().cpu().numpy()
                 t_var_calc = time.time() - t_var_calc_start
                 print(f"[TIMER] criterion.variance(logits) calculation took: {t_var_calc:.4f}s")
-                # Use mean from full_predictions (already computed and denormalized)
                 y_pred_tabpfn = full_predictions.get("mean")
-                
-        # Extract 95% bounds (2.5% and 97.5%) from the same call
+
         if "quantiles" in full_predictions:
             q_95 = full_predictions["quantiles"]
             if isinstance(q_95, list) and len(q_95) >= 2:
-                # Order we requested: [0.025, 0.975]
                 lower_95_test, upper_95_test = q_95[0], q_95[1]
-                        
-        # Convert to numpy if needed
+
         if isinstance(y_pred_tabpfn, torch.Tensor):
             y_pred_tabpfn = y_pred_tabpfn.detach().cpu().numpy()
         if isinstance(y_var_tabpfn, torch.Tensor):
@@ -880,12 +1179,10 @@ def train_eval_PFN(
         elif not isinstance(y_var_tabpfn, np.ndarray):
             y_var_tabpfn = np.array(y_var_tabpfn)
         prediction_time = time.time() - t_pred_start
-        
+
         y_pred_test = y_pred_tabpfn
         output_std_test = np.sqrt(y_var_tabpfn)
     else:
-        # Wrapper API (VanillaDirectTabPFNRegressor) - use custom forward/predict_mean/predict_variance API
-        # Measure data preparation time (counted as training time)
         t_fit_start = time.time()
         X_all = np.concatenate([X_train, X_test], axis=0)
         Y_all = np.concatenate([y_train, np.zeros_like(y_test)], axis=0)
@@ -894,7 +1191,6 @@ def train_eval_PFN(
         Y_all = torch.tensor(Y_all, dtype=torch.float32).reshape(-1, 1, 1)
         training_time = time.time() - t_fit_start
 
-        # Measure inference time (prediction time)
         single_eval_pos = len(X_train)
         t_pred_start = time.time()
         with torch.amp.autocast(device_type=amp_device, dtype=amp_dtype):
@@ -902,15 +1198,13 @@ def train_eval_PFN(
             logits = out["standard"]
             y_mean = regressor.predict_mean(logits)
             y_var = regressor.predict_variance(logits)
-            
+
         y_pred = y_mean.detach().cpu().numpy().reshape(-1)
         output_std = (y_var.detach().cpu().numpy().reshape(-1)) ** 0.5
         prediction_time = time.time() - t_pred_start
 
-        # Metrics only on the test segment
         y_pred_test = y_pred[-len(y_test) :]
         output_std_test = output_std[-len(y_test) :]
-        # Also compute explicit 95% interval bounds (2.5% and 97.5%) from the bar distribution
         lower_95_test = None
         upper_95_test = None
         try:
@@ -919,17 +1213,20 @@ def train_eval_PFN(
             q975 = regressor.bardist_.icdf(logits_test_for_q, 0.975).detach().cpu().numpy().reshape(-1)
             lower_95_test, upper_95_test = q025, q975
         except Exception:
-            # Bounds are optional; ignore if bardist doesn't support icdf in this context
             lower_95_test, upper_95_test = None, None
 
-    # If train mean/std are provided (e.g., standardized training targets),
-    # denormalize predictions and std before computing metrics to compare on original scale
+    _validate_log_y_point_inverse(log_y_point_inverse)
+    _require_finite_log_scale_c(
+        standardize_y_log_scale,
+        log_scale_C,
+        y_train_mean,
+        y_train_std,
+        caller="train_eval_PFN",
+    )
+
     if (y_train_mean is not None) and (y_train_std is not None):
-        # Check if y_train_mean/std are dictionaries (method 2: per-source standardization)
         if isinstance(y_train_mean, dict) and isinstance(y_train_std, dict):
-            # Extract source indices from X_test for per-source denormalization
             if source_cols is not None:
-                # Convert X_test to tensor if it's numpy
                 if isinstance(X_test, np.ndarray):
                     X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
                 else:
@@ -943,10 +1240,8 @@ def train_eval_PFN(
                     source_col = source_cols[0] if isinstance(source_cols, (list, tuple)) else source_cols
                     source_indices_test = X_test_tensor[:, source_col].long()
 
-                # Convert to numpy for indexing
                 source_indices_test_np = source_indices_test.detach().cpu().numpy()
 
-                # Denormalize per source
                 y_pred_test_denorm = y_pred_test.copy()
                 output_std_test_denorm = output_std_test.copy()
                 lower_95_test_denorm = lower_95_test.copy() if lower_95_test is not None else None
@@ -957,7 +1252,6 @@ def train_eval_PFN(
                     source_mask = source_indices_test_np == source_idx
                     source_key = int(source_idx)
 
-                    # Use the mean/std for this source, or fallback to source 0 or first available
                     if source_key in y_train_mean:
                         mean = float(y_train_mean[source_key])
                         std = float(y_train_std[source_key])
@@ -970,17 +1264,14 @@ def train_eval_PFN(
                         std = float(y_train_std[first_key])
 
                     if standardize_y_log_scale:
-                        # Unstandardize in log space
                         log_y_pred = (y_pred_test[source_mask] * std) + mean
                         log_y_std = output_std_test[source_mask] * std
-                        # Clamp to prevent overflow in exp (exp(700) ≈ inf for float32)
                         max_log_val = 700.0
                         log_y_pred = np.clip(log_y_pred, -max_log_val, max_log_val)
-                        # Convert from log space to original space: exp(log_data) - C
-                        # This is the inverse of log(y + C)
                         exp_log_y = np.exp(log_y_pred)
-                        y_pred_test_denorm[source_mask] = exp_log_y - log_scale_C
-                        # Use delta method: std_original ≈ exp(log_mean) * log_std
+                        y_pred_test_denorm[source_mask] = _np_log_y_point_original(
+                            exp_log_y, log_y_std, float(log_scale_C), log_y_point_inverse
+                        )
                         output_std_test_denorm[source_mask] = exp_log_y * log_y_std
 
                         if lower_95_test_denorm is not None and upper_95_test_denorm is not None:
@@ -991,36 +1282,30 @@ def train_eval_PFN(
                             lower_95_test_denorm[source_mask] = np.exp(log_lower) - log_scale_C
                             upper_95_test_denorm[source_mask] = np.exp(log_upper) - log_scale_C
                     else:
-                        # Normal unstandardization (not log scale)
                         y_pred_test_denorm[source_mask] = (y_pred_test[source_mask] * std) + mean
                         output_std_test_denorm[source_mask] = output_std_test[source_mask] * std
                         if lower_95_test_denorm is not None and upper_95_test_denorm is not None:
                             lower_95_test_denorm[source_mask] = (lower_95_test[source_mask] * std) + mean
                             upper_95_test_denorm[source_mask] = (upper_95_test[source_mask] * std) + mean
 
-                # Update predictions and std after processing all sources
                 y_pred_test = y_pred_test_denorm
                 output_std_test = output_std_test_denorm
                 if lower_95_test_denorm is not None and upper_95_test_denorm is not None:
                     lower_95_test = lower_95_test_denorm
                     upper_95_test = upper_95_test_denorm
             else:
-                # If source_cols not provided but we have dicts, use first available source
                 first_key = list(y_train_mean.keys())[0]
                 mean = float(y_train_mean[first_key])
                 std = float(y_train_std[first_key])
                 if standardize_y_log_scale:
-                    # Unstandardize in log space
                     log_y_pred = (y_pred_test * std) + mean
                     log_y_std = output_std_test * std
-                    # Clamp to prevent overflow in exp (exp(700) ≈ inf for float32)
                     max_log_val = 700.0
                     log_y_pred = np.clip(log_y_pred, -max_log_val, max_log_val)
-                    # Convert from log space to original space: exp(log_data) - C
-                    # This is the inverse of log(y + C)
                     exp_log_y = np.exp(log_y_pred)
-                    y_pred_test = exp_log_y - log_scale_C
-                    # Use delta method: std_original ≈ exp(log_mean) * log_std
+                    y_pred_test = _np_log_y_point_original(
+                        exp_log_y, log_y_std, float(log_scale_C), log_y_point_inverse
+                    )
                     output_std_test = exp_log_y * log_y_std
                     if lower_95_test is not None and upper_95_test is not None:
                         log_lower = (lower_95_test * std) + mean
@@ -1036,19 +1321,15 @@ def train_eval_PFN(
                         lower_95_test = (lower_95_test * std) + mean
                         upper_95_test = (upper_95_test * std) + mean
         else:
-            # Single mean/std for all data (methods 0 and 1)
             if standardize_y_log_scale:
-                # Unstandardize in log space
                 log_y_pred = (y_pred_test * float(y_train_std)) + float(y_train_mean)
                 log_y_std = output_std_test * float(y_train_std)
-                # Clamp to prevent overflow in exp (exp(700) ≈ inf for float32)
                 max_log_val = 700.0
                 log_y_pred = np.clip(log_y_pred, -max_log_val, max_log_val)
-                # Convert from log space to original space: exp(log_data) - C
-                # This is the inverse of log(y + C)
                 exp_log_y = np.exp(log_y_pred)
-                y_pred_test = exp_log_y - log_scale_C
-                # Use delta method: std_original ≈ exp(log_mean) * log_std
+                y_pred_test = _np_log_y_point_original(
+                    exp_log_y, log_y_std, float(log_scale_C), log_y_point_inverse
+                )
                 output_std_test = exp_log_y * log_y_std
                 if lower_95_test is not None and upper_95_test is not None:
                     log_lower = (lower_95_test * float(y_train_std)) + float(y_train_mean)
@@ -1064,6 +1345,26 @@ def train_eval_PFN(
                     lower_95_test = (lower_95_test * float(y_train_std)) + float(y_train_mean)
                     upper_95_test = (upper_95_test * float(y_train_std)) + float(y_train_mean)
 
+    if standardize_y_log_scale and isinstance(y_pred_test, np.ndarray):
+        if np.any(~np.isfinite(y_pred_test)):
+            n_bad = int(np.sum(~np.isfinite(y_pred_test)))
+            warnings.warn(
+                f"train_eval_PFN: {n_bad} non-finite values in y_pred_test after log-scale denorm.",
+                stacklevel=2,
+            )
+
+    y_true_pfn = (
+        y_test.detach().cpu().numpy().reshape(-1)
+        if isinstance(y_test, torch.Tensor)
+        else np.asarray(y_test).reshape(-1)
+    )
+    y_pred_flat = np.asarray(y_pred_test).reshape(-1)
+    if y_true_pfn.shape[0] != y_pred_flat.shape[0]:
+        raise ValueError(
+            "train_eval_PFN: y_test and predictions length mismatch — "
+            f"len(y_test)={y_true_pfn.shape[0]}, len(y_pred)={y_pred_flat.shape[0]}."
+        )
+
     metrics = compute_metrics(
         y_test,
         y_pred_test,
@@ -1073,10 +1374,24 @@ def train_eval_PFN(
         lower_95=lower_95_test,
         upper_95=upper_95_test,
     )
+    if (
+        standardize_y_log_scale
+        and y_train_mean is not None
+        and y_train_std is not None
+        and log_scale_C is not None
+    ):
+        metrics.update(
+            _compute_log_space_metrics(
+                y_test,
+                y_pred_test,
+                float(log_scale_C),
+                output_std_original=output_std_test,
+                lower_original=lower_95_test,
+                upper_original=upper_95_test,
+            )
+        )
 
-    # Compute per-source metrics if source_cols is provided
     if isinstance(source_cols, int) or (isinstance(source_cols, (list, tuple)) and len(source_cols) > 0):
-        # Convert single-element list to integer for consistency
         if isinstance(source_cols, (list, tuple)) and len(source_cols) == 1:
             source_cols = source_cols[0]
 
@@ -1084,9 +1399,9 @@ def train_eval_PFN(
             y_test, y_pred_test, output_std_test, X_test, source_columns=source_cols
         )
 
-        # Add per-source metrics directly to the main metrics dictionary
         for source_name, source_metrics in pfn_per_source_metric["per_source"].items():
             for metric_name, metric_value in source_metrics.items():
                 metrics[f"{source_name}_{metric_name}"] = metric_value
 
     return metrics, y_pred_test, output_std_test
+

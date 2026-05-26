@@ -15,7 +15,7 @@ import numpy as np
 import torch
 
 from gpplus.training.eval2 import evaluate_gp_model
-from gpplus.utils.train_eval3 import _torch_log_y_point_original
+from gpplus.utils.train_eval import _torch_log_y_point_original
 
 from plot_tabpfn1d_comparison import save_1d_train_gp_tabpfn_plot
 
