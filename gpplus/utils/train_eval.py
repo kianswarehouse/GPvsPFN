@@ -44,11 +44,11 @@ def _print_train_eval_gp_eval_parity(model: torch.nn.Module, tag: str = "") -> N
         )
     except Exception:  # noqa: BLE001
         pass
-    print(
-        f"[train_eval_gp eval parity{label}] cholesky_jitter={jitter!r} "
-        f"deterministic_algorithms={det} torch_num_threads={nth} "
-        f"torch_num_interop_threads={n_interop!r} threadpool_info={tp_summary}"
-    )
+    # print(
+    #     f"[train_eval_gp eval parity{label}] cholesky_jitter={jitter!r} "
+    #     f"deterministic_algorithms={det} torch_num_threads={nth} "
+    #     f"torch_num_interop_threads={n_interop!r} threadpool_info={tp_summary}"
+    # )
 
 
 def _validate_log_y_point_inverse(log_y_point_inverse: str) -> None:
@@ -311,17 +311,6 @@ def train_eval_gp(
     # Use provided callbacks; if none are supplied, disable callbacks by default.
     if callbacks is None:
         callbacks = [FinalParameterStorageCallback(save_file=None, verbose=False)]
-
-
-        # callbacks = 
-            # # Jitter tracking across runs/epochs
-            # callbacks.append(
-            #     JitterTrackingCallback(
-            #         save_file=jitter_save_file,
-            #         verbose=True,
-            #     )
-            # )
-
 
     # Set fold_index on callbacks that support it
     if fold_index is not None:
