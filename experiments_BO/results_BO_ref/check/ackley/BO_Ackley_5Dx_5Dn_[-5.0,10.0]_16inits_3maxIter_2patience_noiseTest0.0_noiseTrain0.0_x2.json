@@ -1,0 +1,276 @@
+{
+  "BO_summary": {
+    "Total_Time": {
+      "mean": 21.167254699996192,
+      "std": 5.782940015281753,
+      "median": 21.167254699996192,
+      "min": 17.07809859999543,
+      "max": 25.256410799996956,
+      "count": 2
+    },
+    "Train_Time": {
+      "mean": 1.9420210499956738,
+      "std": 0.3545233289625705,
+      "median": 1.9420210499956738,
+      "min": 1.691335199997411,
+      "max": 2.1927068999939365,
+      "count": 2
+    },
+    "AF_Time": {
+      "mean": 19.22523365000052,
+      "std": 5.428416686319182,
+      "median": 19.22523365000052,
+      "min": 15.386763399998017,
+      "max": 23.06370390000302,
+      "count": 2
+    },
+    "n_iterations": {
+      "mean": 2.5,
+      "std": 0.7071067811865476,
+      "median": 2.5,
+      "min": 2.0,
+      "max": 3.0,
+      "count": 2
+    },
+    "best_y": {
+      "mean": 6.546316165566971,
+      "std": 1.7758358045557991,
+      "median": 6.546316165566971,
+      "min": 5.290610625891697,
+      "max": 7.802021705242245,
+      "count": 2
+    },
+    "RRMSE": {
+      "mean": 0.3596503707703651,
+      "std": 0.02421225544379492,
+      "median": 0.3596503707703651,
+      "min": 0.3425297207582368,
+      "max": 0.37677102078249336,
+      "count": 2
+    },
+    "RMSE": {
+      "mean": 0.7445149942928453,
+      "std": 0.05012197592050769,
+      "median": 0.7445149942928453,
+      "min": 0.7090734052329855,
+      "max": 0.7799565833527051,
+      "count": 2
+    },
+    "MSE": {
+      "mean": 0.5555586829619634,
+      "std": 0.07463312523280592,
+      "median": 0.5555586829619634,
+      "min": 0.5027850940087015,
+      "max": 0.6083322719152253,
+      "count": 2
+    },
+    "MAE": {
+      "mean": 0.5658456720606249,
+      "std": 0.01482406271082635,
+      "median": 0.5658456720606249,
+      "min": 0.5553634767930649,
+      "max": 0.5763278673281848,
+      "count": 2
+    },
+    "NIS": {
+      "mean": 2.266703123176789,
+      "std": 0.17296870969154948,
+      "median": 2.266703123176789,
+      "min": 2.144395775620807,
+      "max": 2.389010470732771,
+      "count": 2
+    },
+    "NIS_width": {
+      "mean": 1.8956476481087583,
+      "std": 0.2508425021335189,
+      "median": 1.8956476481087583,
+      "min": 1.718275213840346,
+      "max": 2.0730200823771705,
+      "count": 2
+    },
+    "NIS_outside": {
+      "mean": 0.3710554750680304,
+      "std": 0.07787379244196975,
+      "median": 0.3710554750680304,
+      "min": 0.31599038835559984,
+      "max": 0.42612056178046087,
+      "count": 2
+    }
+  },
+  "BO_metrics": [
+    {
+      "run": 1,
+      "run_seed": 42,
+      "Total_Time": 17.07809859999543,
+      "Train_Time": 1.691335199997411,
+      "AF_Time": 15.386763399998017,
+      "n_iterations": 2,
+      "best_y": 7.802021705242245,
+      "RRMSE": 0.3425297207582368,
+      "RMSE": 0.7090734052329855,
+      "MSE": 0.5027850940087015,
+      "MAE": 0.5553634767930649,
+      "NIS": 2.144395775620807,
+      "NIS_width": 1.718275213840346,
+      "NIS_outside": 0.42612056178046087,
+      "best_x": [
+        -0.35789281129837036,
+        -1.0539989173412323,
+        -1.1216974258422852,
+        0.6416238844394684,
+        -3.728715293109417
+      ]
+    },
+    {
+      "run": 2,
+      "run_seed": 43,
+      "Total_Time": 25.256410799996956,
+      "Train_Time": 2.1927068999939365,
+      "AF_Time": 23.06370390000302,
+      "n_iterations": 3,
+      "best_y": 5.290610625891697,
+      "RRMSE": 0.37677102078249336,
+      "RMSE": 0.7799565833527051,
+      "MSE": 0.6083322719152253,
+      "MAE": 0.5763278673281848,
+      "NIS": 2.389010470732771,
+      "NIS_width": 2.0730200823771705,
+      "NIS_outside": 0.31599038835559984,
+      "best_x": [
+        -0.16585024515363495,
+        -2.1698861634873516,
+        -1.1048311939138797,
+        0.568165612548673,
+        -0.03980907512418588
+      ]
+    }
+  ],
+  "BO_full_info": [
+    {
+      "run": 1,
+      "run_seed": 42,
+      "n_iterations": 2,
+      "x_chosen": [
+        [
+          [
+            -1.2776043584400647,
+            -2.83964428168632,
+            -0.07287516157859002,
+            -0.47713485766723607,
+            -3.5483476956193654
+          ]
+        ],
+        [
+          [
+            -0.4468776420950376,
+            1.0267819971865784,
+            0.37318513598316877,
+            0.7607204249662607,
+            -3.8101600454695053
+          ]
+        ]
+      ],
+      "af_values": [
+        0.1562377608272271,
+        0.1790040824407761
+      ],
+      "train_time_s": [
+        0.8551733999993303,
+        0.8361617999980808
+      ],
+      "af_time_s": [
+        6.979412600001524,
+        8.407350799996493
+      ],
+      "best_y_history": [
+        7.802021705242245,
+        7.802021705242245
+      ]
+    },
+    {
+      "run": 2,
+      "run_seed": 43,
+      "n_iterations": 3,
+      "x_chosen": [
+        [
+          [
+            1.0013516488815444,
+            -2.9162551141540423,
+            -3.3439924899835285,
+            0.048867634486711824,
+            -4.9999999927898084
+          ]
+        ],
+        [
+          [
+            -0.16585024515363495,
+            -2.1698861634873516,
+            -1.1048311939138797,
+            0.568165612548673,
+            -0.03980907512418588
+          ]
+        ],
+        [
+          [
+            0.6382391651218523,
+            -4.1486049961584905,
+            -0.7947019752912076,
+            0.6281332198095656,
+            -0.010071903448961878
+          ]
+        ]
+      ],
+      "af_values": [
+        0.31383773298927947,
+        0.011469356956934892,
+        0.04777233263166841
+      ],
+      "train_time_s": [
+        0.7456806999980472,
+        0.7666715999985172,
+        0.6803545999973721
+      ],
+      "af_time_s": [
+        9.579408199999307,
+        5.968062200001441,
+        7.516233500002272
+      ],
+      "best_y_history": [
+        5.788266211842949,
+        5.788266211842949,
+        5.290610625891697
+      ]
+    }
+  ],
+  "BO_model_info": {
+    "title": "BO_Ackley_5Dx_5Dn_[-5.0,10.0]_16inits_3maxIter_2patience_noiseTest0.0_noiseTrain0.0_x2",
+    "dimensions": 5,
+    "x_bounds": [
+      -5.0,
+      10.0
+    ],
+    "start_size": 5,
+    "train_samples_per_run": 25,
+    "test_samples": 5000,
+    "num_runs": 2,
+    "standardize_X": true,
+    "standardize_y": true,
+    "x_standardize_method": 2,
+    "dtype": "torch.float64",
+    "device": "cpu",
+    "num_epochs": 1,
+    "num_inits": 16,
+    "optimizer": "LBFGSScipy",
+    "convergence_patience": 10,
+    "acquisition": "EI",
+    "gp_optimize_af": true,
+    "n_AF_opt": 16,
+    "n_AF_sample": 5000,
+    "max_iter": 3,
+    "patience_no_improve": 2,
+    "minimization_problem": true,
+    "seed": 42,
+    "seed_trainer": null
+  },
+  "defaults_py": "import gpplus\nimport torch\n\nX_STANDARDIZE_METHOD = 2 # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]\nSTANDARDIZE_X = True\nSTANDARDIZE_Y = True\n\nSF_kernel = None\nSF_mean = None\nSF_likelihood = None\n\nNUM_RUNS = 1 # Number of training sets to run for each problem\nTRAINER_LR = None # Using LBFGS\nTRAINER_MIN_EPOCHS = 0  # Do not consider early stopping until at least this many epochs\nTRAINER_NUM_EPOCHS = 1\nTRAINER_NUM_INITS = 16 # Number of initializations to run for each training set\nTRAINER_CONVERGENCE_PATIENCE = 10\n# TRAINER_CHOLESKY_JITTER = 0\nTRAINER_CHOLESKY_JITTER = 1e-6\nTRAINER_MIN_LOSS_CHANGE = 1e-7\n# TRAINER_OPTIMIZER_CLASS = torch.optim.Adam\nTRAINER_OPTIMIZER_CLASS = gpplus.training.optimizers.LBFGSScipy\n# TRAINER_OPTIMIZER_KWARGS = {\"max_iter\": 20, \"tolerance_grad\": 1e-5, \"tolerance_change\": 1e-9, \"history_size\": 10} #1\n# TRAINER_OPTIMIZER_KWARGS = {\"max_iter\": 15000, \"max_eval\": 15000, \"tolerance_grad\": 1e-5, \"tolerance_change\": 1e-9, \"history_size\": 10} #2\nTRAINER_OPTIMIZER_KWARGS = {\"max_iter\": 2000, \"max_eval\": 2500, \"tolerance_grad\": 1e-5, \"tolerance_change\": 1e-9, \"history_size\": 10} #2\n# TRAINER_OPTIMIZER_KWARGS = {\"max_iter\": 20}   # 0 \nTRAINER_LOG_LBFGS_INNER = False\n\nTRAINER_INITIALIZER_CLASS = gpplus.training.parameter_initializer.DefaultParameterInitializer\nTRAINER_GP_DEVICE = 'cpu'\nTRAINER_AMP_DEVICE = 'cuda'\nDTYPE_GP = torch.float64\nDTYPE_PFN = torch.float32\nNOISE_TYPE = 'gaussian'\n\n# BO experiment defaults\nBO_NUM_RUNS = 1 # Number of training datasets to run BO on for each problem\nBO_ACQUISITION = 'EI'  # \"EI\" or \"TS\"\nBO_N_AF_OPT = 16 # number of initialization points to optimize from in the GP model's AF (gp only method)\nBO_N_AF_SAMPLE = 5000 # number of sample points to evaluate in the AF (simple method)\nBO_MAX_ITER = 30\nBO_PATIENCE_NO_IMPROVE = 10\n\nTRAINER_INFO = False\nBO_FULL_INFO = True\nBO_TEST_METRICS = True\nRUN_MODELS = 'gp'  # \"gp\" for BO; None reserved for future PFN\n\n# TRAINER_ANALYSIS = True # make settings into problems\n# PLOT_METRICS = False\n\nSEED = 42\nSEED_TRAINER = None\n\n# def MF_kernel(\n#     cont_cols=None,\n#     cat_cols=None,\n#     source_cols=None,\n#     cont_kernel=None,\n#     cat_kernel=None,\n#     source_kernel=None,\n#     cat_encoder=None,\n#     source_encoder=None,\n#     z_dim=2,\n#     fix_lengthscale_cat=False,\n#     fix_lengthscale_source=False,\n#     **kwargs\n# ):\n#     \"\"\"Factory function that creates and wraps the MF kernel.\"\"\"\n#     return gpplus.kernels.LogScaleKernel(\n#         gpplus.kernels.MVMFKernel(\n#             cont_cols=cont_cols,\n#             cat_cols=cat_cols,\n#             source_cols=source_cols,\n#             cont_kernel=cont_kernel,\n#             cat_kernel=cat_kernel,\n#             source_kernel=source_kernel,\n#             cat_encoder=cat_encoder,\n#             source_encoder=source_encoder,\n#             z_dim=z_dim,\n#             fix_lengthscale_cat=fix_lengthscale_cat,\n#             fix_lengthscale_source=fix_lengthscale_source,\n#             **kwargs\n#         )\n#     )\n\n# For current experiments, we are not using the following MF methods\n# MF_mean = gpplus.means.MultiMean\n# MF_likelihood = gpplus.likelihoods.MultiLikelihood\n# MF_STANDARDIZATION_METHOD = 2 # 0: standardize all data according to all data, 1: standardize all data according to HF data only, 2: standardize each data source independently\n"
+}

@@ -1,0 +1,309 @@
+{
+  "BO_summary": {
+    "Total_Time": {
+      "mean": 23.218429749995266,
+      "std": 1.8506017546642477,
+      "median": 23.218429749995266,
+      "min": 21.909856699996453,
+      "max": 24.52700279999408,
+      "count": 2
+    },
+    "Train_Time": {
+      "mean": 3.243545749997793,
+      "std": 0.30789288943858806,
+      "median": 3.243545749997793,
+      "min": 3.0258325999966473,
+      "max": 3.4612588999989384,
+      "count": 2
+    },
+    "AF_Time": {
+      "mean": 19.974883999997473,
+      "std": 1.5427088652256595,
+      "median": 19.974883999997473,
+      "min": 18.884024099999806,
+      "max": 21.06574389999514,
+      "count": 2
+    },
+    "n_iterations": {
+      "mean": 3.0,
+      "std": 0.0,
+      "median": 3.0,
+      "min": 3.0,
+      "max": 3.0,
+      "count": 2
+    },
+    "best_y": {
+      "mean": 7.982322793738099,
+      "std": 0.20432596031984132,
+      "median": 7.982322793738099,
+      "min": 7.837842521623486,
+      "max": 8.126803065852712,
+      "count": 2
+    },
+    "RRMSE": {
+      "mean": 0.027167768525147115,
+      "std": 0.005931423321238962,
+      "median": 0.027167768525147115,
+      "min": 0.02297361887261101,
+      "max": 0.03136191817768322,
+      "count": 2
+    },
+    "RMSE": {
+      "mean": 1.2387827955337845,
+      "std": 0.27045817754879076,
+      "median": 1.2387827955337845,
+      "min": 1.0475399841616793,
+      "max": 1.4300256069058896,
+      "count": 2
+    },
+    "MSE": {
+      "mean": 1.5711566274120046,
+      "std": 0.6700778745177274,
+      "median": 1.5711566274120046,
+      "min": 1.097340018417451,
+      "max": 2.044973236406558,
+      "count": 2
+    },
+    "MAE": {
+      "mean": 0.8515179164761486,
+      "std": 0.20449189051366834,
+      "median": 0.8515179164761486,
+      "min": 0.7069203139962766,
+      "max": 0.9961155189560205,
+      "count": 2
+    },
+    "NIS": {
+      "mean": 0.16751640062557635,
+      "std": 0.06535183906802787,
+      "median": 0.16751640062557635,
+      "min": 0.1213056720575619,
+      "max": 0.2137271291935908,
+      "count": 2
+    },
+    "NIS_width": {
+      "mean": 0.06205465834261524,
+      "std": 0.0013957837485806099,
+      "median": 0.06205465834261524,
+      "min": 0.06106769018892391,
+      "max": 0.06304162649630657,
+      "count": 2
+    },
+    "NIS_outside": {
+      "mean": 0.10546174228296112,
+      "std": 0.06674762281660847,
+      "median": 0.10546174228296112,
+      "min": 0.05826404556125535,
+      "max": 0.15265943900466689,
+      "count": 2
+    }
+  },
+  "BO_metrics": [
+    {
+      "run": 1,
+      "run_seed": 42,
+      "Total_Time": 24.52700279999408,
+      "Train_Time": 3.4612588999989384,
+      "AF_Time": 21.06574389999514,
+      "n_iterations": 3,
+      "best_y": 8.126803065852712,
+      "RRMSE": 0.03136191817768322,
+      "RMSE": 1.4300256069058896,
+      "MSE": 2.044973236406558,
+      "MAE": 0.9961155189560205,
+      "NIS": 0.2137271291935908,
+      "NIS_width": 0.06106769018892391,
+      "NIS_outside": 0.15265943900466689,
+      "best_x": [
+        0.05003998040975799,
+        49999.999950038204,
+        63070.00031187762,
+        990.00006449886,
+        115.99995889412563,
+        819.99993550114,
+        1679.9999622781286,
+        10218.567963532258
+      ]
+    },
+    {
+      "run": 2,
+      "run_seed": 43,
+      "Total_Time": 21.909856699996453,
+      "Train_Time": 3.0258325999966473,
+      "AF_Time": 18.884024099999806,
+      "n_iterations": 3,
+      "best_y": 7.837842521623486,
+      "RRMSE": 0.02297361887261101,
+      "RMSE": 1.0475399841616793,
+      "MSE": 1.097340018417451,
+      "MAE": 0.7069203139962766,
+      "NIS": 0.1213056720575619,
+      "NIS_width": 0.06304162649630657,
+      "NIS_outside": 0.05826404556125535,
+      "best_x": [
+        0.050039980409757996,
+        100.00004996179803,
+        115599.99994564809,
+        990.00006449886,
+        63.10004110587439,
+        819.99993550114,
+        1679.999962278128,
+        9855.00006559777
+      ]
+    }
+  ],
+  "BO_full_info": [
+    {
+      "run": 1,
+      "run_seed": 42,
+      "n_iterations": 3,
+      "x_chosen": [
+        [
+          [
+            0.05003998040975799,
+            49999.999950038204,
+            63070.00031187762,
+            990.00006449886,
+            115.99995889412563,
+            819.99993550114,
+            1679.9999622781286,
+            10218.567963532258
+          ]
+        ],
+        [
+          [
+            0.05003998040935271,
+            49999.9997819305,
+            115599.99989416913,
+            990.0000644988626,
+            63.100041105877985,
+            819.9999355011341,
+            1570.9524101146483,
+            9855.033174193779
+          ]
+        ],
+        [
+          [
+            0.14996002084146626,
+            49999.99916136208,
+            115599.99902755575,
+            1109.99993550114,
+            115.99995923239823,
+            819.99993550114,
+            1679.9999641947813,
+            9855.00010613942
+          ]
+        ]
+      ],
+      "af_values": [
+        0.18076297274176664,
+        0.00620867071475743,
+        2.2080670045884618e-150
+      ],
+      "train_time_s": [
+        1.0348145000025397,
+        1.2314621999976225,
+        1.1949821999987762
+      ],
+      "af_time_s": [
+        7.111942999999883,
+        8.63026809999792,
+        5.323532799997338
+      ],
+      "best_y_history": [
+        16.337814108602608,
+        8.126803065852712,
+        8.126803065852712
+      ]
+    },
+    {
+      "run": 2,
+      "run_seed": 43,
+      "n_iterations": 3,
+      "x_chosen": [
+        [
+          [
+            0.050039980409757996,
+            100.00004996179803,
+            115599.99994564809,
+            990.00006449886,
+            63.10004110587439,
+            819.99993550114,
+            1679.999962278128,
+            9855.00006559777
+          ]
+        ],
+        [
+          [
+            0.14996002103641928,
+            49999.99964715613,
+            115599.99908664843,
+            1109.99993550114,
+            115.99995920407335,
+            819.99993550114,
+            1679.9999623815754,
+            12044.99993440223
+          ]
+        ],
+        [
+          [
+            0.050039980427468114,
+            100.00007791466129,
+            115599.99973275818,
+            990.0000645839932,
+            63.10004111461075,
+            781.5379006356653,
+            1679.999962204282,
+            9855.03007010681
+          ]
+        ]
+      ],
+      "af_values": [
+        0.3146397705564307,
+        0.0,
+        0.00845429794884684
+      ],
+      "train_time_s": [
+        1.0150065999987419,
+        1.0706612999965728,
+        0.9401647000013327
+      ],
+      "af_time_s": [
+        6.645647100001952,
+        4.856746899997233,
+        7.381630100000621
+      ],
+      "best_y_history": [
+        20.263041643797813,
+        7.837842521623486,
+        7.837842521623486
+      ]
+    }
+  ],
+  "BO_model_info": {
+    "title": "BO_borehole_SF_5Dn_16inits_3maxIter_2patience_noiseTest0.0_noiseTrain0.0_x2",
+    "input_dim": 8,
+    "start_size": 5,
+    "train_samples_per_run": 40,
+    "test_samples": 5000,
+    "num_runs": 2,
+    "standardize_X": true,
+    "standardize_y": true,
+    "x_standardize_method": 2,
+    "dtype": "torch.float64",
+    "device": "cpu",
+    "num_epochs": 1,
+    "num_inits": 16,
+    "optimizer": "LBFGSScipy",
+    "convergence_patience": 10,
+    "acquisition": "EI",
+    "gp_optimize_af": true,
+    "n_AF_opt": 16,
+    "n_AF_sample": 5000,
+    "max_iter": 3,
+    "patience_no_improve": 2,
+    "minimization_problem": true,
+    "seed": 42,
+    "seed_trainer": null
+  },
+  "defaults_py": "import gpplus\nimport torch\n\nX_STANDARDIZE_METHOD = 2 # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]\nSTANDARDIZE_X = True\nSTANDARDIZE_Y = True\n\nSF_kernel = None\nSF_mean = None\nSF_likelihood = None\n\nNUM_RUNS = 1 # Number of training sets to run for each problem\nTRAINER_LR = None # Using LBFGS\nTRAINER_MIN_EPOCHS = 0  # Do not consider early stopping until at least this many epochs\nTRAINER_NUM_EPOCHS = 1\nTRAINER_NUM_INITS = 16 # Number of initializations to run for each training set\nTRAINER_CONVERGENCE_PATIENCE = 10\n# TRAINER_CHOLESKY_JITTER = 0\nTRAINER_CHOLESKY_JITTER = 1e-6\nTRAINER_MIN_LOSS_CHANGE = 1e-7\n# TRAINER_OPTIMIZER_CLASS = torch.optim.Adam\nTRAINER_OPTIMIZER_CLASS = gpplus.training.optimizers.LBFGSScipy\n# TRAINER_OPTIMIZER_KWARGS = {\"max_iter\": 20, \"tolerance_grad\": 1e-5, \"tolerance_change\": 1e-9, \"history_size\": 10} #1\n# TRAINER_OPTIMIZER_KWARGS = {\"max_iter\": 15000, \"max_eval\": 15000, \"tolerance_grad\": 1e-5, \"tolerance_change\": 1e-9, \"history_size\": 10} #2\nTRAINER_OPTIMIZER_KWARGS = {\"max_iter\": 2000, \"max_eval\": 2500, \"tolerance_grad\": 1e-5, \"tolerance_change\": 1e-9, \"history_size\": 10} #2\n# TRAINER_OPTIMIZER_KWARGS = {\"max_iter\": 20}   # 0 \nTRAINER_LOG_LBFGS_INNER = False\n\nTRAINER_INITIALIZER_CLASS = gpplus.training.parameter_initializer.DefaultParameterInitializer\nTRAINER_GP_DEVICE = 'cpu'\nTRAINER_AMP_DEVICE = 'cuda'\nDTYPE_GP = torch.float64\nDTYPE_PFN = torch.float32\nNOISE_TYPE = 'gaussian'\n\n# BO experiment defaults\nBO_NUM_RUNS = 1 # Number of training datasets to run BO on for each problem\nBO_ACQUISITION = 'EI'  # \"EI\" or \"TS\"\nBO_N_AF_OPT = 16 # number of initialization points to optimize from in the GP model's AF (gp only method)\nBO_N_AF_SAMPLE = 5000 # number of sample points to evaluate in the AF (simple method)\nBO_MAX_ITER = 30\nBO_PATIENCE_NO_IMPROVE = 10\n\nTRAINER_INFO = False\nBO_FULL_INFO = True\nBO_TEST_METRICS = True\nRUN_MODELS = 'gp'  # \"gp\" for BO; None reserved for future PFN\n\n# TRAINER_ANALYSIS = True # make settings into problems\n# PLOT_METRICS = False\n\nSEED = 42\nSEED_TRAINER = None\n\n# def MF_kernel(\n#     cont_cols=None,\n#     cat_cols=None,\n#     source_cols=None,\n#     cont_kernel=None,\n#     cat_kernel=None,\n#     source_kernel=None,\n#     cat_encoder=None,\n#     source_encoder=None,\n#     z_dim=2,\n#     fix_lengthscale_cat=False,\n#     fix_lengthscale_source=False,\n#     **kwargs\n# ):\n#     \"\"\"Factory function that creates and wraps the MF kernel.\"\"\"\n#     return gpplus.kernels.LogScaleKernel(\n#         gpplus.kernels.MVMFKernel(\n#             cont_cols=cont_cols,\n#             cat_cols=cat_cols,\n#             source_cols=source_cols,\n#             cont_kernel=cont_kernel,\n#             cat_kernel=cat_kernel,\n#             source_kernel=source_kernel,\n#             cat_encoder=cat_encoder,\n#             source_encoder=source_encoder,\n#             z_dim=z_dim,\n#             fix_lengthscale_cat=fix_lengthscale_cat,\n#             fix_lengthscale_source=fix_lengthscale_source,\n#             **kwargs\n#         )\n#     )\n\n# For current experiments, we are not using the following MF methods\n# MF_mean = gpplus.means.MultiMean\n# MF_likelihood = gpplus.likelihoods.MultiLikelihood\n# MF_STANDARDIZATION_METHOD = 2 # 0: standardize all data according to all data, 1: standardize all data according to HF data only, 2: standardize each data source independently\n"
+}

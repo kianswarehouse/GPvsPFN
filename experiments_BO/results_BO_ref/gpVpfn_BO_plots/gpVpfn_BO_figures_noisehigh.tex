@@ -1,0 +1,71 @@
+\begin{figure*}[htb]
+    \centering
+    \captionsetup{font=footnotesize}
+    \begin{minipage}[b]{0.33\linewidth}
+        \centering
+        \includegraphics[width=\linewidth, trim = 0 3pt 0 0, clip]{gpVpfn_BO_plots/buckling_D4_noise0.08.png}
+        \subcaption{Buckling: D$_x$=4}
+        \label{fig:bo_idetc_buckling_D4_noisehigh}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.33\linewidth}
+        \centering
+        \includegraphics[width=\linewidth, trim = 0 3pt 0 0, clip]{gpVpfn_BO_plots/borehole_D8_noise0.08.png}
+        \subcaption{Borehole: D$_x$=8}
+        \label{fig:bo_idetc_borehole_D8_noisehigh}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.33\linewidth}
+        \centering
+        \includegraphics[width=\linewidth, trim = 0 3pt 0 0, clip]{gpVpfn_BO_plots/wing_D10_noise0.08.png}
+        \subcaption{Wing Weight: D$_x$=10}
+        \label{fig:bo_idetc_wing_D10_noisehigh}
+    \end{minipage}
+
+    \vspace{0.5em}
+
+    \begin{minipage}[b]{0.33\linewidth}
+        \centering
+        \includegraphics[width=\linewidth, trim = 0 3pt 0 0, clip]{gpVpfn_BO_plots/ackley_D20_noise0.08.png}
+        \subcaption{Ackley: D$_x$=20}
+        \label{fig:bo_idetc_ackley_D20_noisehigh}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.33\linewidth}
+        \centering
+        \includegraphics[width=\linewidth, trim = 0 3pt 0 0, clip]{gpVpfn_BO_plots/griewank_D20_noise0.08.png}
+        \subcaption{Griewank: D$_x$=20}
+        \label{fig:bo_idetc_griewank_D20_noisehigh}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.33\linewidth}
+        \centering
+        \includegraphics[width=\linewidth, trim = 0 3pt 0 0, clip]{gpVpfn_BO_plots/zakharov_D20_noise0.08.png}
+        \subcaption{Zakharov: D$_x$=20}
+        \label{fig:bo_idetc_zakharov_D20_noisehigh}
+    \end{minipage}
+
+    \vspace{0.5em}
+
+    \begin{minipage}[b]{0.33\linewidth}
+        \centering
+        \includegraphics[width=\linewidth, trim = 0 3pt 0 0, clip]{gpVpfn_BO_plots/ackley_D40_noise0.08.png}
+        \subcaption{Ackley: D$_x$=40}
+        \label{fig:bo_idetc_ackley_D40_noisehigh}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.33\linewidth}
+        \centering
+        \includegraphics[width=\linewidth, trim = 0 3pt 0 0, clip]{gpVpfn_BO_plots/dixon_price_D40_noise0.08.png}
+        \subcaption{Dixon-Price: D$_x$=40}
+        \label{fig:bo_idetc_dixon_price_D40_noisehigh}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.33\linewidth}
+        \centering
+        \includegraphics[width=\linewidth, trim = 0 8pt 20pt 0, clip]{gpVpfn_BO_plots/bo_legend_gpVpfn.png}
+        \subcaption*{\phantom{X}}
+    \end{minipage}
+    \caption{Bayesian optimization performance for GP+ and TabPFN across benchmark problems with observation noise $\varepsilon \sim \mathcal{N}(0,(0.08\times c)^2)$. Buckling and Borehole are maximization problems, hence best negative y values are reported.}
+    \label{fig:bo_idetc_gpVpfn_noisehigh}
+\end{figure*}

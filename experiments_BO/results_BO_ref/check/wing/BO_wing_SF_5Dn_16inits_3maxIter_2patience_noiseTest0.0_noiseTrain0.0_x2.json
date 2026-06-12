@@ -1,0 +1,345 @@
+{
+  "BO_summary": {
+    "Total_Time": {
+      "mean": 30.831817750000482,
+      "std": 1.7527982802217532,
+      "median": 30.831817750000482,
+      "min": 29.592402200003562,
+      "max": 32.0712332999974,
+      "count": 2
+    },
+    "Train_Time": {
+      "mean": 4.319594900000084,
+      "std": 1.133332646953678,
+      "median": 4.319594900000084,
+      "min": 3.5182076999990386,
+      "max": 5.120982100001129,
+      "count": 2
+    },
+    "AF_Time": {
+      "mean": 26.5122228500004,
+      "std": 2.886130927175431,
+      "median": 26.5122228500004,
+      "min": 24.471420100002433,
+      "max": 28.553025599998364,
+      "count": 2
+    },
+    "n_iterations": {
+      "mean": 3.0,
+      "std": 0.0,
+      "median": 3.0,
+      "min": 3.0,
+      "max": 3.0,
+      "count": 2
+    },
+    "best_y": {
+      "mean": 125.03278804572057,
+      "std": 0.15584278620027972,
+      "median": 125.03278804572057,
+      "min": 124.92259055479934,
+      "max": 125.14298553664179,
+      "count": 2
+    },
+    "start_best_y": {
+      "mean": 175.98120353405574,
+      "std": 21.85856865691441,
+      "median": 175.98120353405574,
+      "min": 160.52486140971985,
+      "max": 191.43754565839166,
+      "count": 2
+    },
+    "final_best_y": {
+      "mean": 125.03278804572057,
+      "std": 0.15584278620027972,
+      "median": 125.03278804572057,
+      "min": 124.92259055479934,
+      "max": 125.14298553664179,
+      "count": 2
+    },
+    "RRMSE": {
+      "mean": 0.044147344455881234,
+      "std": 0.0003592622379723464,
+      "median": 0.044147344455881234,
+      "min": 0.04389330769118673,
+      "max": 0.044401381220575735,
+      "count": 2
+    },
+    "RMSE": {
+      "mean": 2.124349850017939,
+      "std": 0.01728753316332251,
+      "median": 2.124349850017939,
+      "min": 2.1121257180881665,
+      "max": 2.136573981947712,
+      "count": 2
+    },
+    "MSE": {
+      "mean": 4.513011714672677,
+      "std": 0.07344953696536916,
+      "median": 4.513011714672677,
+      "min": 4.461075049009453,
+      "max": 4.564948380335902,
+      "count": 2
+    },
+    "MAE": {
+      "mean": 1.6264290255188893,
+      "std": 0.008303116836450507,
+      "median": 1.6264290255188893,
+      "min": 1.620557835298851,
+      "max": 1.6323002157389277,
+      "count": 2
+    },
+    "NIS": {
+      "mean": 0.2220425239716508,
+      "std": 0.00535480067795244,
+      "median": 0.2220425239716508,
+      "min": 0.21825610810036833,
+      "max": 0.2258289398429333,
+      "count": 2
+    },
+    "NIS_width": {
+      "mean": 0.14881914097602278,
+      "std": 0.0020550180685825893,
+      "median": 0.14881914097602278,
+      "min": 0.14736602376426713,
+      "max": 0.1502722581877784,
+      "count": 2
+    },
+    "NIS_outside": {
+      "mean": 0.07322338299562803,
+      "std": 0.0032997826093698205,
+      "median": 0.07322338299562803,
+      "min": 0.0708900843361012,
+      "max": 0.07555668165515488,
+      "count": 2
+    }
+  },
+  "BO_metrics": [
+    {
+      "run": 1,
+      "run_seed": 42,
+      "Total_Time": 32.0712332999974,
+      "Train_Time": 3.5182076999990386,
+      "AF_Time": 28.553025599998364,
+      "n_iterations": 3,
+      "best_y": 125.14298553664179,
+      "start_best_y": 191.43754565839166,
+      "final_best_y": 125.14298553664179,
+      "RRMSE": 0.04389330769118673,
+      "RMSE": 2.1121257180881665,
+      "MSE": 4.461075049009453,
+      "MAE": 1.6323002157389277,
+      "NIS": 0.21825610810036833,
+      "NIS_width": 0.14736602376426713,
+      "NIS_outside": 0.0708900843361012,
+      "best_x": [
+        150.00003702508602,
+        299.99996375910206,
+        6.00006242294666,
+        9.999959653039994,
+        17.842428154575227,
+        0.5000532018020283,
+        0.17996001959024202,
+        2.5000546200783273,
+        1700.0000627350457,
+        0.025065243270930324
+      ]
+    },
+    {
+      "run": 2,
+      "run_seed": 43,
+      "Total_Time": 29.592402200003562,
+      "Train_Time": 5.120982100001129,
+      "AF_Time": 24.471420100002433,
+      "n_iterations": 3,
+      "best_y": 124.92259055479934,
+      "start_best_y": 160.52486140971985,
+      "final_best_y": 124.92259055479934,
+      "RRMSE": 0.044401381220575735,
+      "RMSE": 2.136573981947712,
+      "MSE": 4.564948380335902,
+      "MAE": 1.620557835298851,
+      "NIS": 0.2258289398429333,
+      "NIS_width": 0.1502722581877784,
+      "NIS_outside": 0.07555668165515488,
+      "best_x": [
+        150.00058395884133,
+        220.00003620895643,
+        6.000062422199473,
+        9.999959664870108,
+        16.000066012640396,
+        0.5000532015563284,
+        0.17996001960363786,
+        2.5000546200510922,
+        1700.0000625429893,
+        0.025000003896768163
+      ]
+    }
+  ],
+  "BO_full_info": [
+    {
+      "run": 1,
+      "run_seed": 42,
+      "n_iterations": 3,
+      "x_chosen": [
+        [
+          [
+            150.00003702508602,
+            299.99996375910206,
+            6.00006242294666,
+            9.999959653039994,
+            17.842428154575227,
+            0.5000532018020283,
+            0.17996001959024202,
+            2.5000546200783273,
+            1700.0000627350457,
+            0.025065243270930324
+          ]
+        ],
+        [
+          [
+            150.00000006890915,
+            299.99999982411066,
+            6.0000624230470665,
+            9.999959648819495,
+            44.999933959040305,
+            0.5000532019459556,
+            0.17996001956854346,
+            2.5000579584131866,
+            1700.0000627228524,
+            0.025065546530344037
+          ]
+        ],
+        [
+          [
+            199.99996366611947,
+            299.99996480715066,
+            9.999937577053341,
+            9.999959751055265,
+            44.99993397145745,
+            0.9999468039508834,
+            0.17996001961343314,
+            5.999945379921672,
+            2499.9999423809677,
+            0.07993475672906968
+          ]
+        ]
+      ],
+      "af_values": [
+        1.3793385570315846,
+        0.013786400122308374,
+        0.0
+      ],
+      "train_time_s": [
+        1.1316256999998586,
+        1.2436754000009387,
+        1.1429065999982413
+      ],
+      "af_time_s": [
+        8.834431800001767,
+        14.915299299998878,
+        4.803294499997719
+      ],
+      "best_y_history": [
+        191.43754565839166,
+        125.14298553664179,
+        125.14298553664179
+      ]
+    },
+    {
+      "run": 2,
+      "run_seed": 43,
+      "n_iterations": 3,
+      "x_chosen": [
+        [
+          [
+            150.000030901784,
+            220.00000007830442,
+            6.000061998863816,
+            9.999967613601099,
+            16.00004846154861,
+            0.5000528469290871,
+            0.179960087055292,
+            2.5000544579655695,
+            1700.018635049095,
+            0.025065221481860394
+          ]
+        ],
+        [
+          [
+            150.00058395884133,
+            220.00003620895643,
+            6.000062422199473,
+            9.999959664870108,
+            16.000066012640396,
+            0.5000532015563284,
+            0.17996001960363786,
+            2.5000546200510922,
+            1700.0000625429893,
+            0.025000003896768163
+          ]
+        ],
+        [
+          [
+            199.99996342461077,
+            299.9999641783723,
+            9.999937577053341,
+            9.9999598915864,
+            44.99993397145745,
+            0.9999468052750675,
+            0.17996002014894208,
+            5.999945379921672,
+            2499.9999372649545,
+            0.07993475672906968
+          ]
+        ]
+      ],
+      "af_values": [
+        0.5701723865064674,
+        0.00928467755092684,
+        0.0
+      ],
+      "train_time_s": [
+        1.44338400000197,
+        1.626293400000577,
+        2.051304699998582
+      ],
+      "af_time_s": [
+        8.653664500001469,
+        11.153022400001646,
+        4.6647331999993185
+      ],
+      "best_y_history": [
+        160.52486140971985,
+        124.9326451410426,
+        124.92259055479934
+      ]
+    }
+  ],
+  "BO_model_info": {
+    "title": "BO_wing_SF_5Dn_16inits_3maxIter_2patience_noiseTest0.0_noiseTrain0.0_x2",
+    "input_dim": 10,
+    "start_size": 5,
+    "train_samples_per_run": 50,
+    "test_samples": 5000,
+    "num_runs": 2,
+    "standardize_X": true,
+    "standardize_y": true,
+    "x_standardize_method": 2,
+    "dtype": "torch.float64",
+    "device": "cpu",
+    "num_epochs": 1,
+    "num_inits": 16,
+    "optimizer": "LBFGSScipy",
+    "convergence_patience": 10,
+    "acquisition": "EI",
+    "gp_optimize_af": true,
+    "n_AF_opt": 16,
+    "n_AF_sample": 5000,
+    "max_iter": 3,
+    "patience_no_improve": 2,
+    "minimization_problem": true,
+    "seed": 42,
+    "seed_trainer": null
+  },
+  "defaults_py": "import gpplus\nimport torch\n\nX_STANDARDIZE_METHOD = 2 # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]\nSTANDARDIZE_X = True\nSTANDARDIZE_Y = True\n\nSF_kernel = None\nSF_mean = None\nSF_likelihood = None\n\nNUM_RUNS = 1 # Number of training sets to run for each problem\nTRAINER_LR = None # Using LBFGS\nTRAINER_MIN_EPOCHS = 0  # Do not consider early stopping until at least this many epochs\nTRAINER_NUM_EPOCHS = 1\nTRAINER_NUM_INITS = 16 # Number of initializations to run for each training set\nTRAINER_CONVERGENCE_PATIENCE = 10\n# TRAINER_CHOLESKY_JITTER = 0\nTRAINER_CHOLESKY_JITTER = 1e-6\nTRAINER_MIN_LOSS_CHANGE = 1e-7\n# TRAINER_OPTIMIZER_CLASS = torch.optim.Adam\nTRAINER_OPTIMIZER_CLASS = gpplus.training.optimizers.LBFGSScipy\n# TRAINER_OPTIMIZER_KWARGS = {\"max_iter\": 20, \"tolerance_grad\": 1e-5, \"tolerance_change\": 1e-9, \"history_size\": 10} #1\n# TRAINER_OPTIMIZER_KWARGS = {\"max_iter\": 15000, \"max_eval\": 15000, \"tolerance_grad\": 1e-5, \"tolerance_change\": 1e-9, \"history_size\": 10} #2\nTRAINER_OPTIMIZER_KWARGS = {\"max_iter\": 2000, \"max_eval\": 2500, \"tolerance_grad\": 1e-5, \"tolerance_change\": 1e-9, \"history_size\": 10} #2\n# TRAINER_OPTIMIZER_KWARGS = {\"max_iter\": 20}   # 0 \nTRAINER_LOG_LBFGS_INNER = False\n\nTRAINER_INITIALIZER_CLASS = gpplus.training.parameter_initializer.DefaultParameterInitializer\nTRAINER_GP_DEVICE = 'cpu'\nTRAINER_AMP_DEVICE = 'cuda'\nDTYPE_GP = torch.float64\nDTYPE_PFN = torch.float32\nNOISE_TYPE = 'gaussian'\n\n# BO experiment defaults\nBO_NUM_RUNS = 1 # Number of training datasets to run BO on for each problem\nBO_ACQUISITION = 'EI'  # \"EI\" or \"TS\"\nBO_N_AF_OPT = 16 # number of initialization points to optimize from in the GP model's AF (gp only method)\nBO_N_AF_SAMPLE = 5000 # number of sample points to evaluate in the AF (simple method)\nBO_MAX_ITER = 30\nBO_PATIENCE_NO_IMPROVE = 10\n\nTRAINER_INFO = False\nBO_FULL_INFO = True\nBO_TEST_METRICS = True\nRUN_MODELS = 'gp'  # \"gp\" for BO; None reserved for future PFN\n\n# TRAINER_ANALYSIS = True # make settings into problems\n# PLOT_METRICS = False\n\nSEED = 42\nSEED_TRAINER = None\n\n# def MF_kernel(\n#     cont_cols=None,\n#     cat_cols=None,\n#     source_cols=None,\n#     cont_kernel=None,\n#     cat_kernel=None,\n#     source_kernel=None,\n#     cat_encoder=None,\n#     source_encoder=None,\n#     z_dim=2,\n#     fix_lengthscale_cat=False,\n#     fix_lengthscale_source=False,\n#     **kwargs\n# ):\n#     \"\"\"Factory function that creates and wraps the MF kernel.\"\"\"\n#     return gpplus.kernels.LogScaleKernel(\n#         gpplus.kernels.MVMFKernel(\n#             cont_cols=cont_cols,\n#             cat_cols=cat_cols,\n#             source_cols=source_cols,\n#             cont_kernel=cont_kernel,\n#             cat_kernel=cat_kernel,\n#             source_kernel=source_kernel,\n#             cat_encoder=cat_encoder,\n#             source_encoder=source_encoder,\n#             z_dim=z_dim,\n#             fix_lengthscale_cat=fix_lengthscale_cat,\n#             fix_lengthscale_source=fix_lengthscale_source,\n#             **kwargs\n#         )\n#     )\n\n# For current experiments, we are not using the following MF methods\n# MF_mean = gpplus.means.MultiMean\n# MF_likelihood = gpplus.likelihoods.MultiLikelihood\n# MF_STANDARDIZATION_METHOD = 2 # 0: standardize all data according to all data, 1: standardize all data according to HF data only, 2: standardize each data source independently\n"
+}
