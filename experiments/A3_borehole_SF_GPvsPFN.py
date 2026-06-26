@@ -7,29 +7,33 @@ import time
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
 from gpplus.utils import set_seed, train_eval_gp, train_eval_PFN
 from tabpfn import TabPFNRegressor
-from load_experimental_data import generate_mf_wing_data
+from load_experimental_data import generate_mf_borehole_data
 import defaults
 from run_metadata import experiment_data_info, pfn_model_info
 
-def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
+# import warnings
+# warnings.filterwarnings("ignore")
+def borehole_SF_GPvsPFN(
+        num_runs=defaults.NUM_RUNS,
         num_test=5000,
-        train_size=10, # total training size is train_size * number of X input dimensions
-        num_inits=defaults.TRAINER_NUM_INITS, 
-        num_epochs=defaults.TRAINER_NUM_EPOCHS, 
-        lr=defaults.TRAINER_LR, 
-        convergence_patience=defaults.TRAINER_CONVERGENCE_PATIENCE,
+        train_size=10,  # total training size is train_size * number of X input dimensions
+        num_inits=defaults.TRAINER_NUM_INITS,
+        num_epochs=defaults.TRAINER_NUM_EPOCHS,
         min_epochs=defaults.TRAINER_MIN_EPOCHS,
+        lr=defaults.TRAINER_LR,
+        convergence_patience=defaults.TRAINER_CONVERGENCE_PATIENCE,
         min_loss_change=defaults.TRAINER_MIN_LOSS_CHANGE,
         optimizer_class=defaults.TRAINER_OPTIMIZER_CLASS,
         optimizer_kwargs=defaults.TRAINER_OPTIMIZER_KWARGS,
         initializer_class=defaults.TRAINER_INITIALIZER_CLASS,
         gp_device=defaults.TRAINER_GP_DEVICE,
         amp_device=defaults.TRAINER_AMP_DEVICE,
-        save_path='./results/A1_wing',
+        save_path='./results/borehole',
         title=None,
         standardize_X=defaults.STANDARDIZE_X,
         standardize_y=defaults.STANDARDIZE_Y,
         x_standardize_method=defaults.X_STANDARDIZE_METHOD,  # 0=Gaussian (StandardScaler), 1=Uniform [0,1], 2=Uniform [-1,1]
+        standardize_y_log_scale=False,
         noise_train=0.0,
         noise_test=0.0,
         noise_type=defaults.NOISE_TYPE,
@@ -37,77 +41,52 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
         seed_trainer=defaults.SEED_TRAINER,
         gp_dtype=defaults.DTYPE_GP,
         pfn_dtype=defaults.DTYPE_PFN,
-        trainer_info=defaults.TRAINER_INFO,
+        trainer_info=True,
         run_models=None,  # None=run both, 'gp'=GP only, 'pfn'=PFN only
         log_lbfgs_inner=defaults.TRAINER_LOG_LBFGS_INNER,
         preprocess_pfn=defaults.PREPROCESS_PFN,
-        warnings_ignore=defaults.WARNINGS_IGNORE,
-        single_dataset=False,
-        # If True: one train set (and one test set) is reused for every run.
-        # If False: generate a larger train pool and use disjoint slices per run (legacy behavior).
     ):
-    if warnings_ignore:
-        import warnings
-        warnings.filterwarnings("ignore")
-    
     if run_models == 'pfn':
         num_inits = 0
-    
-    if title is None:
-        title = f"wing_SF_{train_size}Dn_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
-    else: 
-        title = f"wing_SF_{title}_{train_size}Dn_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
 
-    # Generate data
-    set_seed(seed)
+    if title is None:
+        title = f"borehole_SF_{train_size}Dn_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
+    else:
+        title = f"borehole_SF_{title}_{train_size}Dn_{num_inits}inits_noiseTest{noise_test}_noiseTrain{noise_train}_x{num_runs}"
+    
     
     print(f" GP Device: {gp_device}")
     print(f" TabPFN Device: {amp_device}")
-    regressor = TabPFNRegressor(device=amp_device, random_state=seed)
+    regressor = TabPFNRegressor(device=amp_device)
     if save_path is not None:
         plot_save_path = f"{save_path}/plots"
-        # Use a trainer-analysis subdirectory for callback JSON logs
         callback_save_path = f"{save_path}/trainer_analysis/plots"
     else:
         plot_save_path = None
         callback_save_path = None
 
+    # Generate data
+    set_seed(seed)
+    
     # Calculate total samples needed
-    train_per_run = train_size * 10
-    if single_dataset:
-        total_train = train_per_run
-        total_samples = num_test + total_train
-        print(
-            f"Generating {total_samples} unique Sobol samples\n\t"
-            f"Test samples: {num_test} / Train samples: {train_per_run} "
-            f"(single_dataset=True: same train data for all {num_runs} runs)"
-        )
-    else:
-        num_runs_gen = max(num_runs, 20)
-        total_train = num_runs_gen * train_per_run
-        total_samples = num_test + total_train
-        print(
-            f"Generating {total_samples} unique Sobol samples\n\t"
-            f"Test samples: {num_test} / Train pool: {total_train} "
-            f"(single_dataset=False: disjoint train slices, {train_per_run} points per run)"
-        )
-
-    # Generate all unique Sobol samples at once
-    X_train_all, y_train_all, X_test_all, y_test_all = generate_mf_wing_data(
-        train_samples_per_source=[total_train, 0, 0, 0], 
-        test_samples_per_source=[num_test, 0, 0, 0], 
-        train_noise=noise_train, 
-        test_noise=noise_test, 
+    num_runs_gen = max(num_runs, 20)
+    train_per_run = train_size * 8  # 8 input dimensions for borehole
+    total_train = num_runs_gen * train_per_run
+    total_samples = num_test + total_train
+    
+    print(f"Generating {total_samples} unique Sobol samples\n\tTest samples: {num_test} / Train samples: {total_train}")
+    X_train_all, y_train_all, X_test_all, y_test_all = generate_mf_borehole_data(
+        train_samples_per_source=[total_train, 0, 0, 0, 0],
+        test_samples_per_source=[num_test, 0, 0, 0, 0],
+        train_noise=noise_train,
+        test_noise=noise_test,
         noise_type=noise_type,
         seed=seed,
     )
-    # Drop the 11th (source) column since SF uses only s0
-    if X_train_all.shape[1] == 11:
-        X_train_all = X_train_all[:, :10]
-    if X_test_all.shape[1] == 11:
-        X_test_all = X_test_all[:, :10]
-    
-    
+    if X_train_all.shape[1] == 9:
+        X_train_all = X_train_all[:, :8]
+    if X_test_all.shape[1] == 9:
+        X_test_all = X_test_all[:, :8]
     X = torch.cat([X_test_all, X_train_all], dim=0)
 
     print("="*10)
@@ -118,33 +97,27 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
     qual_dict = learn_encodings(X)
     print(qual_dict)
     X_enc_train_all, cont_cols, cat_cols, source_cols = encode_qual_data(X_train_all, qual_dict=qual_dict, source_col=None)
-    # X_enc_test, _, _, _ = encode_qual_data(X_test_all, qual_dict=qual_dict, source_col=None)
+    X_enc_test, _, _, _ = encode_qual_data(X_test_all, qual_dict=qual_dict, source_col=None)
     # print(cat_cols)
     TabPFN_metrics = []
     GPPlus_metrics = []
-    GPTrainer_info = []  # Accumulate trainer logs across runs
+    GPTrainer_info = []  # Accumulate trainer logs across folds
 
-    if not single_dataset:
-        # Randomize across the single source (s0), then split across runs
-        all_indices = torch.randperm(total_train)
-        train_indices_2d = all_indices.reshape(num_runs_gen, train_per_run)
+    # Randomize across the single source, then split across runs
+    all_indices = torch.randperm(total_train)
+    train_indices_2d = all_indices.reshape(num_runs_gen, train_per_run)
         
     total_start_time = time.time()
     for i in range(num_runs):
         run_seed = seed_trainer if seed_trainer is not None else (seed + i)
         print(f"\n{'='*20} {title} RUN {i+1}/{num_runs}: {run_seed} {'='*20}")
 
-        if single_dataset:
-            X_train = X_train_all
-            y_train = y_train_all
-        else:
-            # Get training indices for this run
-            run_train_indices = train_indices_2d[i]
-            X_train = X_train_all[run_train_indices]
-            y_train = y_train_all[run_train_indices]
+        # Get training indices for this run
+        run_train_indices = train_indices_2d[i]
+        X_train = X_train_all[run_train_indices]
+        y_train = y_train_all[run_train_indices]
 
-        # Prepare data (standardization) - ALWAYS DO THIS for both GP and PFN
-        # Reuse PFN split, convert to torch
+        # GP preprocessing; PFN uses scaled or raw arrays per preprocess_pfn
         X_train = X_train.detach().clone().to(dtype=gp_dtype)
         X_test = X_test_all.detach().clone().to(dtype=gp_dtype)
         y_train = y_train.detach().clone().to(dtype=gp_dtype)
@@ -167,12 +140,15 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
                 X_scaling_type = "UniformScaler [-1, 1]"
             else:
                 raise ValueError(f"x_standardize_method must be 0, 1, or 2, got {x_standardize_method}")
-            Xscaler.fit(X_train)
-            X_train = Xscaler.transform(X_train)
-            X_test = Xscaler.transform(X_test)
+            Xscaler.fit(X_train[:, cont_cols])
+            X_train[:, cont_cols] = Xscaler.transform(X_train[:, cont_cols])
+            X_test[:, cont_cols] = Xscaler.transform(X_test[:, cont_cols])
 
-
-        Yscaler = gpplus.utils.StandardScaler()
+        # Normalize the GP data
+        if standardize_y_log_scale:
+            Yscaler = gpplus.utils.LogScaler()
+        else:
+            Yscaler = gpplus.utils.StandardScaler()
         Yscaler.fit(y_train)
         y_train_mean = Yscaler.mean 
         y_train_std = Yscaler.std
@@ -184,7 +160,7 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
         if run_models in [None, 'gp']:
             print(f"\n--- {title} GP Training ---")
             
-            # Create GP model
+            # Create GP model (default kernel like SF wing)
             model = gpplus.models.GPR(
                 X_train,
                 y_train_normal if standardize_y else y_train,
@@ -197,7 +173,7 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
                 print(f"X_test: {X_test.shape}")
                 print(f"y_test mean: {y_test.mean().item()} / y_test std: {y_test.std().item()}")
                 print(model)
-            
+
             # Create trainer
             gp_metric, y_pred_gp, output_std_gp, gp_trainer_info = train_eval_gp(
                 model,
@@ -214,10 +190,11 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
                 optimizer_kwargs=optimizer_kwargs,
                 initializer_class=initializer_class,
                 device=gp_device,
-                y_train_mean=y_train_mean if standardize_y else None,
-                y_train_std=y_train_std if standardize_y else None,
-                source_cols=source_cols,  # Source column is at index 10 (single int = not encoded)
-                trainer_info=trainer_info,  # Set to True if you want trainer info
+                y_train_mean=y_train_mean,
+                y_train_std=y_train_std,
+                standardize_y_log_scale=standardize_y_log_scale,
+                source_cols=source_cols,
+                trainer_info=trainer_info,
                 callbacks=defaults.get_default_gp_callbacks(
                     optimizer_class,
                     callback_save_path=callback_save_path,
@@ -226,7 +203,6 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
                 callback_save_path=callback_save_path,
                 log_lbfgs_inner=log_lbfgs_inner,
             )
-            
             GPPlus_metrics.append(gp_metric)
             
             # Accumulate trainer info if available
@@ -240,7 +216,6 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
             for k, v in gp_metric.items():
                 print(f"  {k}: {v:.4f}" if v is not None and isinstance(v, (int, float)) else f"  {k}: {v}")
 
-
         # =============================================================================
         # TabPFN Section
         # =============================================================================
@@ -251,12 +226,14 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
                 pfn_y_train = y_train_normal if standardize_y else y_train
                 pfn_y_test = y_test
                 pfn_y_mean, pfn_y_std = y_train_mean, y_train_std
+                pfn_log_scale = standardize_y_log_scale
             else:
                 pfn_X_train = X_train_raw_for_pfn
                 pfn_X_test = X_test_raw_for_pfn
                 pfn_y_train = y_train_raw_for_pfn
                 pfn_y_test = y_test_raw_for_pfn
                 pfn_y_mean, pfn_y_std = None, None
+                pfn_log_scale = False
 
             tabpfn_metric, y_pred_tabpfn, output_std_tabpfn = train_eval_PFN(
                 pfn_X_train,
@@ -269,10 +246,10 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
                 source_cols=source_cols,
                 y_train_mean=pfn_y_mean,
                 y_train_std=pfn_y_std,
-                record_y_train_mean=y_train_mean if standardize_y else None,
-                record_y_train_std=y_train_std if standardize_y else None,
+                standardize_y_log_scale=pfn_log_scale,
+                record_y_train_mean=y_train_mean,
+                record_y_train_std=y_train_std,
             )
-            
             TabPFN_metrics.append(tabpfn_metric)
 
             # Print results for this run
@@ -287,14 +264,14 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
                 "y_test_mean": float(y_test_all.mean().item()),
                 "y_test_std": float(y_test_all.std().item())
             }
-
+            
             shared_experiment_info = experiment_data_info(
                 cat_cols=cat_cols,
                 cont_cols=cont_cols,
                 source_cols=source_cols,
                 qual_dict=qual_dict,
                 input_dim=X_train.shape[1],
-                train_samples=int(train_per_run),
+                train_samples=X_train.shape[0],
                 test_samples=num_test,
                 standardize_X=standardize_X,
                 standardize_y=standardize_y,
@@ -310,10 +287,10 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
                 noise_train=noise_train,
                 noise_test=noise_test,
                 noise_type=noise_type,
+                standardize_y_log_scale=standardize_y_log_scale,
                 preprocess_pfn=preprocess_pfn,
                 pfn_dtype=pfn_dtype,
             )
-
             if run_models in [None, 'gp']:
                 gp_model_info = {
                     **shared_experiment_info,
@@ -413,12 +390,10 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
                 try:
                     from experimental_utils.plot_epoch_metrics import plot_iter_metrics_from_data
                     plot_iter_metrics_from_data(trainer_info_data, trainer_analysis_dir / "plots")
-                except ValueError as ve:
-                    print(f"Iter metrics plotting skipped (no lbfgs_inner_metrics): {ve}")
+                except ValueError:
+                    pass  # no epoch_metrics in data
                 except Exception as e:
                     print(f"Epoch metrics plotting skipped: {e}")
-                    import traceback
-                    traceback.print_exc()
                 
             except Exception as e:
                 print(f"Error saving trainer info: {e}")
@@ -433,16 +408,6 @@ def wing_SF_GPvsPFN(num_runs=defaults.NUM_RUNS,
 
 
 if __name__ == "__main__":
+    borehole_SF_GPvsPFN(num_runs=1, train_size=10, num_inits=4, num_epochs=10000, save_path='./results/boreholeSF/temp')
 
-    for train_size in (10, 40):
-        for noise in (0.005, 0.05):
-            wing_SF_GPvsPFN(
-                num_runs=defaults.NUM_RUNS,
-                train_size=train_size,
-                num_test=5000,
-                noise_train=noise,
-                noise_test=noise,
-                num_inits=defaults.TRAINER_NUM_INITS,
-                num_epochs=defaults.TRAINER_NUM_EPOCHS,
-                save_path="./results/A1_wing",
-            )
+

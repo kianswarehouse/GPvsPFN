@@ -38,6 +38,8 @@ DTYPE_PFN = torch.float32
 NOISE_TYPE = "gaussian" # "gaussian" or "uniform" or "student_t"
 
 
+PREPROCESS_PFN = False
+
 TRAINER_INFO = True # Will log detailed trainer information if 'TRAINER_INFO = True'
 PLOT_METRICS = True # Will plot GPvsPFN RRMSE and NIS results if 'PLOT_METRICS = True'
 TRAINER_LOG_LBFGS_INNER = True # Only will log if 'TRAINER_INFO = True'

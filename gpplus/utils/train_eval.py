@@ -58,6 +58,40 @@ def _validate_log_y_point_inverse(log_y_point_inverse: str) -> None:
         )
 
 
+def _attach_y_train_scaler_stats(metrics: dict, y_train_mean, y_train_std) -> None:
+    """Add per-fold y scaler stats to a metrics dict (GP and PFN JSON exports)."""
+    if y_train_mean is None or y_train_std is None:
+        return
+    if isinstance(y_train_mean, dict) and isinstance(y_train_std, dict):
+        for source_key, mean_val in y_train_mean.items():
+            metrics[f"y_train_mean_source_{source_key}"] = float(
+                mean_val.item() if hasattr(mean_val, "item") else mean_val
+            )
+        for source_key, std_val in y_train_std.items():
+            metrics[f"y_train_std_source_{source_key}"] = float(
+                std_val.item() if hasattr(std_val, "item") else std_val
+            )
+    else:
+        if hasattr(y_train_mean, "item"):
+            mean_val = (
+                y_train_mean.item()
+                if y_train_mean.numel() == 1
+                else y_train_mean.squeeze().item()
+            )
+        else:
+            mean_val = y_train_mean
+        if hasattr(y_train_std, "item"):
+            std_val = (
+                y_train_std.item()
+                if y_train_std.numel() == 1
+                else y_train_std.squeeze().item()
+            )
+        else:
+            std_val = y_train_std
+        metrics["y_train_mean"] = float(mean_val)
+        metrics["y_train_std"] = float(std_val)
+
+
 def _require_finite_log_scale_c(
     standardize_y_log_scale: bool,
     log_scale_C: float | None,
@@ -984,36 +1018,7 @@ def train_eval_gp(
             for metric_name, metric_value in source_metrics.items():
                 gp_metric[f"{source_name}_{metric_name}"] = metric_value
 
-    # Store y_train_mean/std used for this run
-    if y_train_mean is not None and y_train_std is not None:
-        if isinstance(y_train_mean, dict) and isinstance(y_train_std, dict):
-            for source_key, mean_val in y_train_mean.items():
-                gp_metric[f"y_train_mean_source_{source_key}"] = float(
-                    mean_val.item() if hasattr(mean_val, "item") else mean_val
-                )
-            for source_key, std_val in y_train_std.items():
-                gp_metric[f"y_train_std_source_{source_key}"] = float(
-                    std_val.item() if hasattr(std_val, "item") else std_val
-                )
-        else:
-            if hasattr(y_train_mean, "item"):
-                mean_val = (
-                    y_train_mean.item()
-                    if y_train_mean.numel() == 1
-                    else y_train_mean.squeeze().item()
-                )
-            else:
-                mean_val = y_train_mean
-            if hasattr(y_train_std, "item"):
-                std_val = (
-                    y_train_std.item()
-                    if y_train_std.numel() == 1
-                    else y_train_std.squeeze().item()
-                )
-            else:
-                std_val = y_train_std
-            gp_metric["y_train_mean"] = float(mean_val)
-            gp_metric["y_train_std"] = float(std_val)
+    _attach_y_train_scaler_stats(gp_metric, y_train_mean, y_train_std)
 
     # Trainer info structure (includes optional lbfgs_inner_metrics)
     gp_trainer_info = None
@@ -1090,6 +1095,8 @@ def train_eval_PFN(
     regressor=None,
     y_train_mean=None,
     y_train_std=None,
+    record_y_train_mean=None,
+    record_y_train_std=None,
     standardize_y_log_scale: bool = False,
     log_scale_C: float | None = None,  # C used in log(y + C) transformation. If None, will use LogScaler's C from fit.
     log_y_point_inverse: str = "median",
@@ -1097,8 +1104,9 @@ def train_eval_PFN(
 ):
     """
     Thin wrapper around PFN evaluation identical to v1/v2.
-    Left unchanged so existing PFN experiments can swap to train_eval3
-    without behavioural changes on the PFN side.
+
+    ``record_y_train_mean`` / ``record_y_train_std`` optionally record the GP-side
+    train scaler stats in per-run metrics even when PFN uses raw (unstandardized) y.
     """
     import numpy as np
     import torch
@@ -1391,6 +1399,12 @@ def train_eval_PFN(
         for source_name, source_metrics in pfn_per_source_metric["per_source"].items():
             for metric_name, metric_value in source_metrics.items():
                 metrics[f"{source_name}_{metric_name}"] = metric_value
+
+    _attach_y_train_scaler_stats(
+        metrics,
+        record_y_train_mean if record_y_train_mean is not None else y_train_mean,
+        record_y_train_std if record_y_train_std is not None else y_train_std,
+    )
 
     return metrics, y_pred_test, output_std_test
 

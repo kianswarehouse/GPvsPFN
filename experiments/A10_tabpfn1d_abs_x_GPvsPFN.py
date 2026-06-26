@@ -3,6 +3,7 @@ import time
 from pathlib import Path
 
 import defaults
+from run_metadata import experiment_data_info, pfn_model_info
 import gpytorch
 import torch
 from gpplus.utils.metrics_functions import analyze_metrics, plot_metrics
@@ -49,6 +50,7 @@ def tabpfn1d_abs_x_GPvsPFN(
         trainer_info=True,
         run_models=None,
         log_lbfgs_inner=defaults.TRAINER_LOG_LBFGS_INNER,
+        preprocess_pfn=defaults.PREPROCESS_PFN,
         plot_1d_comparison=True,
         warnings_ignore=defaults.WARNINGS_IGNORE,
     ):
@@ -228,16 +230,31 @@ def tabpfn1d_abs_x_GPvsPFN(
 
         if run_models in [None, "pfn"]:
             print(f"\n--- {title} TabPFN Training ---")
+            if preprocess_pfn:
+                pfn_X_train, pfn_X_test = X_train, X_test
+                pfn_y_train = y_train_normal if standardize_y else y_train
+                pfn_y_test = y_test
+                pfn_y_mean, pfn_y_std = y_train_mean, y_train_std
+            else:
+                pfn_X_train = X_train_raw_for_pfn
+                pfn_X_test = X_test_raw_for_pfn
+                pfn_y_train = y_train
+                pfn_y_test = y_test
+                pfn_y_mean, pfn_y_std = None, None
 
             tabpfn_metric, y_pred_tabpfn, output_std_tabpfn = train_eval_PFN(
-                X_train_raw_for_pfn,
-                X_test_raw_for_pfn,
-                y_train,
-                y_test,
+                pfn_X_train,
+                pfn_X_test,
+                pfn_y_train,
+                pfn_y_test,
                 amp_device=amp_device,
                 amp_dtype=pfn_dtype,
                 regressor=regressor,
                 source_cols=source_cols,
+                y_train_mean=pfn_y_mean,
+                y_train_std=pfn_y_std,
+                record_y_train_mean=y_train_mean if standardize_y else None,
+                record_y_train_std=y_train_std if standardize_y else None,
             )
             TabPFN_metrics.append(tabpfn_metric)
 
@@ -274,22 +291,38 @@ def tabpfn1d_abs_x_GPvsPFN(
                 "y_test_std": float(y_test_all.std().item()),
             }
 
+            shared_experiment_info = experiment_data_info(
+                cat_cols=cat_cols,
+                cont_cols=cont_cols,
+                source_cols=source_cols,
+                qual_dict=qual_dict,
+                input_dim=X_train.shape[1],
+                train_samples=X_train.shape[0],
+                test_samples=num_test,
+                standardize_X=standardize_X,
+                standardize_y=standardize_y,
+                x_standardize_method=x_standardize_method,
+                X_scaling_type=X_scaling_type,
+                y_train_mean=y_train_mean,
+                y_train_std=y_train_std,
+                y_test_mean=y_test_stats["y_test_mean"],
+                y_test_std=y_test_stats["y_test_std"],
+                num_runs=num_runs,
+                seed=seed,
+                seed_trainer=seed_trainer,
+                noise_train=noise_train,
+                noise_test=noise_test,
+                noise_type=noise_type,
+                preprocess_pfn=preprocess_pfn,
+                pfn_dtype=pfn_dtype,
+                dimensions=dimensions,
+                x_bounds=x_bounds,
+            )
+
             if run_models in [None, "gp"]:
                 gp_model_info = {
+                    **shared_experiment_info,
                     "model_str": str(model),
-                    "cat_cols": cat_cols,
-                    "cont_cols": cont_cols,
-                    "source_cols": source_cols,
-                    "qual_dict": qual_dict,
-                    "input_dim": X_train.shape[1],
-                    "train_samples": X_train.shape[0],
-                    "test_samples": num_test,
-                    "y_train_mean": float(y_train_mean.item()),
-                    "y_train_std": float(y_train_std.item()),
-                    "standardize_X": standardize_X,
-                    "standardize_y": standardize_y,
-                    "X_scaling_type": X_scaling_type,
-                    "x_standardize_method": x_standardize_method,
                     "dtype": str(gp_dtype),
                     "device": str(gp_device),
                     "num_epochs": num_epochs,
@@ -298,22 +331,12 @@ def tabpfn1d_abs_x_GPvsPFN(
                     "optimizer": optimizer_class.__name__,
                     "convergence_patience": convergence_patience,
                     "initializer": initializer_class.__name__ if initializer_class else None,
-                    **y_test_stats,
-                    "num_runs": num_runs,
-                    "seed": seed,
-                    "seed_trainer": seed_trainer,
                 }
 
             if run_models in [None, "pfn"]:
-                tabpfn_model_info = {
-                    "model_path": regressor.model_path,
-                    "fit_mode": regressor.fit_mode,
-                    "device": str(regressor.device),
-                    "inference_precision": regressor.inference_precision,
-                    "random_state": regressor.random_state,
-                    "use_autocast": regressor.use_autocast_,
-                    "forced_inference_dtype": str(regressor.forced_inference_dtype_) if regressor.forced_inference_dtype_ else None,
-                }
+                tabpfn_model_info = pfn_model_info(
+                    regressor, experiment_data=shared_experiment_info
+                )
 
     print("\n" + "=" * 60)
     print("FINAL RESULTS SUMMARY")
