@@ -1453,6 +1453,99 @@ def tabpfn_1d_abs_x_function(X: torch.Tensor) -> torch.Tensor:
     return torch.abs(X[:, 0])
 
 
+def _tabpfn_1d_remap_x_to_z(
+    X: torch.Tensor,
+    z_lo: float,
+    z_hi: float,
+    x_lo: float = -0.5,
+    x_hi: float = 0.5,
+) -> torch.Tensor:
+    """Linearly map x in [x_lo, x_hi] to z in [z_lo, z_hi]."""
+    x = X[:, 0]
+    t = (x - x_lo) / (x_hi - x_lo)
+    return z_lo + t * (z_hi - z_lo)
+
+
+def tabpfn_1d_forrester_function(
+    X: torch.Tensor,
+    x_bounds: tuple[float, float] = (-0.5, 0.5),
+) -> torch.Tensor:
+    """Forrester benchmark: f(z) = (6z - 2)^2 * sin(12z - 4), z in [0, 1]."""
+    z = _tabpfn_1d_remap_x_to_z(X, 0.0, 1.0, x_lo=x_bounds[0], x_hi=x_bounds[1])
+    return (6 * z - 2) ** 2 * torch.sin(12 * z - 4)
+
+
+def tabpfn_1d_damped_forrester_function(
+    X: torch.Tensor,
+    x_bounds: tuple[float, float] = (-0.5, 0.5),
+) -> torch.Tensor:
+    """5 * damped sine + Forrester on x in x_bounds (Forrester part mapped to z in [0, 1])."""
+    x = X[:, 0]
+    z = _tabpfn_1d_remap_x_to_z(X, 0.0, 1.0, x_lo=x_bounds[0], x_hi=x_bounds[1])
+    damped = torch.exp(-6.0 * torch.abs(x)) * torch.sin(10 * torch.pi * x)
+    forrester = (6 * z - 2) ** 2 * torch.sin(12 * z - 4)
+    return 5.0 * damped + forrester
+
+
+def tabpfn_1d_sin_cubic_function(X: torch.Tensor) -> torch.Tensor:
+    """Presentation sin6pi_plus_cubic: 1/4*sin(6*pi*x) + 6*x^3 - 7*x^2 + x + 0.5."""
+    x = X[:, 0]
+    return 0.25 * torch.sin(6 * torch.pi * x) + 6.0 * x**3 - 7.0 * x**2 + x + 0.5
+
+
+def tabpfn_1d_smooth_multisine_function(X: torch.Tensor) -> torch.Tensor:
+    """Smooth two-tone sine: sin(2*pi*x) + 0.5*sin(6*pi*x). GP-friendly baseline."""
+    x = X[:, 0]
+    return torch.sin(2 * torch.pi * x) + 0.5 * torch.sin(6 * torch.pi * x)
+
+
+def tabpfn_1d_chirp_function(
+    X: torch.Tensor,
+    x_bounds: tuple[float, float] = (-0.5, 0.5),
+) -> torch.Tensor:
+    """Linear chirp: frequency grows left->right (non-stationary)."""
+    x = X[:, 0]
+    freq = 2.0 + 14.0 * (x - x_bounds[0])
+    return torch.sin(2 * torch.pi * freq * x)
+
+
+def tabpfn_1d_discontinuity_function(X: torch.Tensor) -> torch.Tensor:
+    """Smooth trend + Heaviside jump at x = 0: 0.6*sin(2*pi*x) + 1[x >= 0]."""
+    x = X[:, 0]
+    return 0.6 * torch.sin(2 * torch.pi * x) + (x >= 0.0).to(x.dtype)
+
+
+def tabpfn_1d_localized_bump_function(X: torch.Tensor) -> torch.Tensor:
+    """Flat background with one narrow Gaussian spike: exp(-(x/0.04)^2)."""
+    x = X[:, 0]
+    return torch.exp(-((x / 0.04) ** 2))
+
+
+def tabpfn_1d_triangle_wave_function(
+    X: torch.Tensor,
+    period: float = 0.4,
+) -> torch.Tensor:
+    """Piecewise-linear triangle wave (periodic kinks)."""
+    x = X[:, 0]
+    frac = torch.remainder(x / period, 1.0)
+    return 2.0 * torch.abs(2.0 * frac - 1.0) - 1.0
+
+
+def tabpfn_1d_gramacy_lee_function(
+    X: torch.Tensor,
+    x_bounds: tuple[float, float] = (-0.5, 0.5),
+) -> torch.Tensor:
+    """Gramacy & Lee (2012): sin(10*pi*z)/(2z) + (z-1)^4, z in [0.5, 2.5]."""
+    z = _tabpfn_1d_remap_x_to_z(X, 0.5, 2.5, x_lo=x_bounds[0], x_hi=x_bounds[1])
+    return torch.sin(10 * torch.pi * z) / (2 * z) + (z - 1) ** 4
+
+
+def tabpfn_1d_damped_sine_function(X: torch.Tensor) -> torch.Tensor:
+    """Amplitude-modulated damped sine: exp(-6*|x|)*sin(10*pi*x)."""
+    x = X[:, 0]
+    return torch.exp(-6.0 * torch.abs(x)) * torch.sin(10 * torch.pi * x)
+
+
 def tabpfn_1d_linear_function(
     X: torch.Tensor,
     slope: float = 3.0,
@@ -1587,6 +1680,231 @@ def generate_tabpfn_1d_abs_x_data(
     bounds = [-0.5, 0.5] if x_bounds is None else x_bounds
     return _generate_tabpfn_1d_toy_data(
         n_train, n_test, tabpfn_1d_abs_x_function, bounds, test_x_bounds, train_noise, test_noise, noise_type, seed
+    )
+
+
+def generate_tabpfn_1d_forrester_data(
+    n_train: int,
+    n_test: int,
+    dimensions: int = 1,
+    x_bounds: list[float] | None = None,
+    test_x_bounds: list[float] | None = None,
+    train_noise: float = 0.0,
+    test_noise: float = 0.0,
+    noise_type: str = "gaussian",
+    seed: int | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Train/test data for the Forrester benchmark (default x in [-0.5, 0.5])."""
+    if dimensions != 1:
+        raise ValueError(f"TabPFN 1D toys require dimensions=1, got {dimensions}")
+    bounds = [-0.5, 0.5] if x_bounds is None else x_bounds
+    tb = (bounds[0], bounds[1])
+
+    def y_fn(X):
+        return tabpfn_1d_forrester_function(X, x_bounds=tb)
+
+    return _generate_tabpfn_1d_toy_data(
+        n_train, n_test, y_fn, bounds, test_x_bounds, train_noise, test_noise, noise_type, seed
+    )
+
+
+def generate_tabpfn_1d_damped_forrester_data(
+    n_train: int,
+    n_test: int,
+    dimensions: int = 1,
+    x_bounds: list[float] | None = None,
+    test_x_bounds: list[float] | None = None,
+    train_noise: float = 0.0,
+    test_noise: float = 0.0,
+    noise_type: str = "gaussian",
+    seed: int | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Train/test data for 5*damped_sine + Forrester (default x in [-0.5, 0.5])."""
+    if dimensions != 1:
+        raise ValueError(f"TabPFN 1D toys require dimensions=1, got {dimensions}")
+    bounds = [-0.5, 0.5] if x_bounds is None else x_bounds
+    tb = (bounds[0], bounds[1])
+
+    def y_fn(X):
+        return tabpfn_1d_damped_forrester_function(X, x_bounds=tb)
+
+    return _generate_tabpfn_1d_toy_data(
+        n_train, n_test, y_fn, bounds, test_x_bounds, train_noise, test_noise, noise_type, seed
+    )
+
+
+def generate_tabpfn_1d_sin_cubic_data(
+    n_train: int,
+    n_test: int,
+    dimensions: int = 1,
+    x_bounds: list[float] | None = None,
+    test_x_bounds: list[float] | None = None,
+    train_noise: float = 0.0,
+    test_noise: float = 0.0,
+    noise_type: str = "gaussian",
+    seed: int | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Train/test data for sin6pi_plus_cubic from presentation_1d_toy (default x in [0, 1])."""
+    if dimensions != 1:
+        raise ValueError(f"TabPFN 1D toys require dimensions=1, got {dimensions}")
+    bounds = [0.0, 1.0] if x_bounds is None else x_bounds
+    return _generate_tabpfn_1d_toy_data(
+        n_train, n_test, tabpfn_1d_sin_cubic_function, bounds, test_x_bounds, train_noise, test_noise, noise_type, seed
+    )
+
+
+def generate_tabpfn_1d_smooth_multisine_data(
+    n_train: int,
+    n_test: int,
+    dimensions: int = 1,
+    x_bounds: list[float] | None = None,
+    test_x_bounds: list[float] | None = None,
+    train_noise: float = 0.0,
+    test_noise: float = 0.0,
+    noise_type: str = "gaussian",
+    seed: int | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Train/test data for sin(2*pi*x)+0.5*sin(6*pi*x) (default x in [-0.5, 0.5])."""
+    if dimensions != 1:
+        raise ValueError(f"TabPFN 1D toys require dimensions=1, got {dimensions}")
+    bounds = [-0.5, 0.5] if x_bounds is None else x_bounds
+    return _generate_tabpfn_1d_toy_data(
+        n_train, n_test, tabpfn_1d_smooth_multisine_function, bounds, test_x_bounds, train_noise, test_noise, noise_type, seed
+    )
+
+
+def generate_tabpfn_1d_chirp_data(
+    n_train: int,
+    n_test: int,
+    dimensions: int = 1,
+    x_bounds: list[float] | None = None,
+    test_x_bounds: list[float] | None = None,
+    train_noise: float = 0.0,
+    test_noise: float = 0.0,
+    noise_type: str = "gaussian",
+    seed: int | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Train/test data for a linear chirp (default x in [-0.5, 0.5])."""
+    if dimensions != 1:
+        raise ValueError(f"TabPFN 1D toys require dimensions=1, got {dimensions}")
+    bounds = [-0.5, 0.5] if x_bounds is None else x_bounds
+    tb = (bounds[0], bounds[1])
+
+    def y_fn(X):
+        return tabpfn_1d_chirp_function(X, x_bounds=tb)
+
+    return _generate_tabpfn_1d_toy_data(
+        n_train, n_test, y_fn, bounds, test_x_bounds, train_noise, test_noise, noise_type, seed
+    )
+
+
+def generate_tabpfn_1d_discontinuity_data(
+    n_train: int,
+    n_test: int,
+    dimensions: int = 1,
+    x_bounds: list[float] | None = None,
+    test_x_bounds: list[float] | None = None,
+    train_noise: float = 0.0,
+    test_noise: float = 0.0,
+    noise_type: str = "gaussian",
+    seed: int | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Train/test data for a smooth trend + Heaviside jump (default x in [-0.5, 0.5])."""
+    if dimensions != 1:
+        raise ValueError(f"TabPFN 1D toys require dimensions=1, got {dimensions}")
+    bounds = [-0.5, 0.5] if x_bounds is None else x_bounds
+    return _generate_tabpfn_1d_toy_data(
+        n_train, n_test, tabpfn_1d_discontinuity_function, bounds, test_x_bounds, train_noise, test_noise, noise_type, seed
+    )
+
+
+def generate_tabpfn_1d_localized_bump_data(
+    n_train: int,
+    n_test: int,
+    dimensions: int = 1,
+    x_bounds: list[float] | None = None,
+    test_x_bounds: list[float] | None = None,
+    train_noise: float = 0.0,
+    test_noise: float = 0.0,
+    noise_type: str = "gaussian",
+    seed: int | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Train/test data for a flat background + narrow Gaussian spike (default x in [-0.5, 0.5])."""
+    if dimensions != 1:
+        raise ValueError(f"TabPFN 1D toys require dimensions=1, got {dimensions}")
+    bounds = [-0.5, 0.5] if x_bounds is None else x_bounds
+    return _generate_tabpfn_1d_toy_data(
+        n_train, n_test, tabpfn_1d_localized_bump_function, bounds, test_x_bounds, train_noise, test_noise, noise_type, seed
+    )
+
+
+def generate_tabpfn_1d_triangle_wave_data(
+    n_train: int,
+    n_test: int,
+    dimensions: int = 1,
+    x_bounds: list[float] | None = None,
+    test_x_bounds: list[float] | None = None,
+    period: float = 0.4,
+    train_noise: float = 0.0,
+    test_noise: float = 0.0,
+    noise_type: str = "gaussian",
+    seed: int | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Train/test data for a periodic triangle wave (default x in [-0.5, 0.5])."""
+    if dimensions != 1:
+        raise ValueError(f"TabPFN 1D toys require dimensions=1, got {dimensions}")
+    bounds = [-0.5, 0.5] if x_bounds is None else x_bounds
+
+    def y_fn(X):
+        return tabpfn_1d_triangle_wave_function(X, period=period)
+
+    return _generate_tabpfn_1d_toy_data(
+        n_train, n_test, y_fn, bounds, test_x_bounds, train_noise, test_noise, noise_type, seed
+    )
+
+
+def generate_tabpfn_1d_gramacy_lee_data(
+    n_train: int,
+    n_test: int,
+    dimensions: int = 1,
+    x_bounds: list[float] | None = None,
+    test_x_bounds: list[float] | None = None,
+    train_noise: float = 0.0,
+    test_noise: float = 0.0,
+    noise_type: str = "gaussian",
+    seed: int | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Train/test data for the Gramacy & Lee benchmark (default x in [-0.5, 0.5])."""
+    if dimensions != 1:
+        raise ValueError(f"TabPFN 1D toys require dimensions=1, got {dimensions}")
+    bounds = [-0.5, 0.5] if x_bounds is None else x_bounds
+    tb = (bounds[0], bounds[1])
+
+    def y_fn(X):
+        return tabpfn_1d_gramacy_lee_function(X, x_bounds=tb)
+
+    return _generate_tabpfn_1d_toy_data(
+        n_train, n_test, y_fn, bounds, test_x_bounds, train_noise, test_noise, noise_type, seed
+    )
+
+
+def generate_tabpfn_1d_damped_sine_data(
+    n_train: int,
+    n_test: int,
+    dimensions: int = 1,
+    x_bounds: list[float] | None = None,
+    test_x_bounds: list[float] | None = None,
+    train_noise: float = 0.0,
+    test_noise: float = 0.0,
+    noise_type: str = "gaussian",
+    seed: int | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Train/test data for an amplitude-modulated damped sine (default x in [-0.5, 0.5])."""
+    if dimensions != 1:
+        raise ValueError(f"TabPFN 1D toys require dimensions=1, got {dimensions}")
+    bounds = [-0.5, 0.5] if x_bounds is None else x_bounds
+    return _generate_tabpfn_1d_toy_data(
+        n_train, n_test, tabpfn_1d_damped_sine_function, bounds, test_x_bounds, train_noise, test_noise, noise_type, seed
     )
 
 

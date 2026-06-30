@@ -11,7 +11,7 @@ from A9_dixon_price_GPvsPFN import dixon_price_GPvsPFN
 # folder = r"C:/Users/kianb/Repos/DATA BIN/results_IDETC/IDETC"
 folder = "results_IDETC"
 # date = "10_runs_logging_full_GP+_Gaussian"
-date = "10_runs_PFN_V2.5_June_25_nopre"
+date = "10_runs_PFN_V2.0_June_25_nopre"
 
 save_path_wing = f"./{folder}/{date}/wing/"
 save_path_buckling = f"./{folder}/{date}/buckling/"
